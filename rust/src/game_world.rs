@@ -106,7 +106,7 @@ impl IControl for GameWorld {
 
         let grass = Color::from_rgb(0.25, 0.55, 0.15);
         let line = Color::from_rgb(0.12, 0.35, 0.05);
-        let line_w = 1.0 / zoom;
+        let line_w = 1.0;
 
         for cy in start_y..end_y {
             for cx in start_x..end_x {
