@@ -71,6 +71,12 @@ impl IControl for GameWorld {
             dir = dir.normalized();
             let speed = PAN_SPEED / self.camera_zoom;
             self.camera_center += dir * speed * _delta as f32;
+
+            let half_v = self.viewport_size / 2.0 / self.camera_zoom;
+            let ws = self.surface.world_size();
+            self.camera_center.x = self.camera_center.x.clamp(half_v.x, ws.x - half_v.x);
+            self.camera_center.y = self.camera_center.y.clamp(half_v.y, ws.y - half_v.y);
+
             self.base_mut().queue_redraw();
         }
     }
@@ -144,8 +150,8 @@ impl IControl for GameWorld {
         let screen_y = -visible_offset.y * zoom;
         let screen_w = world_w * zoom;
         let screen_h = world_h * zoom;
-        let border_w = 3.0 / zoom;
-        let border_color = Color::from_rgb(0.35, 0.18, 0.05);
+        let border_w = 4.0;
+        let border_color = Color::from_rgb(0.95, 0.35, 0.05);
 
         self.base_mut()
             .draw_rect_ex(
