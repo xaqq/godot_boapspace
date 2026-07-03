@@ -8,7 +8,8 @@ use godot::prelude::*;
 use crate::game_surface::{self, GameSurface};
 use crate::ingame_menu::IngameMenu;
 
-const ZOOM_MIN: f32 = 0.0625;
+const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
+const ZOOM_MARGIN: f32 = 0.95;
 const ZOOM_MAX: f32 = 4.0;
 const ZOOM_FACTOR: f32 = 1.1;
 const PAN_SPEED: f32 = 600.0;
@@ -50,6 +51,7 @@ impl IControl for GameWorld {
 
     fn process(&mut self, _delta: f64) {
         self.read_viewport_size();
+        self.camera_zoom = self.camera_zoom.max(self.effective_zoom_min());
 
         let input = Input::singleton();
 
@@ -184,6 +186,13 @@ impl IControl for GameWorld {
 }
 
 impl GameWorld {
+    fn effective_zoom_min(&self) -> f32 {
+        let fit_x = self.viewport_size.x / self.surface.world_size().x;
+        let fit_y = self.viewport_size.y / self.surface.world_size().y;
+        let fit = fit_x.min(fit_y) * ZOOM_MARGIN;
+        fit.max(ZOOM_ABSOLUTE_FLOOR)
+    }
+
     fn read_viewport_size(&mut self) {
         if let Some(vp) = self.base().get_viewport() {
             self.viewport_size = vp.get_visible_rect().size;
@@ -208,7 +217,7 @@ impl GameWorld {
         };
 
         let new_zoom = self.camera_zoom * factor;
-        if new_zoom < ZOOM_MIN || new_zoom > ZOOM_MAX {
+        if new_zoom < self.effective_zoom_min() || new_zoom > ZOOM_MAX {
             return;
         }
 
