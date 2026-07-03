@@ -1,0 +1,40 @@
+[gd_scene format=3 uid="uid://creshead0001"]
+
+[node name="ResourceHeader" type="ResourceHeader" node_paths=PackedStringArray("wood_label", "stone_label", "food_label", "gold_label")]
+wood_label = NodePath("CenterContainer/HBoxContainer/WoodLabel")
+stone_label = NodePath("CenterContainer/HBoxContainer/StoneLabel")
+food_label = NodePath("CenterContainer/HBoxContainer/FoodLabel")
+gold_label = NodePath("CenterContainer/HBoxContainer/GoldLabel")
+layout_mode = 1
+anchors_preset = 11
+anchor_right = 1.0
+offset_bottom = 30.0
+grow_horizontal = 2
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CenterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="WoodLabel" type="Label" parent="HBoxContainer"]
+layout_mode = 2
+text = "Wood: 0"
+
+[node name="StoneLabel" type="Label" parent="HBoxContainer"]
+layout_mode = 2
+text = "Stone: 0"
+
+[node name="FoodLabel" type="Label" parent="HBoxContainer"]
+layout_mode = 2
+text = "Food: 0"
+
+[node name="GoldLabel" type="Label" parent="HBoxContainer"]
+layout_mode = 2
+text = "Gold: 0"

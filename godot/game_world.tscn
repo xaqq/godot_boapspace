@@ -1,0 +1,22 @@
+[gd_scene format=3 uid="uid://bg0w0rld000"]
+
+[ext_resource type="PackedScene" uid="uid://bgl6fb1fuuabc" path="res://ingame_menu.tscn" id="1_ingame_menu"]
+[ext_resource type="PackedScene" uid="uid://creshead0001" path="res://resource_header.tscn" id="2_resource_header"]
+
+[node name="GameWorld" type="GameWorld" unique_id=678193434]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResourceHeader" parent="." instance=ExtResource("2_resource_header")]
+
+[node name="IngameMenu" parent="." unique_id=802676807 instance=ExtResource("1_ingame_menu")]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
