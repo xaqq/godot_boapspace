@@ -16,7 +16,7 @@ const PAN_SPEED: f32 = 600.0;
 
 #[derive(GodotClass)]
 #[class(base = Control)]
-struct GameWorld {
+pub(crate) struct GameWorld {
     #[export]
     ingame_menu: OnEditor<Gd<IngameMenu>>,
 
@@ -24,6 +24,7 @@ struct GameWorld {
     camera_center: Vector2,
     camera_zoom: f32,
     viewport_size: Vector2,
+    selected_cell: Option<(i32, i32)>,
 
     base: Base<Control>,
 }
@@ -31,12 +32,13 @@ struct GameWorld {
 #[godot_api]
 impl IControl for GameWorld {
     fn init(base: Base<Control>) -> Self {
-        let surface = GameSurface::new(1024, 1024);
+        let surface = GameSurface::new(256, 256);
         Self {
             ingame_menu: OnEditor::default(),
             camera_center: surface.world_size() / 2.0,
             camera_zoom: 0.5,
             viewport_size: Vector2::ZERO,
+            selected_cell: None,
             surface,
             base,
         }
@@ -166,22 +168,44 @@ impl IControl for GameWorld {
             .filled(false)
             .width(border_w)
             .done();
+
+        if let Some((cx, cy)) = self.selected_cell {
+            let x = (cx as f32 * tile_size - visible_offset.x) * zoom;
+            let y = (cy as f32 * tile_size - visible_offset.y) * zoom;
+            let highlight = Color::from_rgb(1.0, 0.84, 0.0);
+            self.base_mut()
+                .draw_rect_ex(
+                    Rect2::new(Vector2::new(x, y), Vector2::new(ts, ts)),
+                    highlight,
+                )
+                .filled(false)
+                .width(3.0)
+                .done();
+        }
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
-        let Ok(key_event) = event.clone().try_cast::<InputEventKey>() else {
-            self.handle_mouse_wheel(event);
+        if let Ok(key_event) = event.clone().try_cast::<InputEventKey>() {
+            if key_event.get_keycode() == Key::ESCAPE
+                && key_event.is_pressed()
+                && !key_event.is_echo()
+            {
+                let mut menu = self.ingame_menu.clone();
+                let visible = menu.is_visible();
+                menu.set_visible(!visible);
+            }
             return;
-        };
-
-        if key_event.get_keycode() == Key::ESCAPE
-            && key_event.is_pressed()
-            && !key_event.is_echo()
-        {
-            let mut menu = self.ingame_menu.clone();
-            let visible = menu.is_visible();
-            menu.set_visible(!visible);
         }
+
+        if let Ok(mouse) = event.clone().try_cast::<InputEventMouseButton>() {
+            if mouse.get_button_index() == MouseButton::LEFT && mouse.is_pressed() {
+                self.handle_tile_click();
+                self.base_mut().queue_redraw();
+                return;
+            }
+        }
+
+        self.handle_mouse_wheel(event);
     }
 }
 
@@ -194,11 +218,33 @@ impl GameWorld {
     }
 
     fn read_viewport_size(&mut self) {
-        if let Some(vp) = self.base().get_viewport() {
+        let size = self.base().get_size();
+        if size.x > 0.0 && size.y > 0.0 {
+            self.viewport_size = size;
+        } else if let Some(vp) = self.base().get_viewport() {
             self.viewport_size = vp.get_visible_rect().size;
         }
-        if self.viewport_size.x <= 0.0 || self.viewport_size.y <= 0.0 {
-            self.viewport_size = self.base().get_size();
+    }
+
+    fn handle_tile_click(&mut self) {
+        let mouse_pos = self.base().get_local_mouse_position();
+        let vs = self.viewport_size;
+        let zoom = self.camera_zoom;
+        let visible_offset = self.camera_center - vs / 2.0 / zoom;
+        let world_pos = visible_offset + mouse_pos / zoom;
+
+        if let Some(cell) = GameSurface::world_to_cell(
+            world_pos,
+            self.surface.width as i32,
+            self.surface.height as i32,
+        ) {
+            if self.selected_cell == Some(cell) {
+                self.selected_cell = None;
+            } else {
+                self.selected_cell = Some(cell);
+            }
+        } else {
+            self.selected_cell = None;
         }
     }
 
@@ -231,5 +277,34 @@ impl GameWorld {
         self.camera_center = world_under_cursor - cursor_offset / new_zoom;
 
         self.base_mut().queue_redraw();
+    }
+}
+
+#[godot_api]
+impl GameWorld {
+    #[func]
+    pub(crate) fn has_selection(&self) -> bool {
+        self.selected_cell.is_some()
+    }
+
+    #[func]
+    pub(crate) fn selected_cell_x(&self) -> i32 {
+        self.selected_cell.map(|(x, _)| x).unwrap_or(0)
+    }
+
+    #[func]
+    pub(crate) fn selected_cell_y(&self) -> i32 {
+        self.selected_cell.map(|(_, y)| y).unwrap_or(0)
+    }
+
+    #[func]
+    pub(crate) fn selected_cell_type_name(&self) -> GString {
+        match self.selected_cell {
+            Some((x, y)) => match self.surface.get(x, y) {
+                Some(cell) => GString::from(cell.type_name()),
+                None => GString::from("None"),
+            },
+            None => GString::from("None"),
+        }
     }
 }

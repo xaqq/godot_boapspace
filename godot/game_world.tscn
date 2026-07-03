@@ -2,17 +2,44 @@
 
 [ext_resource type="PackedScene" uid="uid://bgl6fb1fuuabc" path="res://ingame_menu.tscn" id="1_ingame_menu"]
 [ext_resource type="PackedScene" uid="uid://creshead0001" path="res://resource_header.tscn" id="2_resource_header"]
+[ext_resource type="PackedScene" uid="uid://tileinfop001" path="res://tile_info_panel.tscn" id="3_tile_info_panel"]
 
-[node name="GameWorld" type="GameWorld" unique_id=678193434]
+[node name="GameView" type="Control"]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ResourceHeader" parent="." instance=ExtResource("2_resource_header")]
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
-[node name="IngameMenu" parent="." unique_id=802676807 instance=ExtResource("1_ingame_menu")]
+[node name="ResourceHeader" parent="VBoxContainer" instance=ExtResource("2_resource_header")]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer" instance=ExtResource("3_tile_info_panel")]
+layout_mode = 2
+size_flags_horizontal = 3
+stretch_ratio = 2.0
+game_world = NodePath("../GameWorld")
+
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+stretch_ratio = 8.0
+ingame_menu = NodePath("../../IngameMenu")
+
+[node name="IngameMenu" parent="." instance=ExtResource("1_ingame_menu")]
 visible = false
 layout_mode = 1
 anchors_preset = 8

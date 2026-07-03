@@ -9,6 +9,15 @@ pub enum CellType {
     Building,
 }
 
+impl CellType {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            CellType::Empty => "Empty",
+            CellType::Building => "Building",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GameSurface {
     pub width: usize,

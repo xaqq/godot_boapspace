@@ -6,6 +6,7 @@ mod ingame_menu;
 mod resource_header;
 mod resources;
 mod root_menu;
+mod tile_info_panel;
 
 struct GodotBoapspaceExtension;
 
