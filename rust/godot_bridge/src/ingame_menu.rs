@@ -1,7 +1,9 @@
-use godot::classes::{Button, Control, IControl, InputEvent, InputEventKey};
-use godot::global::Key;
+use godot::classes::{Button, Control, IControl, InputEvent, InputEventKey, SceneTree};
+use godot::global::{Error, Key};
 use godot::obj::OnEditor;
 use godot::prelude::*;
+
+const MAIN_MENU_SCENE: &str = "res://main_ui.tscn";
 
 #[derive(GodotClass)]
 #[class(base = Control)]
@@ -30,23 +32,30 @@ impl IControl for IngameMenu {
     }
 
     fn ready(&mut self) {
-        let mut ctrl = self.base().clone();
-        let continue_btn: &mut Gd<Button> = &mut *self.continue_button;
-        continue_btn.signals().pressed().connect(move || {
-            ctrl.hide();
-        });
+        if let Some(continue_btn) =
+            self.button_node(self.continue_button.clone(), "continue_button")
+        {
+            let mut ctrl = self.base().clone();
+            continue_btn.signals().pressed().connect(move || {
+                if ctrl.is_instance_valid() {
+                    ctrl.hide();
+                }
+            });
+        }
 
-        let mut return_tree = self.base().get_tree();
-        let return_btn: &mut Gd<Button> = &mut *self.return_button;
-        return_btn.signals().pressed().connect(move || {
-            return_tree.change_scene_to_file("res://main_ui.tscn");
-        });
+        if let Some(return_btn) = self.button_node(self.return_button.clone(), "return_button") {
+            let mut return_tree = self.base().get_tree();
+            return_btn.signals().pressed().connect(move || {
+                change_scene(&mut return_tree, MAIN_MENU_SCENE);
+            });
+        }
 
-        let mut exit_tree = self.base().get_tree();
-        let exit_btn: &mut Gd<Button> = &mut *self.exit_button;
-        exit_btn.signals().pressed().connect(move || {
-            exit_tree.quit();
-        });
+        if let Some(exit_btn) = self.button_node(self.exit_button.clone(), "exit_button") {
+            let mut exit_tree = self.base().get_tree();
+            exit_btn.signals().pressed().connect(move || {
+                exit_tree.quit();
+            });
+        }
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
@@ -61,5 +70,23 @@ impl IControl for IngameMenu {
                 self.base_mut().show();
             }
         }
+    }
+}
+
+impl IngameMenu {
+    fn button_node(&self, button: Gd<Button>, name: &str) -> Option<Gd<Button>> {
+        if button.is_instance_valid() {
+            Some(button)
+        } else {
+            godot_warn!("IngameMenu: {name} reference not set");
+            None
+        }
+    }
+}
+
+fn change_scene(tree: &mut Gd<SceneTree>, path: &str) {
+    let error = tree.change_scene_to_file(path);
+    if error != Error::OK {
+        godot_error!("IngameMenu: failed to change scene to {path}: {error:?}");
     }
 }

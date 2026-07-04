@@ -1,6 +1,119 @@
+use bevy_ecs::prelude::Resource;
+use std::fmt;
+
 pub const TILE_SIZE: f32 = 64.0;
 
-use bevy_ecs::prelude::Resource;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CellCoord {
+    x: i32,
+    y: i32,
+}
+
+impl CellCoord {
+    pub const fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn from_usize(x: usize, y: usize) -> Option<Self> {
+        Some(Self {
+            x: i32::try_from(x).ok()?,
+            y: i32::try_from(y).ok()?,
+        })
+    }
+
+    pub const fn x(self) -> i32 {
+        self.x
+    }
+
+    pub const fn y(self) -> i32 {
+        self.y
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorldPosition {
+    x: f32,
+    y: f32,
+}
+
+impl WorldPosition {
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
+    pub const fn x(self) -> f32 {
+        self.x
+    }
+
+    pub const fn y(self) -> f32 {
+        self.y
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GridSize {
+    width: usize,
+    height: usize,
+}
+
+impl GridSize {
+    pub const fn new(width: usize, height: usize) -> Self {
+        Self { width, height }
+    }
+
+    pub const fn width(self) -> usize {
+        self.width
+    }
+
+    pub const fn height(self) -> usize {
+        self.height
+    }
+
+    pub fn width_i32(self) -> Option<i32> {
+        i32::try_from(self.width).ok()
+    }
+
+    pub fn height_i32(self) -> Option<i32> {
+        i32::try_from(self.height).ok()
+    }
+
+    pub fn cell_count(self) -> Option<usize> {
+        self.width.checked_mul(self.height)
+    }
+
+    pub fn contains(self, coord: CellCoord) -> bool {
+        let Ok(x) = usize::try_from(coord.x) else {
+            return false;
+        };
+        let Ok(y) = usize::try_from(coord.y) else {
+            return false;
+        };
+
+        x < self.width && y < self.height
+    }
+
+    pub fn iter_coords(self) -> impl Iterator<Item = CellCoord> {
+        (0..self.height)
+            .flat_map(move |y| (0..self.width).filter_map(move |x| CellCoord::from_usize(x, y)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridError {
+    CellCountOverflow { width: usize, height: usize },
+}
+
+impl fmt::Display for GridError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GridError::CellCountOverflow { width, height } => {
+                write!(f, "grid dimensions {width}x{height} overflow usize")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GridError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellType {
@@ -20,34 +133,57 @@ impl CellType {
 
 #[derive(Debug, Clone, Resource)]
 pub struct Grid {
-    pub width: usize,
-    pub height: usize,
+    size: GridSize,
     cells: Vec<CellType>,
 }
 
 impl Grid {
     pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            cells: vec![CellType::Empty; width * height],
+        Self::try_new(GridSize::new(width, height))
+            .expect("grid dimensions should fit in addressable memory")
+    }
+
+    pub fn try_new(size: GridSize) -> Result<Self, GridError> {
+        let cell_count = size.cell_count().ok_or(GridError::CellCountOverflow {
+            width: size.width(),
+            height: size.height(),
+        })?;
+
+        Ok(Self {
+            size,
+            cells: vec![CellType::Empty; cell_count],
+        })
+    }
+
+    pub const fn size(&self) -> GridSize {
+        self.size
+    }
+
+    pub const fn width(&self) -> usize {
+        self.size.width()
+    }
+
+    pub const fn height(&self) -> usize {
+        self.size.height()
+    }
+
+    fn index(&self, coord: CellCoord) -> Option<usize> {
+        if !self.size.contains(coord) {
+            return None;
         }
+
+        let x = usize::try_from(coord.x()).ok()?;
+        let y = usize::try_from(coord.y()).ok()?;
+
+        y.checked_mul(self.size.width())?.checked_add(x)
     }
 
-    fn index(&self, x: i32, y: i32) -> Option<usize> {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-            None
-        } else {
-            Some(y as usize * self.width + x as usize)
-        }
+    pub fn get(&self, coord: CellCoord) -> Option<CellType> {
+        self.index(coord).map(|i| self.cells[i])
     }
 
-    pub fn get(&self, x: i32, y: i32) -> Option<CellType> {
-        self.index(x, y).map(|i| self.cells[i])
-    }
-
-    pub fn set(&mut self, x: i32, y: i32, cell: CellType) -> bool {
-        if let Some(i) = self.index(x, y) {
+    pub fn set(&mut self, coord: CellCoord, cell: CellType) -> bool {
+        if let Some(i) = self.index(coord) {
             self.cells[i] = cell;
             true
         } else {
@@ -55,23 +191,28 @@ impl Grid {
         }
     }
 
-    pub fn cell_to_world(x: i32, y: i32) -> (f32, f32) {
-        ((x as f32 + 0.5) * TILE_SIZE, (y as f32 + 0.5) * TILE_SIZE)
+    pub fn cell_to_world(coord: CellCoord) -> WorldPosition {
+        WorldPosition::new(
+            (coord.x() as f32 + 0.5) * TILE_SIZE,
+            (coord.y() as f32 + 0.5) * TILE_SIZE,
+        )
     }
 
-    pub fn world_to_cell(
-        world_x: f32,
-        world_y: f32,
-        width: i32,
-        height: i32,
-    ) -> Option<(i32, i32)> {
-        let x = (world_x / TILE_SIZE).floor() as i32;
-        let y = (world_y / TILE_SIZE).floor() as i32;
-        if x < 0 || y < 0 || x >= width || y >= height {
-            None
-        } else {
-            Some((x, y))
+    pub fn world_to_cell(world: WorldPosition, size: GridSize) -> Option<CellCoord> {
+        if !world.x().is_finite() || !world.y().is_finite() {
+            return None;
         }
+
+        let x = (world.x() / TILE_SIZE).floor();
+        let y = (world.y() / TILE_SIZE).floor();
+
+        if x < i32::MIN as f32 || x > i32::MAX as f32 || y < i32::MIN as f32 || y > i32::MAX as f32
+        {
+            return None;
+        }
+
+        let coord = CellCoord::new(x as i32, y as i32);
+        size.contains(coord).then_some(coord)
     }
 }
 
@@ -82,56 +223,64 @@ mod tests {
     #[test]
     fn test_grid_new() {
         let g = Grid::new(10, 5);
-        assert_eq!(g.width, 10);
-        assert_eq!(g.height, 5);
+        assert_eq!(g.width(), 10);
+        assert_eq!(g.height(), 5);
         assert_eq!(g.cells.len(), 50);
     }
 
     #[test]
     fn test_get_in_bounds() {
         let g = Grid::new(10, 10);
-        assert_eq!(g.get(5, 5), Some(CellType::Empty));
+        assert_eq!(g.get(CellCoord::new(5, 5)), Some(CellType::Empty));
     }
 
     #[test]
     fn test_get_out_of_bounds() {
         let g = Grid::new(10, 10);
-        assert_eq!(g.get(-1, 0), None);
-        assert_eq!(g.get(10, 0), None);
-        assert_eq!(g.get(0, -1), None);
-        assert_eq!(g.get(0, 10), None);
+        assert_eq!(g.get(CellCoord::new(-1, 0)), None);
+        assert_eq!(g.get(CellCoord::new(10, 0)), None);
+        assert_eq!(g.get(CellCoord::new(0, -1)), None);
+        assert_eq!(g.get(CellCoord::new(0, 10)), None);
     }
 
     #[test]
     fn test_set_and_get() {
         let mut g = Grid::new(10, 10);
-        assert!(g.set(3, 4, CellType::Building));
-        assert_eq!(g.get(3, 4), Some(CellType::Building));
+        let coord = CellCoord::new(3, 4);
+        assert!(g.set(coord, CellType::Building));
+        assert_eq!(g.get(coord), Some(CellType::Building));
     }
 
     #[test]
     fn test_set_out_of_bounds_fails() {
         let mut g = Grid::new(10, 10);
-        assert!(!g.set(10, 0, CellType::Building));
-        assert!(!g.set(-1, 0, CellType::Building));
+        assert!(!g.set(CellCoord::new(10, 0), CellType::Building));
+        assert!(!g.set(CellCoord::new(-1, 0), CellType::Building));
     }
 
     #[test]
     fn test_world_to_cell() {
-        let result = Grid::world_to_cell(96.0, 96.0, 256, 256);
-        assert_eq!(result, Some((1, 1)));
+        let result = Grid::world_to_cell(WorldPosition::new(96.0, 96.0), GridSize::new(256, 256));
+        assert_eq!(result, Some(CellCoord::new(1, 1)));
     }
 
     #[test]
     fn test_world_to_cell_out_of_bounds() {
-        let result = Grid::world_to_cell(-1.0, 0.0, 256, 256);
+        let result = Grid::world_to_cell(WorldPosition::new(-1.0, 0.0), GridSize::new(256, 256));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_world_to_cell_rejects_non_finite_positions() {
+        let result =
+            Grid::world_to_cell(WorldPosition::new(f32::NAN, 0.0), GridSize::new(256, 256));
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_cell_to_world() {
-        let (wx, wy) = Grid::cell_to_world(0, 0);
-        assert_eq!(wx, 32.0);
-        assert_eq!(wy, 32.0);
+        let world = Grid::cell_to_world(CellCoord::new(0, 0));
+        assert_eq!(world.x(), 32.0);
+        assert_eq!(world.y(), 32.0);
     }
 }

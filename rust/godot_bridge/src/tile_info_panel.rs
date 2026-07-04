@@ -30,26 +30,52 @@ impl IControl for TileInfoPanel {
     }
 
     fn ready(&mut self) {
-        let game_world = self.game_world.clone();
-        if !game_world.is_instance_valid() {
+        let Some(game_world) = self.game_world_node() else {
+            godot_warn!("TileInfoPanel: game_world reference not set");
             return;
-        }
+        };
+        let Some((mut pos1, mut type1)) = self.label_nodes() else {
+            godot_warn!("TileInfoPanel: one or more label references are not set");
+            return;
+        };
 
-        let mut pos1 = self.pos_label.clone();
-        let mut type1 = self.type_label.clone();
         game_world
             .signals()
             .tile_selected()
             .connect(move |x: i32, y: i32, type_name: GString| {
-                pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
-                type1.set_text(format!("Type: {}", type_name).as_str());
+                if pos1.is_instance_valid() {
+                    pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
+                }
+                if type1.is_instance_valid() {
+                    type1.set_text(format!("Type: {}", type_name).as_str());
+                }
             });
 
-        let mut pos2 = self.pos_label.clone();
-        let mut type2 = self.type_label.clone();
+        let Some((mut pos2, mut type2)) = self.label_nodes() else {
+            return;
+        };
         game_world.signals().tile_deselected().connect(move || {
-            pos2.set_text("Cell: None");
-            type2.set_text("Type: --");
+            if pos2.is_instance_valid() {
+                pos2.set_text("Cell: None");
+            }
+            if type2.is_instance_valid() {
+                type2.set_text("Type: --");
+            }
         });
+    }
+}
+
+impl TileInfoPanel {
+    fn game_world_node(&self) -> Option<Gd<GameWorld>> {
+        let game_world = self.game_world.clone();
+        game_world.is_instance_valid().then_some(game_world)
+    }
+
+    fn label_nodes(&self) -> Option<(Gd<Label>, Gd<Label>)> {
+        let pos_label = self.pos_label.clone();
+        let type_label = self.type_label.clone();
+
+        (pos_label.is_instance_valid() && type_label.is_instance_valid())
+            .then_some((pos_label, type_label))
     }
 }
