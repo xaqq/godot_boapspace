@@ -133,7 +133,7 @@ impl INode2D for GameWorld {
         let min_zoom = {
             let fit_x = vs.x / self.surface.world_size().x;
             let fit_y = vs.y / self.surface.world_size().y;
-            (fit_x.min(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
+            (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
         };
 
         {
@@ -206,7 +206,7 @@ impl INode2D for GameWorld {
             Color::from_rgb(0.95, 0.35, 0.05),
         )
         .filled(false)
-        .width(4.0)
+        .width(8.0)
         .done();
 
         if let Some((cx, cy)) = hl_cell {
@@ -297,7 +297,7 @@ impl GameWorld {
         let min_zoom = {
             let fit_x = vs.x / self.surface.world_size().x;
             let fit_y = vs.y / self.surface.world_size().y;
-            (fit_x.min(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
+            (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
         };
         let new_zoom = (old_zoom * factor).clamp(min_zoom, ZOOM_MAX);
         if (new_zoom - old_zoom).abs() < f32::EPSILON {
