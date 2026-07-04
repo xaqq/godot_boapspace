@@ -41,7 +41,7 @@ stretch = true
 
 [node name="SubViewport" type="SubViewport" parent="VBoxContainer/HBoxContainer/SubViewportContainer" unique_id=101000002]
 handle_input_locally = false
-size = Vector2i(948, 621)
+size = Vector2i(948, 644)
 render_target_update_mode = 4
 
 [node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "camera")]

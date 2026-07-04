@@ -1,10 +1,10 @@
-use godot::classes::{Control, IControl, Label};
+use godot::classes::{Control, HBoxContainer, IControl, IHBoxContainer, Label};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 use crate::game_world::GameWorld;
 
 #[derive(GodotClass)]
-#[class(base = Control)]
+#[class(base = HBoxContainer)]
 pub(crate) struct ResourceHeader {
     #[export]
     wood_label: OnEditor<Gd<Label>>,
@@ -26,12 +26,12 @@ pub(crate) struct ResourceHeader {
     cached_food: u32,
     cached_gold: u32,
 
-    base: Base<Control>,
+    base: Base<HBoxContainer>,
 }
 
 #[godot_api]
-impl IControl for ResourceHeader {
-    fn init(base: Base<Control>) -> Self {
+impl IHBoxContainer for ResourceHeader {
+    fn init(base: Base<HBoxContainer>) -> Self {
         Self {
             wood_label: OnEditor::default(),
             stone_label: OnEditor::default(),
