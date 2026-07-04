@@ -1,7 +1,7 @@
+use crate::game_world::GameWorld;
 use godot::classes::{Control, IControl, Label};
 use godot::obj::OnEditor;
 use godot::prelude::*;
-use crate::game_world::GameWorld;
 
 #[derive(GodotClass)]
 #[class(base = Control)]
@@ -37,20 +37,19 @@ impl IControl for TileInfoPanel {
 
         let mut pos1 = self.pos_label.clone();
         let mut type1 = self.type_label.clone();
-        game_world.signals().tile_selected().connect(
-            move |x: i32, y: i32, type_name: GString| {
+        game_world
+            .signals()
+            .tile_selected()
+            .connect(move |x: i32, y: i32, type_name: GString| {
                 pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
                 type1.set_text(format!("Type: {}", type_name).as_str());
-            },
-        );
+            });
 
         let mut pos2 = self.pos_label.clone();
         let mut type2 = self.type_label.clone();
-        game_world.signals().tile_deselected().connect(
-            move || {
-                pos2.set_text("Cell: None");
-                type2.set_text("Type: --");
-            },
-        );
+        game_world.signals().tile_deselected().connect(move || {
+            pos2.set_text("Cell: None");
+            type2.set_text("Type: --");
+        });
     }
 }

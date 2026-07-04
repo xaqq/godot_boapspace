@@ -56,13 +56,15 @@ impl Grid {
     }
 
     pub fn cell_to_world(x: i32, y: i32) -> (f32, f32) {
-        (
-            (x as f32 + 0.5) * TILE_SIZE,
-            (y as f32 + 0.5) * TILE_SIZE,
-        )
+        ((x as f32 + 0.5) * TILE_SIZE, (y as f32 + 0.5) * TILE_SIZE)
     }
 
-    pub fn world_to_cell(world_x: f32, world_y: f32, width: i32, height: i32) -> Option<(i32, i32)> {
+    pub fn world_to_cell(
+        world_x: f32,
+        world_y: f32,
+        width: i32,
+        height: i32,
+    ) -> Option<(i32, i32)> {
         let x = (world_x / TILE_SIZE).floor() as i32;
         let y = (world_y / TILE_SIZE).floor() as i32;
         if x < 0 || y < 0 || x >= width || y >= height {

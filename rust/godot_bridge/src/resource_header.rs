@@ -1,7 +1,7 @@
+use crate::game_world::GameWorld;
 use godot::classes::{Control, HBoxContainer, IControl, IHBoxContainer, Label};
 use godot::obj::OnEditor;
 use godot::prelude::*;
-use crate::game_world::GameWorld;
 
 #[derive(GodotClass)]
 #[class(base = HBoxContainer)]
@@ -73,7 +73,8 @@ impl IHBoxContainer for ResourceHeader {
             self.cached_wood = wood;
         }
         if stone != self.cached_stone {
-            self.stone_label.set_text(format!("Stone: {}", stone).as_str());
+            self.stone_label
+                .set_text(format!("Stone: {}", stone).as_str());
             self.cached_stone = stone;
         }
         if food != self.cached_food {

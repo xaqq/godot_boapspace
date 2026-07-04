@@ -50,10 +50,10 @@ impl IControl for IngameMenu {
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
-        let Ok(key_event) = event.try_cast::<InputEventKey>() else { return };
-        if key_event.get_keycode() == Key::ESCAPE
-            && key_event.is_pressed()
-            && !key_event.is_echo()
+        let Ok(key_event) = event.try_cast::<InputEventKey>() else {
+            return;
+        };
+        if key_event.get_keycode() == Key::ESCAPE && key_event.is_pressed() && !key_event.is_echo()
         {
             if self.base().is_visible() {
                 self.base_mut().hide();

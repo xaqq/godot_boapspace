@@ -1,15 +1,14 @@
+use crate::game_state::GameState;
+use game_engine::grid::{self, Grid};
+use game_engine::resources::{GameResources, ResourceKind};
 use godot::builtin::Side;
 use godot::classes::{
-    canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture,
-    Input, InputEvent, InputEventMouseButton, Node2D, TileMapLayer, TileSet,
-    TileSetAtlasSource, TileSetSource,
+    canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
+    InputEventMouseButton, Node2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::{Key, MouseButton};
 use godot::obj::OnEditor;
 use godot::prelude::*;
-use game_engine::grid::{self, Grid};
-use game_engine::resources::{GameResources, ResourceKind};
-use crate::game_state::GameState;
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -56,8 +55,7 @@ impl INode2D for GameWorld {
         let atlas_w = ts * 2;
         let atlas_h = ts;
 
-        let mut image =
-            Image::create(atlas_w, atlas_h, false, image::Format::RGBA8).unwrap();
+        let mut image = Image::create(atlas_w, atlas_h, false, image::Format::RGBA8).unwrap();
         image.fill(Color::from_rgba8(0, 0, 0, 0));
 
         let grass = Color::from_rgb(0.25, 0.55, 0.15);
@@ -183,19 +181,11 @@ impl INode2D for GameWorld {
         let mut base = self.base_mut();
         for x in 0..=w {
             let px = x as f32 * ts;
-            base.draw_line(
-                Vector2::new(px, 0.0),
-                Vector2::new(px, ws.y),
-                grid_color,
-            );
+            base.draw_line(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color);
         }
         for y in 0..=h {
             let py = y as f32 * ts;
-            base.draw_line(
-                Vector2::new(0.0, py),
-                Vector2::new(ws.x, py),
-                grid_color,
-            );
+            base.draw_line(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color);
         }
 
         base.draw_rect_ex(
@@ -276,11 +266,7 @@ impl GameWorld {
             grid.height as i32,
         ) {
             let current = &self.selected_cell;
-            if current
-                .as_ref()
-                .map(|(x, y, _)| (*x, *y))
-                == Some((cx, cy))
-            {
+            if current.as_ref().map(|(x, y, _)| (*x, *y)) == Some((cx, cy)) {
                 self.selected_cell = None;
                 self.base_mut().queue_redraw();
                 self.signals().tile_deselected().emit();
@@ -322,8 +308,7 @@ impl GameWorld {
         let half_vs = vs / 2.0;
         let cursor_offset = mouse_pos - half_vs;
 
-        let world_under_cursor =
-            self.camera().get_position() + cursor_offset / old_zoom;
+        let world_under_cursor = self.camera().get_position() + cursor_offset / old_zoom;
 
         let mut cam = self.camera();
         cam.set_zoom(Vector2::new(new_zoom, new_zoom));
@@ -364,25 +349,37 @@ impl GameWorld {
 
     #[func]
     pub(crate) fn add_wood(&mut self, amount: u32) {
-        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Wood, amount);
+        self.game_state
+            .world
+            .resource_mut::<GameResources>()
+            .add(ResourceKind::Wood, amount);
         self.signals().resources_changed().emit();
     }
 
     #[func]
     pub(crate) fn add_stone(&mut self, amount: u32) {
-        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Stone, amount);
+        self.game_state
+            .world
+            .resource_mut::<GameResources>()
+            .add(ResourceKind::Stone, amount);
         self.signals().resources_changed().emit();
     }
 
     #[func]
     pub(crate) fn add_food(&mut self, amount: u32) {
-        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Food, amount);
+        self.game_state
+            .world
+            .resource_mut::<GameResources>()
+            .add(ResourceKind::Food, amount);
         self.signals().resources_changed().emit();
     }
 
     #[func]
     pub(crate) fn add_gold(&mut self, amount: u32) {
-        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Gold, amount);
+        self.game_state
+            .world
+            .resource_mut::<GameResources>()
+            .add(ResourceKind::Gold, amount);
         self.signals().resources_changed().emit();
     }
 }
