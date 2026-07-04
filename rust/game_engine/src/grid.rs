@@ -1,5 +1,4 @@
 use bevy_ecs::prelude::Resource;
-use std::fmt;
 
 pub const TILE_SIZE: f32 = 64.0;
 
@@ -98,23 +97,6 @@ impl GridSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GridError {
-    CellCountOverflow { width: usize, height: usize },
-}
-
-impl fmt::Display for GridError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GridError::CellCountOverflow { width, height } => {
-                write!(f, "grid dimensions {width}x{height} overflow usize")
-            }
-        }
-    }
-}
-
-impl std::error::Error for GridError {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellType {
     #[default]
@@ -139,20 +121,15 @@ pub struct Grid {
 
 impl Grid {
     pub fn new(width: usize, height: usize) -> Self {
-        Self::try_new(GridSize::new(width, height))
-            .expect("grid dimensions should fit in addressable memory")
-    }
+        let size = GridSize::new(width, height);
+        let cell_count = size
+            .cell_count()
+            .expect("grid dimensions should fit in addressable memory");
 
-    pub fn try_new(size: GridSize) -> Result<Self, GridError> {
-        let cell_count = size.cell_count().ok_or(GridError::CellCountOverflow {
-            width: size.width(),
-            height: size.height(),
-        })?;
-
-        Ok(Self {
+        Self {
             size,
             cells: vec![CellType::Empty; cell_count],
-        })
+        }
     }
 
     pub const fn size(&self) -> GridSize {

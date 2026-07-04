@@ -1,4 +1,4 @@
-use crate::grid::{CellCoord, CellType, Grid, GridError, GridSize};
+use crate::grid::{CellCoord, CellType, Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{GameResources, ResourceKind, ResourceSnapshot};
 use crate::systems::build_surface_schedule;
@@ -23,18 +23,18 @@ struct SurfaceRuntime {
 }
 
 impl SurfaceRuntime {
-    fn new(size: GridSize) -> Result<Self, GridError> {
+    fn new(size: GridSize) -> Self {
         let mut world = World::new();
-        world.insert_resource(Grid::try_new(size)?);
+        world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(GameResources::default());
         world
             .run_system_once(spawn_initial_resource_nodes)
             .expect("initial resource node spawn system should run");
 
-        Ok(Self {
+        Self {
             world,
             schedule: build_surface_schedule(),
-        })
+        }
     }
 
     fn grid(&self) -> &Grid {
@@ -61,8 +61,7 @@ pub struct GameSimulation {
 
 impl GameSimulation {
     pub fn new() -> Self {
-        let default_surface =
-            SurfaceRuntime::new(DEFAULT_GRID_SIZE).expect("default grid size is valid");
+        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE);
 
         Self {
             surfaces: vec![default_surface],
@@ -70,10 +69,10 @@ impl GameSimulation {
         }
     }
 
-    pub fn create_surface(&mut self, size: GridSize) -> Result<SurfaceId, GridError> {
+    pub fn create_surface(&mut self, size: GridSize) -> SurfaceId {
         let surface_id = SurfaceId(self.surfaces.len());
-        self.surfaces.push(SurfaceRuntime::new(size)?);
-        Ok(surface_id)
+        self.surfaces.push(SurfaceRuntime::new(size));
+        surface_id
     }
 
     pub fn default_surface_id(&self) -> SurfaceId {

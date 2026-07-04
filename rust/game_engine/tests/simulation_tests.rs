@@ -17,9 +17,7 @@ fn test_new_creates_default_surface() {
 fn test_create_surface_returns_distinct_id() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation
-        .create_surface(GridSize::new(10, 12))
-        .expect("surface size should be valid");
+    let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
     assert_ne!(default_surface, second_surface);
     assert_eq!(simulation.surface_count(), 2);
@@ -33,9 +31,7 @@ fn test_create_surface_returns_distinct_id() {
 fn test_resources_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation
-        .create_surface(GridSize::new(8, 8))
-        .expect("surface size should be valid");
+    let second_surface = simulation.create_surface(GridSize::new(8, 8));
 
     assert_eq!(
         simulation.add_resource(default_surface, ResourceKind::Wood, 25),
@@ -68,9 +64,7 @@ fn test_resources_are_scoped_per_surface() {
 fn test_grid_reads_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation
-        .create_surface(GridSize::new(4, 5))
-        .expect("surface size should be valid");
+    let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
     assert_eq!(
         simulation.cell_type(default_surface, CellCoord::new(100, 100)),
@@ -85,9 +79,7 @@ fn test_grid_reads_are_scoped_per_surface() {
 #[test]
 fn test_tick_runs_across_multiple_surfaces() {
     let mut simulation = GameSimulation::new();
-    simulation
-        .create_surface(GridSize::new(6, 6))
-        .expect("surface size should be valid");
+    simulation.create_surface(GridSize::new(6, 6));
 
     simulation.tick(1.0 / 60.0);
 
@@ -98,9 +90,7 @@ fn test_tick_runs_across_multiple_surfaces() {
 fn test_default_and_created_surfaces_have_resource_nodes() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation
-        .create_surface(GridSize::new(10, 12))
-        .expect("surface size should be valid");
+    let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
     assert!(!resource_nodes(&mut simulation, default_surface).is_empty());
     assert!(!resource_nodes(&mut simulation, second_surface).is_empty());
@@ -109,9 +99,7 @@ fn test_default_and_created_surfaces_have_resource_nodes() {
 #[test]
 fn test_resource_nodes_are_within_bounds() {
     let mut simulation = GameSimulation::new();
-    let surface = simulation
-        .create_surface(GridSize::new(17, 19))
-        .expect("surface size should be valid");
+    let surface = simulation.create_surface(GridSize::new(17, 19));
     let size = simulation.grid_size(surface).expect("surface should exist");
 
     for (coord, _) in resource_nodes(&mut simulation, surface) {
@@ -144,12 +132,8 @@ fn test_resource_node_generation_is_deterministic_for_same_size() {
         sorted_resource_nodes(&mut second, second_default)
     );
 
-    let first_surface = first
-        .create_surface(GridSize::new(31, 29))
-        .expect("surface size should be valid");
-    let second_surface = second
-        .create_surface(GridSize::new(31, 29))
-        .expect("surface size should be valid");
+    let first_surface = first.create_surface(GridSize::new(31, 29));
+    let second_surface = second.create_surface(GridSize::new(31, 29));
 
     assert_eq!(
         sorted_resource_nodes(&mut first, first_surface),
@@ -161,9 +145,7 @@ fn test_resource_node_generation_is_deterministic_for_same_size() {
 fn test_resource_node_queries_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation
-        .create_surface(GridSize::new(7, 9))
-        .expect("surface size should be valid");
+    let second_surface = simulation.create_surface(GridSize::new(7, 9));
 
     assert_ne!(
         sorted_resource_nodes(&mut simulation, default_surface),
