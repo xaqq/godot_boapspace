@@ -60,12 +60,16 @@ render_target_update_mode = 4
 tile_map = NodePath("TileMap")
 resource_node_map = NodePath("ResourceNodeMap")
 camera = NodePath("Camera2D")
+physics_interpolation_mode = 2
 
 [node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
 
 [node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
+collision_enabled = false
+navigation_enabled = false
 
 [node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
+navigation_enabled = false
 
 [node name="IngameMenu" parent="." unique_id=513882939 instance=ExtResource("1_ingame_menu")]
 visible = false
