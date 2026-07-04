@@ -33,11 +33,26 @@ size_flags_vertical = 3
 selected_tile = ExtResource("4_selected_tile")
 layout_mode = 2
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer" unique_id=59059212]
-selected_tile = ExtResource("4_selected_tile")
+[node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
 clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
+stretch = true
+
+[node name="SubViewport" type="SubViewport" parent="VBoxContainer/HBoxContainer/SubViewportContainer" unique_id=101000002]
+size = Vector2(1024, 600)
+
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "camera", "highlight_layer")]
+tile_map = NodePath("TileMap")
+camera = NodePath("Camera2D")
+highlight_layer = NodePath("HighlightLayer")
+selected_tile = ExtResource("4_selected_tile")
+
+[node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
+
+[node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
+
+[node name="HighlightLayer" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
 
 [node name="IngameMenu" parent="." unique_id=513882939 instance=ExtResource("1_ingame_menu")]
 visible = false
