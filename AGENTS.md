@@ -18,13 +18,12 @@ godot/             # Godot project (engine v4.7)
 - `cargo build` (from `rust/`) — compiles the GDExtension shared lib.
 - Open `godot/project.godot` in the Godot 4.7 editor to run.
 - The `.gdextension` file points lib paths to `res://../rust/target/`.
-- Must use `--rendering-driver opengl3` because llvmpipe (Vulkan software renderer) crashes Godot in this environment.
 
 ## Build & run
 
 ```bash
 cargo build --manifest-path rust/Cargo.toml
-~/.local/bin/godot4 godot/project.godot --editor --rendering-driver opengl3
+~/.local/bin/godot4 godot/project.godot --editor
 ```
 
 ## Key facts
