@@ -115,8 +115,10 @@ impl IControl for GameWorld {
 
         let start_x = (visible_offset.x / tile_size).floor().max(0.0) as i32;
         let start_y = (visible_offset.y / tile_size).floor().max(0.0) as i32;
-        let end_x = ((visible_offset.x + vs.x / zoom) / tile_size).ceil() as i32 + 1;
-        let end_y = ((visible_offset.y + vs.y / zoom) / tile_size).ceil() as i32 + 1;
+        let end_x = (((visible_offset.x + vs.x / zoom) / tile_size).ceil() as i32 + 1)
+            .min(self.surface.width as i32);
+        let end_y = (((visible_offset.y + vs.y / zoom) / tile_size).ceil() as i32 + 1)
+            .min(self.surface.height as i32);
 
         let grass = Color::from_rgb(0.25, 0.55, 0.15);
         let line = Color::from_rgb(0.12, 0.35, 0.05);
