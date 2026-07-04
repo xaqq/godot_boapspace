@@ -1,6 +1,6 @@
 use game_engine::grid::{CellCoord, CellType, GridSize};
 use game_engine::resource_nodes::{ResourceNode, TilePosition};
-use game_engine::resources::ResourceKind;
+use game_engine::resources::{GameResources, ResourceKind};
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
 use std::collections::HashSet;
 
@@ -76,6 +76,32 @@ fn test_resources_are_scoped_per_surface() {
         simulation.resource_amount(second_surface, ResourceKind::Stone),
         Some(40)
     );
+}
+
+#[test]
+fn test_surface_world_read_closure_can_read_resources() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation.create_surface(GridSize::new(8, 8));
+
+    assert_eq!(
+        simulation.add_resource(default_surface, ResourceKind::Food, 30),
+        Some(true)
+    );
+    assert_eq!(
+        simulation.add_resource(second_surface, ResourceKind::Gold, 45),
+        Some(true)
+    );
+
+    let default_food = simulation.with_surface_world(default_surface, |world| {
+        world.resource::<GameResources>().get(ResourceKind::Food)
+    });
+    let second_gold = simulation.with_surface_world(second_surface, |world| {
+        world.resource::<GameResources>().get(ResourceKind::Gold)
+    });
+
+    assert_eq!(default_food, Some(30));
+    assert_eq!(second_gold, Some(45));
 }
 
 #[test]

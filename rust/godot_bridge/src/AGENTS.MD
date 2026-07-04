@@ -5,7 +5,7 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Scope
 
 - `lib.rs` registers the extension modules.
-- `game_world.rs` is the main `Node2D`: it owns `game_engine::simulation::GameSimulation`, renders the active surface grid, handles camera/input, exposes resource accessors, and emits gameplay signals.
+- `game_world.rs` is the main `Node2D`: it owns `game_engine::simulation::GameSimulation`, renders the active surface grid, handles camera/input, exposes typed active-surface ECS world access, and emits gameplay signals.
 - `resource_header.rs` and `tile_info_panel.rs` are HUD/panel controls backed by `.tscn` scenes.
 - `root_menu.rs` and `ingame_menu.rs` are menu controls.
 
@@ -33,7 +33,7 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Resources
 
 - Per-surface `game_engine::resources::GameResources` is the source of truth for wood, stone, food, and gold.
-- `GameWorld` exposes `#[func]` getters and mutators for Godot-facing code.
+- UI reads resources through typed active-surface ECS world access on `GameWorld`; do not add per-resource Godot `#[func]` getters for the HUD.
 - Emit `resources_changed` after resource mutations. Existing HUD code may poll, but new event-driven UI should connect to the signal when practical.
 
 ## Build And Test

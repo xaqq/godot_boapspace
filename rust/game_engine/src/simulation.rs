@@ -1,6 +1,6 @@
 use crate::grid::{CellCoord, CellType, Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
-use crate::resources::{GameResources, ResourceKind, ResourceSnapshot};
+use crate::resources::{GameResources, ResourceKind};
 use crate::systems::build_surface_schedule;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
@@ -105,10 +105,6 @@ impl GameSimulation {
         Some(self.surface(surface_id)?.resources().get(kind))
     }
 
-    pub fn resource_snapshot(&self, surface_id: SurfaceId) -> Option<ResourceSnapshot> {
-        Some(self.surface(surface_id)?.resources().snapshot())
-    }
-
     pub fn add_resource(
         &mut self,
         surface_id: SurfaceId,
@@ -120,6 +116,14 @@ impl GameSimulation {
                 .resources_mut()
                 .add(kind, amount),
         )
+    }
+
+    pub fn with_surface_world<R>(
+        &self,
+        surface_id: SurfaceId,
+        f: impl FnOnce(&World) -> R,
+    ) -> Option<R> {
+        Some(f(&self.surface(surface_id)?.world))
     }
 
     pub fn with_surface_world_mut<R>(

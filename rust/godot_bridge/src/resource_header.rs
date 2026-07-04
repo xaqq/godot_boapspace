@@ -1,5 +1,5 @@
 use crate::game_world::GameWorld;
-use game_engine::resources::{ResourceKind, ResourceSnapshot};
+use game_engine::resources::{GameResources, ResourceKind};
 use godot::classes::{HBoxContainer, IHBoxContainer, Label};
 use godot::obj::OnEditor;
 use godot::prelude::*;
@@ -24,7 +24,7 @@ pub(crate) struct ResourceHeader {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    cached_resources: ResourceSnapshot,
+    cached_amounts: [Option<u32>; ResourceKind::ALL.len()],
 
     base: Base<HBoxContainer>,
 }
@@ -38,7 +38,7 @@ impl IHBoxContainer for ResourceHeader {
             food_label: OnEditor::default(),
             gold_label: OnEditor::default(),
             game_world: OnEditor::default(),
-            cached_resources: ResourceSnapshot::default(),
+            cached_amounts: [None; ResourceKind::ALL.len()],
             base,
         }
     }
@@ -66,22 +66,33 @@ impl IHBoxContainer for ResourceHeader {
             return;
         };
 
-        let snapshot = game_world.bind().resource_snapshot();
+        let Some(amounts) = game_world.bind().with_rendered_surface_world(|world| {
+            let resources = world.resource::<GameResources>();
+            ResourceKind::ALL.map(|kind| resources.get(kind))
+        }) else {
+            return;
+        };
 
-        if snapshot.wood != self.cached_resources.wood {
-            wood_label.set_text(resource_text(ResourceKind::Wood, snapshot.wood).as_str());
-        }
-        if snapshot.stone != self.cached_resources.stone {
-            stone_label.set_text(resource_text(ResourceKind::Stone, snapshot.stone).as_str());
-        }
-        if snapshot.food != self.cached_resources.food {
-            food_label.set_text(resource_text(ResourceKind::Food, snapshot.food).as_str());
-        }
-        if snapshot.gold != self.cached_resources.gold {
-            gold_label.set_text(resource_text(ResourceKind::Gold, snapshot.gold).as_str());
-        }
-
-        self.cached_resources = snapshot;
+        self.update_label(
+            &mut wood_label,
+            ResourceKind::Wood,
+            amounts[resource_index(ResourceKind::Wood)],
+        );
+        self.update_label(
+            &mut stone_label,
+            ResourceKind::Stone,
+            amounts[resource_index(ResourceKind::Stone)],
+        );
+        self.update_label(
+            &mut food_label,
+            ResourceKind::Food,
+            amounts[resource_index(ResourceKind::Food)],
+        );
+        self.update_label(
+            &mut gold_label,
+            ResourceKind::Gold,
+            amounts[resource_index(ResourceKind::Gold)],
+        );
     }
 }
 
@@ -103,8 +114,20 @@ impl ResourceHeader {
             && gold_label.is_instance_valid())
         .then_some((wood_label, stone_label, food_label, gold_label))
     }
+
+    fn update_label(&mut self, label: &mut Gd<Label>, kind: ResourceKind, amount: u32) {
+        let cached_amount = &mut self.cached_amounts[resource_index(kind)];
+        if *cached_amount != Some(amount) {
+            label.set_text(resource_text(kind, amount).as_str());
+            *cached_amount = Some(amount);
+        }
+    }
 }
 
 fn resource_text(kind: ResourceKind, amount: u32) -> String {
     format!("{}: {}", kind.label(), amount)
+}
+
+fn resource_index(kind: ResourceKind) -> usize {
+    kind as usize
 }

@@ -21,25 +21,6 @@ impl ResourceKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ResourceSnapshot {
-    pub wood: u32,
-    pub stone: u32,
-    pub food: u32,
-    pub gold: u32,
-}
-
-impl ResourceSnapshot {
-    pub fn get(self, kind: ResourceKind) -> u32 {
-        match kind {
-            ResourceKind::Wood => self.wood,
-            ResourceKind::Stone => self.stone,
-            ResourceKind::Food => self.food,
-            ResourceKind::Gold => self.gold,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Resource)]
 pub struct GameResources {
     wood: u32,
@@ -55,15 +36,6 @@ impl GameResources {
             stone,
             food,
             gold,
-        }
-    }
-
-    pub const fn snapshot(&self) -> ResourceSnapshot {
-        ResourceSnapshot {
-            wood: self.wood,
-            stone: self.stone,
-            food: self.food,
-            gold: self.gold,
         }
     }
 
@@ -166,16 +138,5 @@ mod tests {
         assert_eq!(r.get(ResourceKind::Stone), 2);
         assert_eq!(r.get(ResourceKind::Food), 3);
         assert_eq!(r.get(ResourceKind::Gold), 4);
-    }
-
-    #[test]
-    fn test_snapshot_matches_resources() {
-        let r = GameResources::new(1, 2, 3, 4);
-        let snapshot = r.snapshot();
-
-        assert_eq!(snapshot.get(ResourceKind::Wood), 1);
-        assert_eq!(snapshot.get(ResourceKind::Stone), 2);
-        assert_eq!(snapshot.get(ResourceKind::Food), 3);
-        assert_eq!(snapshot.get(ResourceKind::Gold), 4);
     }
 }

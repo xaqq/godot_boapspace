@@ -1,7 +1,7 @@
 use bevy_ecs::world::World;
 use game_engine::grid::{self, CellCoord, CellType, Grid, WorldPosition};
 use game_engine::resource_nodes::{ResourceNode, TilePosition};
-use game_engine::resources::{ResourceKind, ResourceSnapshot};
+use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
 use godot::builtin::Side;
 use godot::classes::{
@@ -442,35 +442,8 @@ impl GameWorld {
             .expect("rendered surface should exist")
     }
 
-    pub(crate) fn resource_snapshot(&self) -> ResourceSnapshot {
-        self.game
-            .resource_snapshot(self.rendered_surface)
-            .expect("rendered surface should exist")
-    }
-
-    fn resource_amount(&self, kind: ResourceKind) -> u32 {
-        self.game
-            .resource_amount(self.rendered_surface, kind)
-            .expect("rendered surface should exist")
-    }
-
-    fn add_resource(&mut self, kind: ResourceKind, amount: u32) {
-        match self.game.add_resource(self.rendered_surface, kind, amount) {
-            Some(true) => {
-                self.signals().resources_changed().emit();
-            }
-            Some(false) => {
-                godot_warn!(
-                    "GameWorld: ignoring {} addition of {} because it would overflow u32",
-                    kind.label(),
-                    amount
-                );
-            }
-            None => {
-                godot_error!("GameWorld: rendered surface no longer exists");
-                self.disable_processing();
-            }
-        }
+    pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> Option<R> {
+        self.game.with_surface_world(self.rendered_surface, f)
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
@@ -668,46 +641,6 @@ impl GameWorld {
 
         self.switch_rendered_surface(surface);
         true
-    }
-
-    #[func]
-    pub(crate) fn wood(&self) -> u32 {
-        self.resource_amount(ResourceKind::Wood)
-    }
-
-    #[func]
-    pub(crate) fn stone(&self) -> u32 {
-        self.resource_amount(ResourceKind::Stone)
-    }
-
-    #[func]
-    pub(crate) fn food(&self) -> u32 {
-        self.resource_amount(ResourceKind::Food)
-    }
-
-    #[func]
-    pub(crate) fn gold(&self) -> u32 {
-        self.resource_amount(ResourceKind::Gold)
-    }
-
-    #[func]
-    pub(crate) fn add_wood(&mut self, amount: u32) {
-        self.add_resource(ResourceKind::Wood, amount);
-    }
-
-    #[func]
-    pub(crate) fn add_stone(&mut self, amount: u32) {
-        self.add_resource(ResourceKind::Stone, amount);
-    }
-
-    #[func]
-    pub(crate) fn add_food(&mut self, amount: u32) {
-        self.add_resource(ResourceKind::Food, amount);
-    }
-
-    #[func]
-    pub(crate) fn add_gold(&mut self, amount: u32) {
-        self.add_resource(ResourceKind::Gold, amount);
     }
 }
 
