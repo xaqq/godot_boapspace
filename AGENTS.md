@@ -22,16 +22,16 @@ rust/                       # Cargo workspace
       lib.rs
       grid.rs               # Grid resource (256x256 tile map)
       resources.rs          # GameResources resource (wood/stone/food/gold)
-      systems.rs            # ECS systems (placeholder for future simulation)
+      systems.rs            # ECS schedule construction
+      simulation.rs         # GameSimulation facade, owns independent surface Worlds
     tests/
       grid_tests.rs         # Integration tests for grid
       resource_tests.rs     # Integration tests for resources
   godot_bridge/             # GDExtension cdylib
-    Cargo.toml              # depends on game_engine + godot + bevy_ecs
+    Cargo.toml              # depends on game_engine + godot
     src/
       lib.rs                # ExtensionLibrary entry point
-      game_state.rs         # Thin wrapper around bevy_ecs::World
-      game_world.rs         # Main gameplay Node2D (owns GameState, rendering, input)
+      game_world.rs         # Main gameplay Node2D (owns GameSimulation, rendering, input)
       resource_header.rs    # HUD — polls GameWorld for resource values
       tile_info_panel.rs    # Selected tile info — listens to GameWorld signals
       root_menu.rs          # Main menu
@@ -48,8 +48,8 @@ godot/                      # Godot project (engine v4.7)
 
 ## Key design
 
-- **Game logic (`game_engine`)**: Bevy ECS resources only — `Grid` and `GameResources`. No entities or components yet. Pure Rust, no Godot dependency.
-- **Godot bridge (`godot_bridge`)**: Owns a `bevy_ecs::World`, inserts the ECS resources, runs systems via `GameState::tick()`. Godot classes read/write the ECS world directly.
+- **Game logic (`game_engine`)**: `GameSimulation` owns independent surface runtimes. Each surface has its own Bevy `World`, `Grid`, `GameResources`, and `Schedule`. Pure Rust, no Godot dependency.
+- **Godot bridge (`godot_bridge`)**: Owns one `GameSimulation` and calls `tick()` from Godot process code. Godot classes access the rendered surface through typed Rust methods.
 - **Tile selection**: Stays entirely in Godot layer (`GameWorld.selected_cell`). Not in ECS.
 - **Resources**: ECS `Resource<GameResources>` is the source of truth. `GameWorld` exposes `#[func]` getters/setters. `ResourceHeader` polls `GameWorld` each frame. The former `ResourceManager` autoload has been removed.
 - **Signals**: `tile_selected`, `tile_deselected`, `resources_changed` all on `GameWorld`.

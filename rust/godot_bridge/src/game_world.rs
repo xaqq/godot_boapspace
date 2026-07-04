@@ -1,6 +1,6 @@
-use crate::game_state::GameState;
 use game_engine::grid::{self, CellCoord, CellType, Grid, WorldPosition};
 use game_engine::resources::{ResourceKind, ResourceSnapshot};
+use game_engine::simulation::{GameSimulation, SurfaceId};
 use godot::builtin::Side;
 use godot::classes::{
     canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
@@ -39,7 +39,8 @@ pub(crate) struct GameWorld {
     #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
-    game_state: GameState,
+    game: GameSimulation,
+    rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
     _tile_set: Option<Gd<TileSet>>,
 
@@ -49,10 +50,14 @@ pub(crate) struct GameWorld {
 #[godot_api]
 impl INode2D for GameWorld {
     fn init(base: Base<Node2D>) -> Self {
+        let game = GameSimulation::new();
+        let rendered_surface = game.default_surface_id();
+
         Self {
             tile_map: OnEditor::default(),
             camera: OnEditor::default(),
-            game_state: GameState::new(),
+            game,
+            rendered_surface,
             selected_cell: None,
             _tile_set: None,
             base,
@@ -121,7 +126,7 @@ impl INode2D for GameWorld {
         tm.set_texture_filter(TextureFilter::NEAREST);
         tm.set_draw_behind_parent(true);
 
-        for coord in self.game_state.grid_size().iter_coords() {
+        for coord in self.grid_size().iter_coords() {
             tm.set_cell_ex(v2(coord.x(), coord.y()))
                 .source_id(source_id)
                 .atlas_coords(v2(0, 0))
@@ -193,13 +198,13 @@ impl INode2D for GameWorld {
             cam.set_position(pos + dir * speed * delta as f32);
         }
 
-        self.game_state.tick(delta as f32);
+        self.game.tick(delta as f32);
     }
 
     fn draw(&mut self) {
         let ts = grid::TILE_SIZE;
         let ws = self.world_size();
-        let size = self.game_state.grid_size();
+        let size = self.grid_size();
         let Some(w) = size.width_i32() else {
             godot_warn!("GameWorld: grid width is too large to draw");
             return;
@@ -296,7 +301,7 @@ impl GameWorld {
     }
 
     fn world_size(&self) -> Vector2 {
-        let size = self.game_state.grid_size();
+        let size = self.grid_size();
         Vector2::new(
             size.width() as f32 * grid::TILE_SIZE,
             size.height() as f32 * grid::TILE_SIZE,
@@ -308,12 +313,15 @@ impl GameWorld {
 
         if let Some(coord) = Grid::world_to_cell(
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
-            self.game_state.grid_size(),
+            self.grid_size(),
         ) {
             if self.selected_cell.map(|selected| selected.coord) == Some(coord) {
                 self.clear_selection();
             } else {
-                let cell_type = self.game_state.cell_type(coord).unwrap_or_default();
+                let cell_type = self
+                    .game
+                    .cell_type(self.rendered_surface, coord)
+                    .unwrap_or_default();
                 self.selected_cell = Some(SelectedCell { coord, cell_type });
                 self.base_mut().queue_redraw();
                 let type_name = GString::from(cell_type.type_name());
@@ -363,19 +371,40 @@ impl GameWorld {
         self.signals().tile_deselected().emit();
     }
 
+    fn grid_size(&self) -> game_engine::grid::GridSize {
+        self.game
+            .grid_size(self.rendered_surface)
+            .expect("rendered surface should exist")
+    }
+
     pub(crate) fn resource_snapshot(&self) -> ResourceSnapshot {
-        self.game_state.resource_snapshot()
+        self.game
+            .resource_snapshot(self.rendered_surface)
+            .expect("rendered surface should exist")
+    }
+
+    fn resource_amount(&self, kind: ResourceKind) -> u32 {
+        self.game
+            .resource_amount(self.rendered_surface, kind)
+            .expect("rendered surface should exist")
     }
 
     fn add_resource(&mut self, kind: ResourceKind, amount: u32) {
-        if self.game_state.add_resource(kind, amount) {
-            self.signals().resources_changed().emit();
-        } else {
-            godot_warn!(
-                "GameWorld: ignoring {} addition of {} because it would overflow u32",
-                kind.label(),
-                amount
-            );
+        match self.game.add_resource(self.rendered_surface, kind, amount) {
+            Some(true) => {
+                self.signals().resources_changed().emit();
+            }
+            Some(false) => {
+                godot_warn!(
+                    "GameWorld: ignoring {} addition of {} because it would overflow u32",
+                    kind.label(),
+                    amount
+                );
+            }
+            None => {
+                godot_error!("GameWorld: rendered surface no longer exists");
+                self.disable_processing();
+            }
         }
     }
 }
@@ -393,22 +422,22 @@ impl GameWorld {
 
     #[func]
     pub(crate) fn wood(&self) -> u32 {
-        self.game_state.resource_amount(ResourceKind::Wood)
+        self.resource_amount(ResourceKind::Wood)
     }
 
     #[func]
     pub(crate) fn stone(&self) -> u32 {
-        self.game_state.resource_amount(ResourceKind::Stone)
+        self.resource_amount(ResourceKind::Stone)
     }
 
     #[func]
     pub(crate) fn food(&self) -> u32 {
-        self.game_state.resource_amount(ResourceKind::Food)
+        self.resource_amount(ResourceKind::Food)
     }
 
     #[func]
     pub(crate) fn gold(&self) -> u32 {
-        self.game_state.resource_amount(ResourceKind::Gold)
+        self.resource_amount(ResourceKind::Gold)
     }
 
     #[func]

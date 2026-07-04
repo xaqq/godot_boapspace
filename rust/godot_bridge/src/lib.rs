@@ -1,6 +1,5 @@
 use godot::prelude::*;
 
-mod game_state;
 mod game_world;
 mod ingame_menu;
 mod resource_header;

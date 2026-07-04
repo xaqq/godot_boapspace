@@ -477,7 +477,6 @@ dependencies = [
 name = "godot_boapspace_rust"
 version = "0.1.0"
 dependencies = [
- "bevy_ecs",
  "game_engine",
  "godot",
 ]
