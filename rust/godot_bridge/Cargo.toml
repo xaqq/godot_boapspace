@@ -1,0 +1,12 @@
+[package]
+name = "godot_boapspace_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bevy_ecs = "0.15"
+game_engine = { path = "../game_engine" }
+godot = { version = "0.5", features = ["api-4-7", "register-docs"] }

@@ -1,23 +1,57 @@
 # AGENTS.md — godot_boapspace
 
-Godot 4.7 game with a Rust GDExtension (`godot = "0.5"`).
+Godot 4.7 game with a Rust GDExtension (`godot = "0.5"`) and a Bevy ECS game engine.
 
 ## Structure
 
 ```
-rust/              # Rust cdylib crate (godot_boapspace_rust)
-  src/lib.rs       # ExtensionLibrary + Player class (Sprite2D)
-  Cargo.toml
-godot/             # Godot project (engine v4.7)
+rust/                       # Cargo workspace
+  Cargo.toml                # Workspace root (members: game_engine, godot_bridge)
+  game_engine/              # Pure Rust lib — Bevy ECS game logic (no Godot)
+    Cargo.toml              # depends on bevy_ecs
+    src/
+      lib.rs
+      grid.rs               # Grid resource (256x256 tile map)
+      resources.rs          # GameResources resource (wood/stone/food/gold)
+      systems.rs            # ECS systems (placeholder for future simulation)
+    tests/
+      grid_tests.rs         # Integration tests for grid
+      resource_tests.rs     # Integration tests for resources
+  godot_bridge/             # GDExtension cdylib
+    Cargo.toml              # depends on game_engine + godot + bevy_ecs
+    src/
+      lib.rs                # ExtensionLibrary entry point
+      game_state.rs         # Thin wrapper around bevy_ecs::World
+      game_world.rs         # Main gameplay Node2D (owns GameState, rendering, input)
+      resource_header.rs    # HUD — polls GameWorld for resource values
+      tile_info_panel.rs    # Selected tile info — listens to GameWorld signals
+      root_menu.rs          # Main menu
+      ingame_menu.rs        # Pause menu
+godot/                      # Godot project (engine v4.7)
   project.godot
   godot_boapspace.gdextension
+  main_ui.tscn
+  game_world.tscn
+  ingame_menu.tscn
+  resource_header.tscn
+  tile_info_panel.tscn
 ```
+
+## Key design
+
+- **Game logic (`game_engine`)**: Bevy ECS resources only — `Grid` and `GameResources`. No entities or components yet. Pure Rust, no Godot dependency.
+- **Godot bridge (`godot_bridge`)**: Owns a `bevy_ecs::World`, inserts the ECS resources, runs systems via `GameState::tick()`. Godot classes read/write the ECS world directly.
+- **Tile selection**: Stays entirely in Godot layer (`GameWorld.selected_cell`). Not in ECS.
+- **Resources**: ECS `Resource<GameResources>` is the source of truth. `GameWorld` exposes `#[func]` getters/setters. `ResourceHeader` polls `GameWorld` each frame. The former `ResourceManager` autoload has been removed.
+- **Signals**: `tile_selected`, `tile_deselected`, `resources_changed` all on `GameWorld`.
 
 ## Commands
 
-- `cargo build` (from `rust/`) — compiles the GDExtension shared lib.
-- Open `godot/project.godot` in the Godot 4.7 editor to run.
-- The `.gdextension` file points lib paths to `res://../rust/target/`.
+```bash
+cargo build --manifest-path rust/Cargo.toml           # Build workspace
+cargo test --manifest-path rust/Cargo.toml            # Run all tests
+~/.local/bin/godot4 godot/project.godot --editor      # Open editor
+```
 
 ## Build & run
 
@@ -30,11 +64,9 @@ cargo build --manifest-path rust/Cargo.toml
 
 - `crate-type = ["cdylib"]` — builds a `.so` / `.dll` / `.dylib`, not an executable.
 - Entry symbol: `gdext_rust_init` (godot-rust convention).
-- `Player` struct extends `Sprite2D` via `#[derive(GodotClass)]` + `ISprite2D`.
 - Prefer strong types over strings: use typed method calls (`bind()`/`bind_mut()`, direct
   calls on `#[func]` methods) instead of `Gd::call("method_name", &[])`. Use `#[export]`
   fields of typed `Gd<T>` / `OnEditor<Gd<T>>` for child node references instead of
   `get_node("path")`. Only use `GString`/`StringName` where Godot APIs genuinely require
   strings (e.g. `change_scene_to_file`, resource paths).
-- No `.gitignore` exists yet. Before committing, add one ignoring `rust/target/`.
-- No CI, no tests, no README.
+- Tests in `game_engine/` — unit tests in `src/` via `#[cfg(test)]`, integration tests in `tests/`.

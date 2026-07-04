@@ -7,7 +7,9 @@ use godot::classes::{
 use godot::global::{Key, MouseButton};
 use godot::obj::OnEditor;
 use godot::prelude::*;
-use crate::game_surface::{self, GameSurface};
+use game_engine::grid::{self, Grid};
+use game_engine::resources::{GameResources, ResourceKind};
+use crate::game_state::GameState;
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -24,7 +26,7 @@ pub(crate) struct GameWorld {
     #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
-    surface: GameSurface,
+    game_state: GameState,
     selected_cell: Option<(i32, i32, GString)>,
     tile_source_id: i32,
     _tile_set: Option<Gd<TileSet>>,
@@ -35,11 +37,10 @@ pub(crate) struct GameWorld {
 #[godot_api]
 impl INode2D for GameWorld {
     fn init(base: Base<Node2D>) -> Self {
-        let surface = GameSurface::new(256, 256);
         Self {
             tile_map: OnEditor::default(),
             camera: OnEditor::default(),
-            surface,
+            game_state: GameState::new(),
             selected_cell: None,
             tile_source_id: -1,
             _tile_set: None,
@@ -51,7 +52,7 @@ impl INode2D for GameWorld {
         let mut tm = self.tile_map.clone();
         let mut cam = self.camera.clone();
 
-        let ts = game_surface::TILE_SIZE as i32;
+        let ts = grid::TILE_SIZE as i32;
         let atlas_w = ts * 2;
         let atlas_h = ts;
 
@@ -89,8 +90,9 @@ impl INode2D for GameWorld {
         tm.set_texture_filter(TextureFilter::NEAREST);
         tm.set_draw_behind_parent(true);
 
-        let w = self.surface.width as i32;
-        let h = self.surface.height as i32;
+        let grid = self.game_state.world.resource::<Grid>();
+        let w = grid.width as i32;
+        let h = grid.height as i32;
         for y in 0..h {
             for x in 0..w {
                 tm.set_cell_ex(v2(x, y))
@@ -103,12 +105,12 @@ impl INode2D for GameWorld {
 
         cam.set_enabled(true);
         cam.make_current();
-        cam.set_position(self.surface.world_size() / 2.0);
+        cam.set_position(self.world_size() / 2.0);
         cam.set_zoom(Vector2::new(0.5, 0.5));
         cam.set_limit(Side::LEFT, 0);
         cam.set_limit(Side::TOP, 0);
-        cam.set_limit(Side::RIGHT, self.surface.world_size().x as i32);
-        cam.set_limit(Side::BOTTOM, self.surface.world_size().y as i32);
+        cam.set_limit(Side::RIGHT, self.world_size().x as i32);
+        cam.set_limit(Side::BOTTOM, self.world_size().y as i32);
         cam.set_limit_smoothing_enabled(false);
         cam.set_position_smoothing_enabled(false);
 
@@ -121,9 +123,10 @@ impl INode2D for GameWorld {
         let input = Input::singleton();
 
         let vs = self.get_viewport_size();
+        let ws = self.world_size();
         let min_zoom = {
-            let fit_x = vs.x / self.surface.world_size().x;
-            let fit_y = vs.y / self.surface.world_size().y;
+            let fit_x = vs.x / ws.x;
+            let fit_y = vs.y / ws.y;
             (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
         };
 
@@ -164,13 +167,16 @@ impl INode2D for GameWorld {
             let pos = cam.get_position();
             cam.set_position(pos + dir * speed * delta as f32);
         }
+
+        self.game_state.tick(delta as f32);
     }
 
     fn draw(&mut self) {
-        let ts = game_surface::TILE_SIZE;
-        let ws = self.surface.world_size();
-        let w = self.surface.width as i32;
-        let h = self.surface.height as i32;
+        let ts = grid::TILE_SIZE;
+        let ws = self.world_size();
+        let grid_resource = self.game_state.world.resource::<Grid>();
+        let w = grid_resource.width as i32;
+        let h = grid_resource.height as i32;
         let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
         let hl_cell = self.selected_cell.as_ref().map(|(x, y, _)| (*x, *y));
 
@@ -251,13 +257,23 @@ impl GameWorld {
             .unwrap_or_else(|| Vector2::new(1920.0, 1080.0))
     }
 
+    fn world_size(&self) -> Vector2 {
+        let grid = self.game_state.world.resource::<Grid>();
+        Vector2::new(
+            grid.width as f32 * grid::TILE_SIZE,
+            grid.height as f32 * grid::TILE_SIZE,
+        )
+    }
+
     fn handle_tile_click(&mut self) {
         let mouse_pos = self.base().get_local_mouse_position();
 
-        if let Some((cx, cy)) = GameSurface::world_to_cell(
-            mouse_pos,
-            self.surface.width as i32,
-            self.surface.height as i32,
+        let grid = self.game_state.world.resource::<Grid>();
+        if let Some((cx, cy)) = Grid::world_to_cell(
+            mouse_pos.x,
+            mouse_pos.y,
+            grid.width as i32,
+            grid.height as i32,
         ) {
             let current = &self.selected_cell;
             if current
@@ -269,8 +285,7 @@ impl GameWorld {
                 self.base_mut().queue_redraw();
                 self.signals().tile_deselected().emit();
             } else {
-                let type_name = self
-                    .surface
+                let type_name = grid
                     .get(cx, cy)
                     .map(|c| GString::from(c.type_name()))
                     .unwrap_or_default();
@@ -289,9 +304,10 @@ impl GameWorld {
         let old_zoom = self.camera().get_zoom().x;
 
         let vs = self.get_viewport_size();
+        let ws = self.world_size();
         let min_zoom = {
-            let fit_x = vs.x / self.surface.world_size().x;
-            let fit_y = vs.y / self.surface.world_size().y;
+            let fit_x = vs.x / ws.x;
+            let fit_y = vs.y / ws.y;
             (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
         };
         let new_zoom = (old_zoom * factor).clamp(min_zoom, ZOOM_MAX);
@@ -322,4 +338,51 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn tile_deselected();
+
+    #[signal]
+    pub(crate) fn resources_changed();
+
+    #[func]
+    pub(crate) fn wood(&self) -> u32 {
+        self.game_state.world.resource::<GameResources>().wood
+    }
+
+    #[func]
+    pub(crate) fn stone(&self) -> u32 {
+        self.game_state.world.resource::<GameResources>().stone
+    }
+
+    #[func]
+    pub(crate) fn food(&self) -> u32 {
+        self.game_state.world.resource::<GameResources>().food
+    }
+
+    #[func]
+    pub(crate) fn gold(&self) -> u32 {
+        self.game_state.world.resource::<GameResources>().gold
+    }
+
+    #[func]
+    pub(crate) fn add_wood(&mut self, amount: u32) {
+        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Wood, amount);
+        self.signals().resources_changed().emit();
+    }
+
+    #[func]
+    pub(crate) fn add_stone(&mut self, amount: u32) {
+        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Stone, amount);
+        self.signals().resources_changed().emit();
+    }
+
+    #[func]
+    pub(crate) fn add_food(&mut self, amount: u32) {
+        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Food, amount);
+        self.signals().resources_changed().emit();
+    }
+
+    #[func]
+    pub(crate) fn add_gold(&mut self, amount: u32) {
+        self.game_state.world.resource_mut::<GameResources>().add(ResourceKind::Gold, amount);
+        self.signals().resources_changed().emit();
+    }
 }

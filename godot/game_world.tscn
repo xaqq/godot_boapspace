@@ -21,7 +21,8 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ResourceHeader" parent="VBoxContainer" unique_id=2110331916 instance=ExtResource("2_resource_header")]
+[node name="ResourceHeader" parent="VBoxContainer" unique_id=2110331916 node_paths=PackedStringArray("game_world") instance=ExtResource("2_resource_header")]
+game_world = NodePath("../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=1435075728]

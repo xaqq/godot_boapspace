@@ -28,7 +28,7 @@ text = "Food: 0"
 layout_mode = 2
 text = "Stone: 0"
 
-[node name="ResourceHeader" type="ResourceHeader" parent="." unique_id=2110331916 node_paths=PackedStringArray("wood_label", "stone_label", "food_label", "gold_label")]
+[node name="ResourceHeader" type="ResourceHeader" parent="." unique_id=2110331916 node_paths=PackedStringArray("wood_label", "stone_label", "food_label", "gold_label", "game_world")]
 wood_label = NodePath("../HBoxContainer#WoodLabel")
 stone_label = NodePath("../HBoxContainer#StoneLabel")
 food_label = NodePath("../HBoxContainer#FoodLabel")
