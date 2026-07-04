@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Code Change"
+  short_description: "Plan feature and refactor work rigorously"
+  default_prompt: "Use $plan-code-change to evaluate and plan this feature or refactor before implementation."
