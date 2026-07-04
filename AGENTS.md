@@ -52,7 +52,7 @@ godot/                      # Godot project (engine v4.7)
 - **Godot bridge (`godot_bridge`)**: Owns one `GameSimulation` and calls `tick()` from Godot process code. Godot classes access the rendered surface through typed Rust methods.
 - **Tile selection**: Stays entirely in Godot layer (`GameWorld.selected_cell`). Not in ECS.
 - **Resources**: ECS `Resource<GameResources>` is the source of truth. `GameWorld` exposes `#[func]` getters/setters. `ResourceHeader` polls `GameWorld` each frame. The former `ResourceManager` autoload has been removed.
-- **Signals**: `tile_selected`, `tile_deselected`, `resources_changed` all on `GameWorld`.
+- **Signals**: `tile_selected`, `tile_desele[simulation_tests.rs](rust/game_engine/tests/simulation_tests.rs)cted`, `resources_changed` all on `GameWorld`.
 
 ## Commands
 
