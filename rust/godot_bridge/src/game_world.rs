@@ -17,6 +17,7 @@ const ZOOM_MARGIN: f32 = 0.95;
 const ZOOM_MAX: f32 = 4.0;
 const ZOOM_FACTOR: f32 = 1.1;
 const PAN_SPEED: f32 = 600.0;
+const CAMERA_LIMIT_PADDING_FACTOR: f32 = 1.0;
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -350,11 +351,12 @@ impl GameWorld {
 
     fn configure_camera_for_surface(&self, camera: &mut Gd<Camera2D>) {
         let world_size = self.world_size();
+        let padding = world_size * CAMERA_LIMIT_PADDING_FACTOR;
         camera.set_position(world_size / 2.0);
-        camera.set_limit(Side::LEFT, 0);
-        camera.set_limit(Side::TOP, 0);
-        camera.set_limit(Side::RIGHT, world_limit(world_size.x));
-        camera.set_limit(Side::BOTTOM, world_limit(world_size.y));
+        camera.set_limit(Side::LEFT, world_limit(-padding.x));
+        camera.set_limit(Side::TOP, world_limit(-padding.y));
+        camera.set_limit(Side::RIGHT, world_limit(world_size.x + padding.x));
+        camera.set_limit(Side::BOTTOM, world_limit(world_size.y + padding.y));
         camera.set_limit_smoothing_enabled(false);
         camera.set_position_smoothing_enabled(false);
     }
