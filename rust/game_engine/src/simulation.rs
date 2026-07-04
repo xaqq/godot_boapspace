@@ -1,6 +1,6 @@
-use crate::grid::{CellCoord, CellType, Grid, GridSize};
+use crate::grid::{Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
-use crate::resources::{GameResources, ResourceKind};
+use crate::resources::GameResources;
 use crate::systems::build_surface_schedule;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
@@ -39,14 +39,6 @@ impl SurfaceRuntime {
 
     fn grid(&self) -> &Grid {
         self.world.resource::<Grid>()
-    }
-
-    fn resources(&self) -> &GameResources {
-        self.world.resource::<GameResources>()
-    }
-
-    fn resources_mut(&mut self) -> Mut<'_, GameResources> {
-        self.world.resource_mut::<GameResources>()
     }
 
     fn tick(&mut self) {
@@ -97,27 +89,6 @@ impl GameSimulation {
         Some(self.surface(surface_id)?.grid().size())
     }
 
-    pub fn cell_type(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<CellType> {
-        self.surface(surface_id)?.grid().get(coord)
-    }
-
-    pub fn resource_amount(&self, surface_id: SurfaceId, kind: ResourceKind) -> Option<u32> {
-        Some(self.surface(surface_id)?.resources().get(kind))
-    }
-
-    pub fn add_resource(
-        &mut self,
-        surface_id: SurfaceId,
-        kind: ResourceKind,
-        amount: u32,
-    ) -> Option<bool> {
-        Some(
-            self.surface_mut(surface_id)?
-                .resources_mut()
-                .add(kind, amount),
-        )
-    }
-
     pub fn with_surface_world<R>(
         &self,
         surface_id: SurfaceId,
@@ -126,20 +97,8 @@ impl GameSimulation {
         Some(f(&self.surface(surface_id)?.world))
     }
 
-    pub fn with_surface_world_mut<R>(
-        &mut self,
-        surface_id: SurfaceId,
-        f: impl FnOnce(&mut World) -> R,
-    ) -> Option<R> {
-        Some(f(&mut self.surface_mut(surface_id)?.world))
-    }
-
     fn surface(&self, surface_id: SurfaceId) -> Option<&SurfaceRuntime> {
         self.surfaces.get(surface_id.index())
-    }
-
-    fn surface_mut(&mut self, surface_id: SurfaceId) -> Option<&mut SurfaceRuntime> {
-        self.surfaces.get_mut(surface_id.index())
     }
 }
 

@@ -335,11 +335,7 @@ impl GameWorld {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         for coord in self.grid_size().iter_coords() {
-            let atlas_x = match self
-                .game
-                .cell_type(self.rendered_surface, coord)
-                .unwrap_or_default()
-            {
+            let atlas_x = match self.cell_type_at(coord).unwrap_or_default() {
                 CellType::Empty => 0,
                 CellType::Building => 1,
             };
@@ -373,10 +369,7 @@ impl GameWorld {
             if self.selected_cell.map(|selected| selected.coord) == Some(coord) {
                 self.clear_selection();
             } else {
-                let cell_type = self
-                    .game
-                    .cell_type(self.rendered_surface, coord)
-                    .unwrap_or_default();
+                let cell_type = self.cell_type_at(coord).unwrap_or_default();
                 let resource_kind = self.resource_node_at(coord);
                 self.selected_cell = Some(SelectedCell {
                     coord,
@@ -444,6 +437,11 @@ impl GameWorld {
 
     pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> Option<R> {
         self.game.with_surface_world(self.rendered_surface, f)
+    }
+
+    fn cell_type_at(&self, coord: CellCoord) -> Option<CellType> {
+        self.with_rendered_surface_world(|world| world.resource::<Grid>().get(coord))
+            .flatten()
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
@@ -545,19 +543,17 @@ impl GameWorld {
         resource_map.update_internals();
     }
 
-    fn resource_node_at(&mut self, coord: CellCoord) -> Option<ResourceKind> {
-        self.game
-            .with_surface_world_mut(self.rendered_surface, |world| {
-                query_resource_nodes(world)
-                    .into_iter()
-                    .find_map(|(node_coord, kind)| (node_coord == coord).then_some(kind))
-            })
-            .flatten()
+    fn resource_node_at(&self, coord: CellCoord) -> Option<ResourceKind> {
+        self.with_rendered_surface_world(|world| {
+            query_resource_nodes(world)
+                .into_iter()
+                .find_map(|(node_coord, kind)| (node_coord == coord).then_some(kind))
+        })
+        .flatten()
     }
 
-    fn resource_nodes(&mut self) -> Option<Vec<(CellCoord, ResourceKind)>> {
-        self.game
-            .with_surface_world_mut(self.rendered_surface, query_resource_nodes)
+    fn resource_nodes(&self) -> Option<Vec<(CellCoord, ResourceKind)>> {
+        self.with_rendered_surface_world(query_resource_nodes)
     }
 
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
@@ -648,10 +644,14 @@ fn surface_index_i32(surface: SurfaceId) -> i32 {
     i32::try_from(surface.index()).unwrap_or(i32::MAX)
 }
 
-fn query_resource_nodes(world: &mut World) -> Vec<(CellCoord, ResourceKind)> {
-    let mut query = world.query::<(&TilePosition, &ResourceNode)>();
-    query
-        .iter(world)
-        .map(|(position, node)| (position.coord, node.kind))
-        .collect()
+fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
+    world
+        .try_query::<(&TilePosition, &ResourceNode)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(position, node)| (position.coord, node.kind))
+                .collect()
+        })
+        .unwrap_or_default()
 }

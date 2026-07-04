@@ -1,4 +1,4 @@
-use game_engine::grid::{CellCoord, CellType, GridSize};
+use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::resource_nodes::{ResourceNode, TilePosition};
 use game_engine::resources::{GameResources, ResourceKind};
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
@@ -46,36 +46,16 @@ fn test_surface_id_at_rejects_invalid_indexes() {
 }
 
 #[test]
-fn test_resources_are_scoped_per_surface() {
+fn test_resources_are_available_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(8, 8));
 
-    assert_eq!(
-        simulation.add_resource(default_surface, ResourceKind::Wood, 25),
-        Some(true)
-    );
-    assert_eq!(
-        simulation.add_resource(second_surface, ResourceKind::Stone, 40),
-        Some(true)
-    );
+    let default_amounts = simulation.with_surface_world(default_surface, resource_amounts);
+    let second_amounts = simulation.with_surface_world(second_surface, resource_amounts);
 
-    assert_eq!(
-        simulation.resource_amount(default_surface, ResourceKind::Wood),
-        Some(25)
-    );
-    assert_eq!(
-        simulation.resource_amount(default_surface, ResourceKind::Stone),
-        Some(0)
-    );
-    assert_eq!(
-        simulation.resource_amount(second_surface, ResourceKind::Wood),
-        Some(0)
-    );
-    assert_eq!(
-        simulation.resource_amount(second_surface, ResourceKind::Stone),
-        Some(40)
-    );
+    assert_eq!(default_amounts, Some([0, 0, 0, 0]));
+    assert_eq!(second_amounts, Some([0, 0, 0, 0]));
 }
 
 #[test]
@@ -84,15 +64,6 @@ fn test_surface_world_read_closure_can_read_resources() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(8, 8));
 
-    assert_eq!(
-        simulation.add_resource(default_surface, ResourceKind::Food, 30),
-        Some(true)
-    );
-    assert_eq!(
-        simulation.add_resource(second_surface, ResourceKind::Gold, 45),
-        Some(true)
-    );
-
     let default_food = simulation.with_surface_world(default_surface, |world| {
         world.resource::<GameResources>().get(ResourceKind::Food)
     });
@@ -100,8 +71,8 @@ fn test_surface_world_read_closure_can_read_resources() {
         world.resource::<GameResources>().get(ResourceKind::Gold)
     });
 
-    assert_eq!(default_food, Some(30));
-    assert_eq!(second_gold, Some(45));
+    assert_eq!(default_food, Some(0));
+    assert_eq!(second_gold, Some(0));
 }
 
 #[test]
@@ -110,14 +81,15 @@ fn test_grid_reads_are_scoped_per_surface() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
-    assert_eq!(
-        simulation.cell_type(default_surface, CellCoord::new(100, 100)),
-        Some(CellType::Empty)
-    );
-    assert_eq!(
-        simulation.cell_type(second_surface, CellCoord::new(100, 100)),
-        None
-    );
+    let default_cell = simulation.with_surface_world(default_surface, |world| {
+        world.resource::<Grid>().get(CellCoord::new(100, 100))
+    });
+    let second_cell = simulation.with_surface_world(second_surface, |world| {
+        world.resource::<Grid>().get(CellCoord::new(100, 100))
+    });
+
+    assert_eq!(default_cell, Some(Some(Default::default())));
+    assert_eq!(second_cell, Some(None));
 }
 
 #[test]
@@ -210,7 +182,7 @@ fn test_tick_does_not_duplicate_resource_nodes() {
 }
 
 fn sorted_resource_nodes(
-    simulation: &mut GameSimulation,
+    simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, ResourceKind)> {
     let mut nodes = resource_nodes(simulation, surface);
@@ -219,16 +191,27 @@ fn sorted_resource_nodes(
 }
 
 fn resource_nodes(
-    simulation: &mut GameSimulation,
+    simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, ResourceKind)> {
     simulation
-        .with_surface_world_mut(surface, |world| {
-            let mut query = world.query::<(&TilePosition, &ResourceNode)>();
+        .with_surface_world(surface, query_resource_nodes)
+        .expect("surface should exist")
+}
+
+fn resource_amounts(world: &bevy_ecs::world::World) -> [u32; ResourceKind::ALL.len()] {
+    let resources = world.resource::<GameResources>();
+    ResourceKind::ALL.map(|kind| resources.get(kind))
+}
+
+fn query_resource_nodes(world: &bevy_ecs::world::World) -> Vec<(CellCoord, ResourceKind)> {
+    world
+        .try_query::<(&TilePosition, &ResourceNode)>()
+        .map(|mut query| {
             query
                 .iter(world)
                 .map(|(position, node)| (position.coord, node.kind))
                 .collect()
         })
-        .expect("surface should exist")
+        .unwrap_or_default()
 }
