@@ -1,7 +1,6 @@
 use godot::classes::{Control, IControl, Label};
 use godot::obj::OnEditor;
 use godot::prelude::*;
-use godot::signal::ConnectHandle;
 use crate::game_world::GameWorld;
 
 #[derive(GodotClass)]
@@ -13,8 +12,8 @@ pub(crate) struct TileInfoPanel {
     #[export]
     type_label: OnEditor<Gd<Label>>,
 
-    _select_handle: Option<ConnectHandle>,
-    _deselect_handle: Option<ConnectHandle>,
+    #[export]
+    game_world: OnEditor<Gd<GameWorld>>,
 
     base: Base<Control>,
 }
@@ -25,38 +24,33 @@ impl IControl for TileInfoPanel {
         Self {
             pos_label: OnEditor::default(),
             type_label: OnEditor::default(),
-            _select_handle: None,
-            _deselect_handle: None,
+            game_world: OnEditor::default(),
             base,
         }
     }
 
     fn ready(&mut self) {
-        let game_world = self.base().get_node_as::<GameWorld>(
-            "../SubViewportContainer/SubViewport/GameWorld",
-        );
+        let game_world = self.game_world.clone();
         if !game_world.is_instance_valid() {
             return;
         }
 
         let mut pos1 = self.pos_label.clone();
         let mut type1 = self.type_label.clone();
-        let h1 = game_world.signals().tile_selected().connect(
+        game_world.signals().tile_selected().connect(
             move |x: i32, y: i32, type_name: GString| {
                 pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
                 type1.set_text(format!("Type: {}", type_name).as_str());
             },
         );
-        self._select_handle = Some(h1);
 
         let mut pos2 = self.pos_label.clone();
         let mut type2 = self.type_label.clone();
-        let h2 = game_world.signals().tile_deselected().connect(
+        game_world.signals().tile_deselected().connect(
             move || {
                 pos2.set_text("Cell: None");
                 type2.set_text("Type: --");
             },
         );
-        self._deselect_handle = Some(h2);
     }
 }

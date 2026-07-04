@@ -29,9 +29,6 @@ pub(crate) struct GameWorld {
     tile_source_id: i32,
     _tile_set: Option<Gd<TileSet>>,
 
-    #[export]
-    highlight_layer: OnEditor<Gd<TileMapLayer>>,
-
     base: Base<Node2D>,
 }
 
@@ -46,23 +43,17 @@ impl INode2D for GameWorld {
             selected_cell: None,
             tile_source_id: -1,
             _tile_set: None,
-            highlight_layer: OnEditor::default(),
             base,
         }
     }
 
     fn ready(&mut self) {
+        let mut tm = self.tile_map.clone();
+        let mut cam = self.camera.clone();
+
         let ts = game_surface::TILE_SIZE as i32;
         let atlas_w = ts * 2;
         let atlas_h = ts;
-
-        let tm = self.base().get_node_as::<TileMapLayer>("TileMap");
-        let cam = self.base().get_node_as::<Camera2D>("Camera2D");
-        *self.tile_map = tm;
-        *self.camera = cam;
-
-        let mut tm = self.tile_map.clone();
-        let mut cam = self.camera.clone();
 
         let mut image =
             Image::create(atlas_w, atlas_h, false, image::Format::RGBA8).unwrap();
@@ -137,7 +128,7 @@ impl INode2D for GameWorld {
         };
 
         {
-            let mut cam = self.camera.clone();
+            let mut cam = self.camera();
             let zoom = cam.get_zoom().x;
             let clamped = if zoom < min_zoom {
                 min_zoom
@@ -167,9 +158,9 @@ impl INode2D for GameWorld {
 
         if dir != Vector2::ZERO {
             dir = dir.normalized();
-            let zoom = self.camera.clone().get_zoom().x;
+            let zoom = self.camera().get_zoom().x;
             let speed = PAN_SPEED / zoom;
-            let mut cam = self.camera.clone();
+            let mut cam = self.camera();
             let pos = cam.get_position();
             cam.set_position(pos + dir * speed * delta as f32);
         }
@@ -249,6 +240,10 @@ impl INode2D for GameWorld {
 }
 
 impl GameWorld {
+    fn camera(&self) -> Gd<Camera2D> {
+        self.camera.clone()
+    }
+
     fn get_viewport_size(&self) -> Vector2 {
         self.base()
             .get_viewport()
@@ -291,7 +286,7 @@ impl GameWorld {
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
-        let old_zoom = self.camera.clone().get_zoom().x;
+        let old_zoom = self.camera().get_zoom().x;
 
         let vs = self.get_viewport_size();
         let min_zoom = {
@@ -312,9 +307,9 @@ impl GameWorld {
         let cursor_offset = mouse_pos - half_vs;
 
         let world_under_cursor =
-            self.camera.clone().get_position() + cursor_offset / old_zoom;
+            self.camera().get_position() + cursor_offset / old_zoom;
 
-        let mut cam = self.camera.clone();
+        let mut cam = self.camera();
         cam.set_zoom(Vector2::new(new_zoom, new_zoom));
         cam.set_position(world_under_cursor - cursor_offset / new_zoom);
     }

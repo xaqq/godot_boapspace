@@ -28,7 +28,8 @@ layout_mode = 2
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer" unique_id=1842781406 instance=ExtResource("3_tile_info_panel")]
+[node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer" unique_id=1842781406 node_paths=PackedStringArray("game_world") instance=ExtResource("3_tile_info_panel")]
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
@@ -38,18 +39,17 @@ size_flags_horizontal = 3
 stretch = true
 
 [node name="SubViewport" type="SubViewport" parent="VBoxContainer/HBoxContainer/SubViewportContainer" unique_id=101000002]
-size = Vector2(1024, 600)
+handle_input_locally = false
+size = Vector2i(948, 621)
+render_target_update_mode = 4
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "camera", "highlight_layer")]
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "camera")]
 tile_map = NodePath("TileMap")
 camera = NodePath("Camera2D")
-highlight_layer = NodePath("HighlightLayer")
 
 [node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
 
 [node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
-
-[node name="HighlightLayer" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
 
 [node name="IngameMenu" parent="." unique_id=513882939 instance=ExtResource("1_ingame_menu")]
 visible = false
