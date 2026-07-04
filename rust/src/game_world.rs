@@ -8,7 +8,6 @@ use godot::global::{Key, MouseButton};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 use crate::game_surface::{self, GameSurface};
-use crate::selected_tile::SelectedTile;
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -20,16 +19,13 @@ const PAN_SPEED: f32 = 600.0;
 #[class(base = Node2D)]
 pub(crate) struct GameWorld {
     #[export]
-    selected_tile: OnEditor<Gd<SelectedTile>>,
-
-    #[export]
     tile_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
     surface: GameSurface,
-    prev_highlight: Option<(i32, i32)>,
+    selected_cell: Option<(i32, i32, GString)>,
     tile_source_id: i32,
     _tile_set: Option<Gd<TileSet>>,
 
@@ -44,11 +40,10 @@ impl INode2D for GameWorld {
     fn init(base: Base<Node2D>) -> Self {
         let surface = GameSurface::new(256, 256);
         Self {
-            selected_tile: OnEditor::default(),
             tile_map: OnEditor::default(),
             camera: OnEditor::default(),
             surface,
-            prev_highlight: None,
+            selected_cell: None,
             tile_source_id: -1,
             _tile_set: None,
             highlight_layer: OnEditor::default(),
@@ -186,7 +181,7 @@ impl INode2D for GameWorld {
         let w = self.surface.width as i32;
         let h = self.surface.height as i32;
         let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
-        let hl_cell = self.prev_highlight;
+        let hl_cell = self.selected_cell.as_ref().map(|(x, y, _)| (*x, *y));
 
         let mut base = self.base_mut();
         for x in 0..=w {
@@ -264,30 +259,34 @@ impl GameWorld {
     fn handle_tile_click(&mut self) {
         let mouse_pos = self.base().get_local_mouse_position();
 
-        let mut tile = self.selected_tile.clone();
-        let mut bound = tile.bind_mut();
-
         if let Some((cx, cy)) = GameSurface::world_to_cell(
             mouse_pos,
             self.surface.width as i32,
             self.surface.height as i32,
         ) {
-            let current = (bound.cell_x(), bound.cell_y());
-            if current == (Some(cx), Some(cy)) {
-                bound.deselect();
-                self.set_highlight(None);
+            let current = &self.selected_cell;
+            if current
+                .as_ref()
+                .map(|(x, y, _)| (*x, *y))
+                == Some((cx, cy))
+            {
+                self.selected_cell = None;
+                self.base_mut().queue_redraw();
+                self.signals().tile_deselected().emit();
             } else {
                 let type_name = self
                     .surface
                     .get(cx, cy)
                     .map(|c| GString::from(c.type_name()))
                     .unwrap_or_default();
-                bound.select(cx, cy, type_name);
-                self.set_highlight(Some((cx, cy)));
+                self.selected_cell = Some((cx, cy, type_name.clone()));
+                self.base_mut().queue_redraw();
+                self.signals().tile_selected().emit(cx, cy, &type_name);
             }
         } else {
-            bound.deselect();
-            self.set_highlight(None);
+            self.selected_cell = None;
+            self.base_mut().queue_redraw();
+            self.signals().tile_deselected().emit();
         }
     }
 
@@ -319,12 +318,13 @@ impl GameWorld {
         cam.set_zoom(Vector2::new(new_zoom, new_zoom));
         cam.set_position(world_under_cursor - cursor_offset / new_zoom);
     }
-
-    fn set_highlight(&mut self, cell: Option<(i32, i32)>) {
-        self.prev_highlight = cell;
-        self.base_mut().queue_redraw();
-    }
 }
 
 #[godot_api]
-impl GameWorld {}
+impl GameWorld {
+    #[signal]
+    pub(crate) fn tile_selected(x: i32, y: i32, type_name: GString);
+
+    #[signal]
+    pub(crate) fn tile_deselected();
+}

@@ -3,7 +3,6 @@
 [ext_resource type="PackedScene" uid="uid://bgl6fb1fuuabc" path="res://ingame_menu.tscn" id="1_ingame_menu"]
 [ext_resource type="PackedScene" uid="uid://creshead0001" path="res://resource_header.tscn" id="2_resource_header"]
 [ext_resource type="PackedScene" uid="uid://tileinfop001" path="res://tile_info_panel.tscn" id="3_tile_info_panel"]
-[ext_resource type="SelectedTile" path="res://selected_tile.tres" id="4_selected_tile"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -30,7 +29,6 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer" unique_id=1842781406 instance=ExtResource("3_tile_info_panel")]
-selected_tile = ExtResource("4_selected_tile")
 layout_mode = 2
 
 [node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
@@ -46,7 +44,6 @@ size = Vector2(1024, 600)
 tile_map = NodePath("TileMap")
 camera = NodePath("Camera2D")
 highlight_layer = NodePath("HighlightLayer")
-selected_tile = ExtResource("4_selected_tile")
 
 [node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
 
