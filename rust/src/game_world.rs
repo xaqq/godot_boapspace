@@ -1,8 +1,8 @@
 use godot::builtin::Side;
 use godot::classes::{
-    image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
-    InputEventMouseButton, Node2D, TileMapLayer, TileSet, TileSetAtlasSource,
-    TileSetSource,
+    canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture,
+    Input, InputEvent, InputEventMouseButton, Node2D, TileMapLayer, TileSet,
+    TileSetAtlasSource, TileSetSource,
 };
 use godot::global::{Key, MouseButton};
 use godot::obj::OnEditor;
@@ -58,14 +58,12 @@ impl INode2D for GameWorld {
 
     fn ready(&mut self) {
         let ts = game_surface::TILE_SIZE as i32;
-        let atlas_w = ts * 3;
+        let atlas_w = ts * 2;
         let atlas_h = ts;
 
         let tm = self.base().get_node_as::<TileMapLayer>("TileMap");
-        let hl = self.base().get_node_as::<TileMapLayer>("HighlightLayer");
         let cam = self.base().get_node_as::<Camera2D>("Camera2D");
         *self.tile_map = tm;
-        *self.highlight_layer = hl;
         *self.camera = cam;
 
         let mut tm = self.tile_map.clone();
@@ -76,28 +74,15 @@ impl INode2D for GameWorld {
         image.fill(Color::from_rgba8(0, 0, 0, 0));
 
         let grass = Color::from_rgb(0.25, 0.55, 0.15);
-        let dark = Color::from_rgb(0.12, 0.35, 0.05);
         let brown = Color::from_rgb(0.55, 0.45, 0.25);
-        let yellow = Color::from_rgb(1.0, 0.84, 0.0);
 
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let rect = |x: i32, y: i32, w: i32, h: i32| Rect2i::new(v2(x, y), v2(w, h));
 
         image.fill_rect(rect(0, 0, ts, ts), grass);
-        image.fill_rect(rect(ts - 1, 0, 1, ts), dark);
-        image.fill_rect(rect(0, ts - 1, ts, 1), dark);
 
         let bx = ts;
         image.fill_rect(rect(bx, 0, ts, ts), brown);
-        image.fill_rect(rect(bx + ts - 1, 0, 1, ts), dark);
-        image.fill_rect(rect(bx, ts - 1, ts, 1), dark);
-
-        let hx = ts * 2;
-        let bw: i32 = 3;
-        image.fill_rect(rect(hx, 0, ts, bw), yellow);
-        image.fill_rect(rect(hx, ts - bw, ts, bw), yellow);
-        image.fill_rect(rect(hx, 0, bw, ts), yellow);
-        image.fill_rect(rect(hx + ts - bw, 0, bw, ts), yellow);
 
         let texture = ImageTexture::create_from_image(&image).unwrap();
 
@@ -106,7 +91,6 @@ impl INode2D for GameWorld {
         source.set_texture_region_size(v2(ts, ts));
         source.create_tile_ex(v2(0, 0)).done();
         source.create_tile_ex(v2(1, 0)).done();
-        source.create_tile_ex(v2(2, 0)).done();
 
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(ts, ts));
@@ -116,6 +100,8 @@ impl INode2D for GameWorld {
         tm.set_tile_set(&tile_set);
         self._tile_set = Some(tile_set);
         tm.set_navigation_enabled(false);
+        tm.set_texture_filter(TextureFilter::NEAREST);
+        tm.set_draw_behind_parent(true);
 
         let w = self.surface.width as i32;
         let h = self.surface.height as i32;
@@ -128,10 +114,6 @@ impl INode2D for GameWorld {
             }
         }
         tm.update_internals();
-
-        let mut hl = self.highlight_layer.clone();
-        hl.set_tile_set(self._tile_set.as_ref().unwrap());
-        hl.set_navigation_enabled(false);
 
         cam.set_enabled(true);
         cam.make_current();
@@ -199,15 +181,53 @@ impl INode2D for GameWorld {
     }
 
     fn draw(&mut self) {
+        let ts = game_surface::TILE_SIZE;
         let ws = self.surface.world_size();
-        self.base_mut()
-            .draw_rect_ex(
-                Rect2::new(Vector2::ZERO, ws),
-                Color::from_rgb(0.95, 0.35, 0.05),
-            )
-            .filled(false)
-            .width(4.0)
-            .done();
+        let w = self.surface.width as i32;
+        let h = self.surface.height as i32;
+        let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
+        let hl_cell = self.prev_highlight;
+
+        let mut base = self.base_mut();
+        for x in 0..=w {
+            let px = x as f32 * ts;
+            base.draw_line(
+                Vector2::new(px, 0.0),
+                Vector2::new(px, ws.y),
+                grid_color,
+            );
+        }
+        for y in 0..=h {
+            let py = y as f32 * ts;
+            base.draw_line(
+                Vector2::new(0.0, py),
+                Vector2::new(ws.x, py),
+                grid_color,
+            );
+        }
+
+        base.draw_rect_ex(
+            Rect2::new(Vector2::ZERO, ws),
+            Color::from_rgb(0.95, 0.35, 0.05),
+        )
+        .filled(false)
+        .width(4.0)
+        .done();
+
+        if let Some((cx, cy)) = hl_cell {
+            let cell_pos = Vector2::new(cx as f32 * ts, cy as f32 * ts);
+            let cell_size = Vector2::new(ts, ts);
+            let yellow = Color::from_rgb(1.0, 0.84, 0.0);
+            let mut fill = yellow;
+            fill.a = 0.15;
+            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
+                .filled(true)
+                .done();
+            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), yellow)
+                .filled(false)
+                .width(4.0)
+                .done();
+        }
     }
 
     fn input(&mut self, event: Gd<InputEvent>) {
@@ -301,20 +321,8 @@ impl GameWorld {
     }
 
     fn set_highlight(&mut self, cell: Option<(i32, i32)>) {
-        let mut hl = self.highlight_layer.clone();
-
-        if let Some((x, y)) = self.prev_highlight {
-            hl.erase_cell(Vector2i::new(x, y));
-        }
-
-        if let Some((x, y)) = cell {
-            hl.set_cell_ex(Vector2i::new(x, y))
-                .source_id(self.tile_source_id)
-                .atlas_coords(Vector2i::new(2, 0))
-                .done();
-        }
-
         self.prev_highlight = cell;
+        self.base_mut().queue_redraw();
     }
 }
 
