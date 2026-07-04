@@ -1,10 +1,10 @@
 use crate::game_world::GameWorld;
-use godot::classes::{Control, IControl, Label};
+use godot::classes::{IPanelContainer, Label, PanelContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
 #[derive(GodotClass)]
-#[class(base = Control)]
+#[class(base = PanelContainer)]
 pub(crate) struct TileInfoPanel {
     #[export]
     pos_label: OnEditor<Gd<Label>>,
@@ -15,12 +15,12 @@ pub(crate) struct TileInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    base: Base<Control>,
+    base: Base<PanelContainer>,
 }
 
 #[godot_api]
-impl IControl for TileInfoPanel {
-    fn init(base: Base<Control>) -> Self {
+impl IPanelContainer for TileInfoPanel {
+    fn init(base: Base<PanelContainer>) -> Self {
         Self {
             pos_label: OnEditor::default(),
             type_label: OnEditor::default(),

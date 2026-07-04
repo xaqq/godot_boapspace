@@ -28,6 +28,24 @@ fn test_create_surface_returns_distinct_id() {
 }
 
 #[test]
+fn test_surface_id_at_returns_valid_surface_ids() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation.create_surface(GridSize::new(10, 12));
+
+    assert_eq!(simulation.surface_id_at(0), Some(default_surface));
+    assert_eq!(simulation.surface_id_at(1), Some(second_surface));
+}
+
+#[test]
+fn test_surface_id_at_rejects_invalid_indexes() {
+    let mut simulation = GameSimulation::new();
+    simulation.create_surface(GridSize::new(10, 12));
+
+    assert_eq!(simulation.surface_id_at(2), None);
+}
+
+#[test]
 fn test_resources_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();

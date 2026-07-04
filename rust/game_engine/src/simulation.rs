@@ -83,6 +83,10 @@ impl GameSimulation {
         self.surfaces.len()
     }
 
+    pub fn surface_id_at(&self, index: usize) -> Option<SurfaceId> {
+        (index < self.surfaces.len()).then_some(SurfaceId(index))
+    }
+
     pub fn tick(&mut self, _delta: f32) {
         for surface in &mut self.surfaces {
             surface.tick();

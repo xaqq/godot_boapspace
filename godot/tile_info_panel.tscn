@@ -1,49 +1,39 @@
 [gd_scene format=3 uid="uid://tileinfop001"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tile_info_bg"]
-bg_color = Color(0.08, 0.09, 0.12, 0.92)
-
 [node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "type_label")]
+pos_label = NodePath("MarginContainer/VBoxContainer/pos_label")
+type_label = NodePath("MarginContainer/VBoxContainer/type_label")
 custom_minimum_size = Vector2(200, 0)
-pos_label = NodePath("PanelContainer/MarginContainer/VBoxContainer/pos_label")
-type_label = NodePath("PanelContainer/MarginContainer/VBoxContainer/type_label")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="PanelContainer" type="PanelContainer" parent="." unique_id=1280971040]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_tile_info_bg")
-
-[node name="MarginContainer" type="MarginContainer" parent="PanelContainer" unique_id=1922920573]
-layout_mode = 2
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=1922920573]
+layout_mode = 0
+offset_right = 1152.0
+offset_bottom = 648.0
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_top = 8
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 8
 
-[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer" unique_id=1573781779]
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1573781779]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="TitleLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1728009330]
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1728009330]
 layout_mode = 2
 text = "Selected Tile"
 
-[node name="HSeparator" type="HSeparator" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1463676838]
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676838]
 layout_mode = 2
 
-[node name="pos_label" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1938474775]
+[node name="pos_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1938474775]
 layout_mode = 2
 text = "Cell: None"
 
-[node name="type_label" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1173271509]
+[node name="type_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271509]
 layout_mode = 2
 text = "Type: --"

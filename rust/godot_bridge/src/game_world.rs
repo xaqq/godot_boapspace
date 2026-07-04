@@ -48,6 +48,7 @@ pub(crate) struct GameWorld {
     game: GameSimulation,
     rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
+    tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
 
@@ -67,6 +68,7 @@ impl INode2D for GameWorld {
             game,
             rendered_surface,
             selected_cell: None,
+            tile_source_id: None,
             _tile_set: None,
             _resource_node_tile_set: None,
             base,
@@ -134,19 +136,14 @@ impl INode2D for GameWorld {
             return;
         }
 
+        self.tile_source_id = Some(source_id);
         tm.set_tile_set(&tile_set);
         self._tile_set = Some(tile_set);
         tm.set_navigation_enabled(false);
         tm.set_texture_filter(TextureFilter::NEAREST);
         tm.set_draw_behind_parent(true);
 
-        for coord in self.grid_size().iter_coords() {
-            tm.set_cell_ex(v2(coord.x(), coord.y()))
-                .source_id(source_id)
-                .atlas_coords(v2(0, 0))
-                .done();
-        }
-        tm.update_internals();
+        self.populate_tile_map(&mut tm, source_id);
 
         let Some(resource_tile_set) = self.build_resource_node_tile_set(ts) else {
             self.disable_processing();
@@ -161,14 +158,8 @@ impl INode2D for GameWorld {
 
         cam.set_enabled(true);
         cam.make_current();
-        cam.set_position(self.world_size() / 2.0);
         cam.set_zoom(Vector2::new(0.5, 0.5));
-        cam.set_limit(Side::LEFT, 0);
-        cam.set_limit(Side::TOP, 0);
-        cam.set_limit(Side::RIGHT, world_limit(self.world_size().x));
-        cam.set_limit(Side::BOTTOM, world_limit(self.world_size().y));
-        cam.set_limit_smoothing_enabled(false);
-        cam.set_position_smoothing_enabled(false);
+        self.configure_camera_for_surface(&mut cam);
 
         self.base_mut().set_process_input(true);
         self.base_mut().set_process(true);
@@ -338,6 +329,38 @@ impl GameWorld {
             size.width() as f32 * grid::TILE_SIZE,
             size.height() as f32 * grid::TILE_SIZE,
         )
+    }
+
+    fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) {
+        tile_map.clear();
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        for coord in self.grid_size().iter_coords() {
+            let atlas_x = match self
+                .game
+                .cell_type(self.rendered_surface, coord)
+                .unwrap_or_default()
+            {
+                CellType::Empty => 0,
+                CellType::Building => 1,
+            };
+            tile_map
+                .set_cell_ex(v2(coord.x(), coord.y()))
+                .source_id(source_id)
+                .atlas_coords(v2(atlas_x, 0))
+                .done();
+        }
+        tile_map.update_internals();
+    }
+
+    fn configure_camera_for_surface(&self, camera: &mut Gd<Camera2D>) {
+        let world_size = self.world_size();
+        camera.set_position(world_size / 2.0);
+        camera.set_limit(Side::LEFT, 0);
+        camera.set_limit(Side::TOP, 0);
+        camera.set_limit(Side::RIGHT, world_limit(world_size.x));
+        camera.set_limit(Side::BOTTOM, world_limit(world_size.y));
+        camera.set_limit_smoothing_enabled(false);
+        camera.set_position_smoothing_enabled(false);
     }
 
     fn handle_tile_click(&mut self) {
@@ -563,6 +586,49 @@ impl GameWorld {
         self.game
             .with_surface_world_mut(self.rendered_surface, query_resource_nodes)
     }
+
+    fn switch_rendered_surface(&mut self, surface: SurfaceId) {
+        if self.rendered_surface == surface {
+            return;
+        }
+
+        self.rendered_surface = surface;
+        self.selected_cell = None;
+
+        let Some(mut tile_map) = self.tile_map_node() else {
+            godot_error!("GameWorld: tile_map reference not set");
+            self.disable_processing();
+            return;
+        };
+        let Some(tile_source_id) = self.tile_source_id else {
+            godot_error!("GameWorld: tile source id not initialized");
+            self.disable_processing();
+            return;
+        };
+        self.populate_tile_map(&mut tile_map, tile_source_id);
+
+        let Some(mut resource_map) = self.resource_node_map_node() else {
+            godot_error!("GameWorld: resource_node_map reference not set");
+            self.disable_processing();
+            return;
+        };
+        self.populate_resource_node_map(&mut resource_map);
+
+        if let Some(mut camera) = self.camera_node() {
+            self.configure_camera_for_surface(&mut camera);
+        } else {
+            godot_error!("GameWorld: camera reference not set");
+            self.disable_processing();
+            return;
+        }
+
+        let active_surface_index = surface_index_i32(self.rendered_surface);
+
+        self.base_mut().queue_redraw();
+        self.signals().tile_deselected().emit();
+        self.signals().resources_changed().emit();
+        self.signals().surface_changed().emit(active_surface_index);
+    }
 }
 
 #[godot_api]
@@ -575,6 +641,34 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn resources_changed();
+
+    #[signal]
+    pub(crate) fn surface_changed(index: i32);
+
+    #[func]
+    pub(crate) fn surface_count(&self) -> i32 {
+        i32::try_from(self.game.surface_count()).unwrap_or(i32::MAX)
+    }
+
+    #[func]
+    pub(crate) fn active_surface_index(&self) -> i32 {
+        surface_index_i32(self.rendered_surface)
+    }
+
+    #[func]
+    pub(crate) fn set_active_surface_index(&mut self, index: i32) -> bool {
+        let Ok(index) = usize::try_from(index) else {
+            godot_warn!("GameWorld: ignoring negative surface index");
+            return false;
+        };
+        let Some(surface) = self.game.surface_id_at(index) else {
+            godot_warn!("GameWorld: ignoring unknown surface index {index}");
+            return false;
+        };
+
+        self.switch_rendered_surface(surface);
+        true
+    }
 
     #[func]
     pub(crate) fn wood(&self) -> u32 {
@@ -615,6 +709,10 @@ impl GameWorld {
     pub(crate) fn add_gold(&mut self, amount: u32) {
         self.add_resource(ResourceKind::Gold, amount);
     }
+}
+
+fn surface_index_i32(surface: SurfaceId) -> i32 {
+    i32::try_from(surface.index()).unwrap_or(i32::MAX)
 }
 
 fn query_resource_nodes(world: &mut World) -> Vec<(CellCoord, ResourceKind)> {
