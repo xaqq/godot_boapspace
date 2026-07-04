@@ -31,27 +31,33 @@ impl IControl for TileInfoPanel {
 
     fn ready(&mut self) {
         let game_world = self.game_world.clone();
-        let mut pos1 = self.pos_label.clone();
-        let mut type1 = self.type_label.clone();
+        let pos_label = self.pos_label.clone();
+        let type_label = self.type_label.clone();
 
-        game_world.signals().tile_selected().connect(
-            move |x: i32, y: i32, type_name: GString, resource_name: GString| {
-                pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
-                if resource_name.is_empty() {
-                    type1.set_text(format!("Type: {}", type_name).as_str());
-                } else {
-                    type1.set_text(
-                        format!("Type: {}\nResource: {}", type_name, resource_name).as_str(),
-                    );
-                }
-            },
-        );
+        let mut selected_pos_label = pos_label.clone();
+        let mut selected_type_label = type_label.clone();
+        game_world
+            .signals()
+            .tile_selected()
+            .connect(move |x, y, type_name, resource_name| {
+                selected_pos_label.set_text(format!("Cell: ({x}, {y})").as_str());
+                selected_type_label
+                    .set_text(tile_details_text(&type_name, &resource_name).as_str());
+            });
 
-        let mut pos2 = self.pos_label.clone();
-        let mut type2 = self.type_label.clone();
+        let mut deselected_pos_label = pos_label;
+        let mut deselected_type_label = type_label;
         game_world.signals().tile_deselected().connect(move || {
-            pos2.set_text("Cell: None");
-            type2.set_text("Type: --");
+            deselected_pos_label.set_text("Cell: None");
+            deselected_type_label.set_text("Type: --");
         });
+    }
+}
+
+fn tile_details_text(type_name: &GString, resource_name: &GString) -> String {
+    if resource_name.is_empty() {
+        format!("Type: {type_name}")
+    } else {
+        format!("Type: {type_name}\nResource: {resource_name}")
     }
 }

@@ -12,8 +12,8 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Godot Rust Conventions
 
 - Use typed Godot APIs and signal builders. Prefer `bind()` / `bind_mut()`, direct Rust method calls, and `signals().name().connect(...)` over `Gd::call("method_name", &[])`.
-- Use `#[export]` fields with `OnEditor<Gd<T>>` for child node and cross-node references that are assigned in scenes.
-- Check exported node references with `is_instance_valid()` before using them in lifecycle methods or per-frame code.
+- Use `#[export]` fields with `OnEditor<Gd<T>>` for required child node and cross-node references that are assigned in scenes.
+- Treat invalid `OnEditor<Gd<T>>` exported node references as developer scene-wiring errors. Do not add defensive `is_instance_valid()` checks around required `OnEditor` references in normal lifecycle code.
 - Use `GString` or resource paths only where Godot APIs require them. Keep ordinary Rust logic on Rust types.
 - Keep `Base<T>` as the final stored field and use `base()` / `base_mut()` for node operations.
 
