@@ -3,8 +3,10 @@
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tile_info_bg"]
 bg_color = Color(0.08, 0.09, 0.12, 0.92)
 
-[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129]
+[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "type_label")]
 custom_minimum_size = Vector2(200, 0)
+pos_label = NodePath("PanelContainer/MarginContainer/VBoxContainer/pos_label")
+type_label = NodePath("PanelContainer/MarginContainer/VBoxContainer/type_label")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0

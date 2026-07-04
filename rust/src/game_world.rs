@@ -7,6 +7,7 @@ use godot::obj::OnEditor;
 use godot::prelude::*;
 use crate::game_surface::{self, GameSurface};
 use crate::ingame_menu::IngameMenu;
+use crate::selected_tile::SelectedTile;
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -20,11 +21,13 @@ pub(crate) struct GameWorld {
     #[export]
     ingame_menu: OnEditor<Gd<IngameMenu>>,
 
+    #[export]
+    selected_tile: OnEditor<Gd<SelectedTile>>,
+
     surface: GameSurface,
     camera_center: Vector2,
     camera_zoom: f32,
     viewport_size: Vector2,
-    selected_cell: Option<(i32, i32)>,
 
     base: Base<Control>,
 }
@@ -35,10 +38,10 @@ impl IControl for GameWorld {
         let surface = GameSurface::new(256, 256);
         Self {
             ingame_menu: OnEditor::default(),
+            selected_tile: OnEditor::default(),
             camera_center: surface.world_size() / 2.0,
             camera_zoom: 0.5,
             viewport_size: Vector2::ZERO,
-            selected_cell: None,
             surface,
             base,
         }
@@ -183,7 +186,11 @@ impl IControl for GameWorld {
             .width(border_w)
             .done();
 
-        if let Some((cx, cy)) = self.selected_cell {
+        if let (Some(cx), Some(cy)) = {
+            let tile = self.selected_tile.clone();
+            let bound = tile.bind();
+            (bound.cell_x(), bound.cell_y())
+        } {
             let x = (cx as f32 * tile_size - visible_offset.x) * zoom;
             let y = (cy as f32 * tile_size - visible_offset.y) * zoom;
             let highlight = Color::from_rgb(1.0, 0.84, 0.0);
@@ -247,18 +254,27 @@ impl GameWorld {
         let visible_offset = self.camera_center - vs / 2.0 / zoom;
         let world_pos = visible_offset + mouse_pos / zoom;
 
-        if let Some(cell) = GameSurface::world_to_cell(
+        let mut tile = self.selected_tile.clone();
+        let mut bound = tile.bind_mut();
+
+        if let Some((cx, cy)) = GameSurface::world_to_cell(
             world_pos,
             self.surface.width as i32,
             self.surface.height as i32,
         ) {
-            if self.selected_cell == Some(cell) {
-                self.selected_cell = None;
+            let current = (bound.cell_x(), bound.cell_y());
+            if current == (Some(cx), Some(cy)) {
+                bound.deselect();
             } else {
-                self.selected_cell = Some(cell);
+                let type_name = self
+                    .surface
+                    .get(cx, cy)
+                    .map(|c| GString::from(c.type_name()))
+                    .unwrap_or_default();
+                bound.select(cx, cy, type_name);
             }
         } else {
-            self.selected_cell = None;
+            bound.deselect();
         }
     }
 
@@ -296,29 +312,4 @@ impl GameWorld {
 
 #[godot_api]
 impl GameWorld {
-    #[func]
-    pub(crate) fn has_selection(&self) -> bool {
-        self.selected_cell.is_some()
-    }
-
-    #[func]
-    pub(crate) fn selected_cell_x(&self) -> i32 {
-        self.selected_cell.map(|(x, _)| x).unwrap_or(0)
-    }
-
-    #[func]
-    pub(crate) fn selected_cell_y(&self) -> i32 {
-        self.selected_cell.map(|(_, y)| y).unwrap_or(0)
-    }
-
-    #[func]
-    pub(crate) fn selected_cell_type_name(&self) -> GString {
-        match self.selected_cell {
-            Some((x, y)) => match self.surface.get(x, y) {
-                Some(cell) => GString::from(cell.type_name()),
-                None => GString::from("None"),
-            },
-            None => GString::from("None"),
-        }
-    }
 }
