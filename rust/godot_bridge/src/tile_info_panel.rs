@@ -39,17 +39,22 @@ impl IControl for TileInfoPanel {
             return;
         };
 
-        game_world
-            .signals()
-            .tile_selected()
-            .connect(move |x: i32, y: i32, type_name: GString| {
+        game_world.signals().tile_selected().connect(
+            move |x: i32, y: i32, type_name: GString, resource_name: GString| {
                 if pos1.is_instance_valid() {
                     pos1.set_text(format!("Cell: ({}, {})", x, y).as_str());
                 }
                 if type1.is_instance_valid() {
-                    type1.set_text(format!("Type: {}", type_name).as_str());
+                    if resource_name.is_empty() {
+                        type1.set_text(format!("Type: {}", type_name).as_str());
+                    } else {
+                        type1.set_text(
+                            format!("Type: {}\nResource: {}", type_name, resource_name).as_str(),
+                        );
+                    }
                 }
-            });
+            },
+        );
 
         let Some((mut pos2, mut type2)) = self.label_nodes() else {
             return;

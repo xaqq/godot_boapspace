@@ -1,6 +1,8 @@
 use game_engine::grid::{CellCoord, CellType, GridSize};
+use game_engine::resource_nodes::{ResourceNode, TilePosition};
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
+use std::collections::HashSet;
 
 #[test]
 fn test_new_creates_default_surface() {
@@ -90,4 +92,117 @@ fn test_tick_runs_across_multiple_surfaces() {
     simulation.tick(1.0 / 60.0);
 
     assert_eq!(simulation.surface_count(), 2);
+}
+
+#[test]
+fn test_default_and_created_surfaces_have_resource_nodes() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation
+        .create_surface(GridSize::new(10, 12))
+        .expect("surface size should be valid");
+
+    assert!(!resource_nodes(&mut simulation, default_surface).is_empty());
+    assert!(!resource_nodes(&mut simulation, second_surface).is_empty());
+}
+
+#[test]
+fn test_resource_nodes_are_within_bounds() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation
+        .create_surface(GridSize::new(17, 19))
+        .expect("surface size should be valid");
+    let size = simulation.grid_size(surface).expect("surface should exist");
+
+    for (coord, _) in resource_nodes(&mut simulation, surface) {
+        assert!(size.contains(coord), "{coord:?} should be within {size:?}");
+    }
+}
+
+#[test]
+fn test_resource_nodes_do_not_share_tiles() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+    let nodes = resource_nodes(&mut simulation, surface);
+    let unique_tiles = nodes
+        .iter()
+        .map(|(coord, _)| *coord)
+        .collect::<HashSet<_>>();
+
+    assert_eq!(nodes.len(), unique_tiles.len());
+}
+
+#[test]
+fn test_resource_node_generation_is_deterministic_for_same_size() {
+    let mut first = GameSimulation::new();
+    let mut second = GameSimulation::new();
+    let first_default = first.default_surface_id();
+    let second_default = second.default_surface_id();
+
+    assert_eq!(
+        sorted_resource_nodes(&mut first, first_default),
+        sorted_resource_nodes(&mut second, second_default)
+    );
+
+    let first_surface = first
+        .create_surface(GridSize::new(31, 29))
+        .expect("surface size should be valid");
+    let second_surface = second
+        .create_surface(GridSize::new(31, 29))
+        .expect("surface size should be valid");
+
+    assert_eq!(
+        sorted_resource_nodes(&mut first, first_surface),
+        sorted_resource_nodes(&mut second, second_surface)
+    );
+}
+
+#[test]
+fn test_resource_node_queries_are_scoped_per_surface() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation
+        .create_surface(GridSize::new(7, 9))
+        .expect("surface size should be valid");
+
+    assert_ne!(
+        sorted_resource_nodes(&mut simulation, default_surface),
+        sorted_resource_nodes(&mut simulation, second_surface)
+    );
+}
+
+#[test]
+fn test_tick_does_not_duplicate_resource_nodes() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+    let before = sorted_resource_nodes(&mut simulation, surface);
+
+    simulation.tick(1.0 / 60.0);
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(sorted_resource_nodes(&mut simulation, surface), before);
+}
+
+fn sorted_resource_nodes(
+    simulation: &mut GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> Vec<(CellCoord, ResourceKind)> {
+    let mut nodes = resource_nodes(simulation, surface);
+    nodes.sort_unstable_by_key(|(coord, kind)| (coord.y(), coord.x(), *kind as u8));
+    nodes
+}
+
+fn resource_nodes(
+    simulation: &mut GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> Vec<(CellCoord, ResourceKind)> {
+    simulation
+        .with_surface_world_mut(surface, |world| {
+            let mut query = world.query::<(&TilePosition, &ResourceNode)>();
+            query
+                .iter(world)
+                .map(|(position, node)| (position.coord, node.kind))
+                .collect()
+        })
+        .expect("surface should exist")
 }

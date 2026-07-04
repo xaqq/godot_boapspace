@@ -1,4 +1,6 @@
+use bevy_ecs::world::World;
 use game_engine::grid::{self, CellCoord, CellType, Grid, WorldPosition};
+use game_engine::resource_nodes::{ResourceNode, TilePosition};
 use game_engine::resources::{ResourceKind, ResourceSnapshot};
 use game_engine::simulation::{GameSimulation, SurfaceId};
 use godot::builtin::Side;
@@ -28,6 +30,7 @@ fn world_limit(value: f32) -> i32 {
 struct SelectedCell {
     coord: CellCoord,
     cell_type: CellType,
+    resource_kind: Option<ResourceKind>,
 }
 
 #[derive(GodotClass)]
@@ -37,12 +40,16 @@ pub(crate) struct GameWorld {
     tile_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
+    resource_node_map: OnEditor<Gd<TileMapLayer>>,
+
+    #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
     game: GameSimulation,
     rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
     _tile_set: Option<Gd<TileSet>>,
+    _resource_node_tile_set: Option<Gd<TileSet>>,
 
     base: Base<Node2D>,
 }
@@ -55,11 +62,13 @@ impl INode2D for GameWorld {
 
         Self {
             tile_map: OnEditor::default(),
+            resource_node_map: OnEditor::default(),
             camera: OnEditor::default(),
             game,
             rendered_surface,
             selected_cell: None,
             _tile_set: None,
+            _resource_node_tile_set: None,
             base,
         }
     }
@@ -67,6 +76,11 @@ impl INode2D for GameWorld {
     fn ready(&mut self) {
         let Some(mut tm) = self.tile_map_node() else {
             godot_error!("GameWorld: tile_map reference not set");
+            self.disable_processing();
+            return;
+        };
+        let Some(mut resource_map) = self.resource_node_map_node() else {
+            godot_error!("GameWorld: resource_node_map reference not set");
             self.disable_processing();
             return;
         };
@@ -133,6 +147,17 @@ impl INode2D for GameWorld {
                 .done();
         }
         tm.update_internals();
+
+        let Some(resource_tile_set) = self.build_resource_node_tile_set(ts) else {
+            self.disable_processing();
+            return;
+        };
+        resource_map.set_tile_set(&resource_tile_set);
+        self._resource_node_tile_set = Some(resource_tile_set);
+        resource_map.set_navigation_enabled(false);
+        resource_map.set_texture_filter(TextureFilter::NEAREST);
+        resource_map.set_z_index(1);
+        self.populate_resource_node_map(&mut resource_map);
 
         cam.set_enabled(true);
         cam.make_current();
@@ -283,6 +308,13 @@ impl GameWorld {
         tile_map.is_instance_valid().then_some(tile_map)
     }
 
+    fn resource_node_map_node(&self) -> Option<Gd<TileMapLayer>> {
+        let resource_node_map = self.resource_node_map.clone();
+        resource_node_map
+            .is_instance_valid()
+            .then_some(resource_node_map)
+    }
+
     fn camera_node(&self) -> Option<Gd<Camera2D>> {
         let camera = self.camera.clone();
         camera.is_instance_valid().then_some(camera)
@@ -322,12 +354,22 @@ impl GameWorld {
                     .game
                     .cell_type(self.rendered_surface, coord)
                     .unwrap_or_default();
-                self.selected_cell = Some(SelectedCell { coord, cell_type });
+                let resource_kind = self.resource_node_at(coord);
+                self.selected_cell = Some(SelectedCell {
+                    coord,
+                    cell_type,
+                    resource_kind,
+                });
                 self.base_mut().queue_redraw();
                 let type_name = GString::from(cell_type.type_name());
-                self.signals()
-                    .tile_selected()
-                    .emit(coord.x(), coord.y(), &type_name);
+                let resource_name =
+                    GString::from(resource_kind.map(ResourceKind::label).unwrap_or(""));
+                self.signals().tile_selected().emit(
+                    coord.x(),
+                    coord.y(),
+                    &type_name,
+                    &resource_name,
+                );
             }
         } else {
             self.clear_selection();
@@ -407,12 +449,126 @@ impl GameWorld {
             }
         }
     }
+
+    fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
+        let atlas_w = tile_size * ResourceKind::ALL.len() as i32;
+        let atlas_h = tile_size;
+        let Some(mut image) = Image::create(atlas_w, atlas_h, false, image::Format::RGBA8) else {
+            godot_error!("GameWorld: failed to create resource node atlas image");
+            return None;
+        };
+        image.fill(Color::from_rgba8(0, 0, 0, 0));
+
+        for (index, kind) in ResourceKind::ALL.into_iter().enumerate() {
+            self.draw_resource_node_tile(&mut image, tile_size, index as i32, kind);
+        }
+
+        let Some(texture) = ImageTexture::create_from_image(&image) else {
+            godot_error!("GameWorld: failed to create resource node atlas texture");
+            return None;
+        };
+
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let mut source = TileSetAtlasSource::new_gd();
+        source.set_texture(&texture);
+        source.set_texture_region_size(v2(tile_size, tile_size));
+        for index in 0..ResourceKind::ALL.len() {
+            source.create_tile_ex(v2(index as i32, 0)).done();
+        }
+
+        let mut tile_set = TileSet::new_gd();
+        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let source_ts = source.upcast::<TileSetSource>();
+        let source_id = tile_set.add_source(&source_ts);
+        if source_id < 0 {
+            godot_error!("GameWorld: failed to add resource node atlas source");
+            return None;
+        }
+
+        Some(tile_set)
+    }
+
+    fn draw_resource_node_tile(
+        &self,
+        image: &mut Gd<Image>,
+        tile_size: i32,
+        tile_index: i32,
+        kind: ResourceKind,
+    ) {
+        let base_x = tile_index * tile_size;
+        let color = match kind {
+            ResourceKind::Wood => Color::from_rgb(0.18, 0.42, 0.16),
+            ResourceKind::Stone => Color::from_rgb(0.55, 0.58, 0.6),
+            ResourceKind::Food => Color::from_rgb(0.85, 0.23, 0.18),
+            ResourceKind::Gold => Color::from_rgb(0.95, 0.72, 0.18),
+        };
+        let shadow = Color::from_rgba(0.02, 0.02, 0.02, 0.35);
+        let highlight = Color::from_rgba(1.0, 1.0, 1.0, 0.35);
+        let center = tile_size as f32 / 2.0;
+
+        for y in 0..tile_size {
+            for x in 0..tile_size {
+                let dx = x as f32 + 0.5 - center;
+                let dy = y as f32 + 0.5 - center;
+                let distance = (dx * dx + dy * dy).sqrt();
+                let radius = tile_size as f32 * 0.28;
+                if distance <= radius {
+                    image.set_pixel(base_x + x, y, color);
+                } else if distance <= radius + 2.0 && dy > 0.0 {
+                    image.set_pixel(base_x + x, y, shadow);
+                }
+            }
+        }
+
+        let glint_start_x = base_x + tile_size / 2 - tile_size / 10;
+        let glint_start_y = tile_size / 2 - tile_size / 7;
+        let glint_size = (tile_size / 10).max(2);
+        for y in glint_start_y..glint_start_y + glint_size {
+            for x in glint_start_x..glint_start_x + glint_size {
+                image.set_pixel(x, y, highlight);
+            }
+        }
+    }
+
+    fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
+        resource_map.clear();
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let Some(nodes) = self.resource_nodes() else {
+            godot_error!("GameWorld: rendered surface no longer exists");
+            self.disable_processing();
+            return;
+        };
+
+        for (coord, kind) in nodes {
+            resource_map
+                .set_cell_ex(v2(coord.x(), coord.y()))
+                .source_id(0)
+                .atlas_coords(v2(kind as i32, 0))
+                .done();
+        }
+        resource_map.update_internals();
+    }
+
+    fn resource_node_at(&mut self, coord: CellCoord) -> Option<ResourceKind> {
+        self.game
+            .with_surface_world_mut(self.rendered_surface, |world| {
+                query_resource_nodes(world)
+                    .into_iter()
+                    .find_map(|(node_coord, kind)| (node_coord == coord).then_some(kind))
+            })
+            .flatten()
+    }
+
+    fn resource_nodes(&mut self) -> Option<Vec<(CellCoord, ResourceKind)>> {
+        self.game
+            .with_surface_world_mut(self.rendered_surface, query_resource_nodes)
+    }
 }
 
 #[godot_api]
 impl GameWorld {
     #[signal]
-    pub(crate) fn tile_selected(x: i32, y: i32, type_name: GString);
+    pub(crate) fn tile_selected(x: i32, y: i32, type_name: GString, resource_name: GString);
 
     #[signal]
     pub(crate) fn tile_deselected();
@@ -459,4 +615,12 @@ impl GameWorld {
     pub(crate) fn add_gold(&mut self, amount: u32) {
         self.add_resource(ResourceKind::Gold, amount);
     }
+}
+
+fn query_resource_nodes(world: &mut World) -> Vec<(CellCoord, ResourceKind)> {
+    let mut query = world.query::<(&TilePosition, &ResourceNode)>();
+    query
+        .iter(world)
+        .map(|(position, node)| (position.coord, node.kind))
+        .collect()
 }

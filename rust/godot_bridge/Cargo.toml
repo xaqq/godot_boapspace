@@ -7,5 +7,6 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+bevy_ecs = "0.15"
 game_engine = { path = "../game_engine" }
 godot = { version = "0.5", features = ["api-4-7", "register-docs"] }

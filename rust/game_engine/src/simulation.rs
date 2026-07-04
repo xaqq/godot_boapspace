@@ -1,8 +1,10 @@
 use crate::grid::{CellCoord, CellType, Grid, GridError, GridSize};
+use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{GameResources, ResourceKind, ResourceSnapshot};
 use crate::systems::build_surface_schedule;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
+use bevy_ecs::system::RunSystemOnce;
 
 pub const DEFAULT_GRID_SIZE: GridSize = GridSize::new(256, 256);
 
@@ -25,6 +27,9 @@ impl SurfaceRuntime {
         let mut world = World::new();
         world.insert_resource(Grid::try_new(size)?);
         world.insert_resource(GameResources::default());
+        world
+            .run_system_once(spawn_initial_resource_nodes)
+            .expect("initial resource node spawn system should run");
 
         Ok(Self {
             world,
@@ -112,6 +117,14 @@ impl GameSimulation {
                 .resources_mut()
                 .add(kind, amount),
         )
+    }
+
+    pub fn with_surface_world_mut<R>(
+        &mut self,
+        surface_id: SurfaceId,
+        f: impl FnOnce(&mut World) -> R,
+    ) -> Option<R> {
+        Some(f(&mut self.surface_mut(surface_id)?.world))
     }
 
     fn surface(&self, surface_id: SurfaceId) -> Option<&SurfaceRuntime> {
