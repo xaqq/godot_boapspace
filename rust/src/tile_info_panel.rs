@@ -7,16 +7,12 @@ use crate::game_world::GameWorld;
 #[class(base = Control)]
 pub(crate) struct TileInfoPanel {
     #[export]
-    game_world: OnEditor<Gd<GameWorld>>,
-
-    #[export]
     pos_label: OnEditor<Gd<Label>>,
 
     #[export]
     type_label: OnEditor<Gd<Label>>,
 
-    cached_pos: String,
-    cached_type: String,
+    game_world: Option<Gd<GameWorld>>,
 
     base: Base<Control>,
 }
@@ -25,21 +21,26 @@ pub(crate) struct TileInfoPanel {
 impl IControl for TileInfoPanel {
     fn init(base: Base<Control>) -> Self {
         Self {
-            game_world: OnEditor::default(),
             pos_label: OnEditor::default(),
             type_label: OnEditor::default(),
-            cached_pos: String::new(),
-            cached_type: String::new(),
+            game_world: None,
             base,
         }
     }
 
     fn ready(&mut self) {
+        if let Some(parent) = self.base().get_parent() {
+            let world = parent.get_node_as::<GameWorld>("GameWorld");
+            if world.is_instance_valid() {
+                self.game_world = Some(world);
+            }
+        }
         self.base_mut().set_process(true);
     }
 
     fn process(&mut self, _delta: f64) {
-        let world = self.game_world.bind();
+        let Some(world) = &self.game_world else { return };
+        let world = world.bind();
 
         let pos_text = if world.has_selection() {
             format!("Cell: ({}, {})", world.selected_cell_x(), world.selected_cell_y())
@@ -53,13 +54,7 @@ impl IControl for TileInfoPanel {
             "Type: --".to_string()
         };
 
-        if pos_text != self.cached_pos {
-            self.pos_label.set_text(pos_text.as_str());
-            self.cached_pos = pos_text;
-        }
-        if type_text != self.cached_type {
-            self.type_label.set_text(type_text.as_str());
-            self.cached_type = type_text;
-        }
+        self.pos_label.set_text(pos_text.as_str());
+        self.type_label.set_text(type_text.as_str());
     }
 }

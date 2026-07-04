@@ -1,14 +1,7 @@
 [gd_scene format=3 uid="uid://creshead0001"]
 
-[node name="ResourceHeader" type="ResourceHeader" unique_id=2110331916]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="CenterContainer" type="CenterContainer" parent="." unique_id=609825104]
-layout_mode = 1
+[node name="HBoxContainer" type="HBoxContainer" unique_id=650290632]
+propagate_maximum_size = false
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
@@ -16,23 +9,28 @@ offset_left = -147.5
 offset_right = 147.5
 offset_bottom = 23.0
 grow_horizontal = 2
-
-[node name="HBoxContainer" type="HBoxContainer" parent="CenterContainer" unique_id=650290632]
-layout_mode = 2
 theme_override_constants/separation = 20
+alignment = 1
 
-[node name="HBoxContainer#GoldLabel" type="Label" parent="CenterContainer/HBoxContainer" unique_id=1205707213]
+[node name="HBoxContainer#GoldLabel" type="Label" parent="." unique_id=1205707213]
 layout_mode = 2
 text = "Gold: 0"
 
-[node name="HBoxContainer#WoodLabel" type="Label" parent="CenterContainer/HBoxContainer" unique_id=1377808860]
+[node name="HBoxContainer#WoodLabel" type="Label" parent="." unique_id=1377808860]
 layout_mode = 2
 text = "Wood: 0"
 
-[node name="HBoxContainer#FoodLabel" type="Label" parent="CenterContainer/HBoxContainer" unique_id=1168500328]
+[node name="HBoxContainer#FoodLabel" type="Label" parent="." unique_id=1168500328]
 layout_mode = 2
 text = "Food: 0"
 
-[node name="HBoxContainer#StoneLabel" type="Label" parent="CenterContainer/HBoxContainer" unique_id=1024009417]
+[node name="HBoxContainer#StoneLabel" type="Label" parent="." unique_id=1024009417]
 layout_mode = 2
 text = "Stone: 0"
+
+[node name="ResourceHeader" type="ResourceHeader" parent="." unique_id=2110331916 node_paths=PackedStringArray("wood_label", "stone_label", "food_label", "gold_label")]
+wood_label = NodePath("../HBoxContainer#WoodLabel")
+stone_label = NodePath("../HBoxContainer#StoneLabel")
+food_label = NodePath("../HBoxContainer#FoodLabel")
+gold_label = NodePath("../HBoxContainer#GoldLabel")
+layout_mode = 2

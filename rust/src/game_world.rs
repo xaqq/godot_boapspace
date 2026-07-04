@@ -45,6 +45,18 @@ impl IControl for GameWorld {
     }
 
     fn ready(&mut self) {
+        if !self.ingame_menu.is_instance_valid() {
+            if let Some(hbox) = self.base().get_parent() {
+                if let Some(vbox) = hbox.get_parent() {
+                    if let Some(root) = vbox.get_parent() {
+                        let menu = root.get_node_as::<IngameMenu>("IngameMenu");
+                        if menu.is_instance_valid() {
+                            *self.ingame_menu = menu;
+                        }
+                    }
+                }
+            }
+        }
         self.ingame_menu.clone().set_visible(false);
         self.read_viewport_size();
         self.base_mut().set_process(true);
@@ -184,28 +196,28 @@ impl IControl for GameWorld {
         }
     }
 
-    fn unhandled_input(&mut self, event: Gd<InputEvent>) {
-        if let Ok(key_event) = event.clone().try_cast::<InputEventKey>() {
-            if key_event.get_keycode() == Key::ESCAPE
-                && key_event.is_pressed()
-                && !key_event.is_echo()
-            {
-                let mut menu = self.ingame_menu.clone();
-                let visible = menu.is_visible();
-                menu.set_visible(!visible);
-            }
-            return;
-        }
-
+    fn gui_input(&mut self, event: Gd<InputEvent>) {
         if let Ok(mouse) = event.clone().try_cast::<InputEventMouseButton>() {
             if mouse.get_button_index() == MouseButton::LEFT && mouse.is_pressed() {
                 self.handle_tile_click();
                 self.base_mut().queue_redraw();
-                return;
             }
         }
-
         self.handle_mouse_wheel(event);
+    }
+
+    fn unhandled_input(&mut self, event: Gd<InputEvent>) {
+        let Ok(key_event) = event.try_cast::<InputEventKey>() else {
+            return;
+        };
+        if key_event.get_keycode() == Key::ESCAPE
+            && key_event.is_pressed()
+            && !key_event.is_echo()
+        {
+            let mut menu = self.ingame_menu.clone();
+            let visible = menu.is_visible();
+            menu.set_visible(!visible);
+        }
     }
 }
 
