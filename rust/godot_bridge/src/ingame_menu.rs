@@ -33,30 +33,23 @@ impl IControl for IngameMenu {
     }
 
     fn ready(&mut self) {
-        if let Some(continue_btn) =
-            self.button_node(self.continue_button.clone(), "continue_button")
-        {
-            let mut ctrl = self.base().clone();
-            continue_btn.signals().pressed().connect(move || {
-                if ctrl.is_instance_valid() {
-                    ctrl.hide();
-                }
-            });
-        }
+        let continue_btn = self.continue_button.clone();
+        continue_btn
+            .signals()
+            .pressed()
+            .connect_other(self, Self::hide_menu);
 
-        if let Some(return_btn) = self.button_node(self.return_button.clone(), "return_button") {
-            let mut return_tree = self.base().get_tree();
-            return_btn.signals().pressed().connect(move || {
-                change_scene(&mut return_tree, MAIN_MENU_SCENE);
-            });
-        }
+        let return_btn = self.return_button.clone();
+        let mut return_tree = self.base().get_tree();
+        return_btn.signals().pressed().connect(move || {
+            change_scene(&mut return_tree, MAIN_MENU_SCENE);
+        });
 
-        if let Some(exit_btn) = self.button_node(self.exit_button.clone(), "exit_button") {
-            let mut exit_tree = self.base().get_tree();
-            exit_btn.signals().pressed().connect(move || {
-                exit_tree.quit();
-            });
-        }
+        let exit_btn = self.exit_button.clone();
+        let mut exit_tree = self.base().get_tree();
+        exit_btn.signals().pressed().connect(move || {
+            exit_tree.quit();
+        });
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
@@ -71,13 +64,8 @@ impl IControl for IngameMenu {
 }
 
 impl IngameMenu {
-    fn button_node(&self, button: Gd<Button>, name: &str) -> Option<Gd<Button>> {
-        if button.is_instance_valid() {
-            Some(button)
-        } else {
-            godot_warn!("IngameMenu: {name} reference not set");
-            None
-        }
+    fn hide_menu(&mut self) {
+        self.base_mut().hide();
     }
 }
 

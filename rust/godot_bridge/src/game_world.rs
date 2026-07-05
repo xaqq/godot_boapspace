@@ -88,21 +88,9 @@ impl INode2D for GameWorld {
     }
 
     fn ready(&mut self) {
-        let Some(mut tm) = self.tile_map_node() else {
-            godot_error!("GameWorld: tile_map reference not set");
-            self.disable_processing();
-            return;
-        };
-        let Some(mut resource_map) = self.resource_node_map_node() else {
-            godot_error!("GameWorld: resource_node_map reference not set");
-            self.disable_processing();
-            return;
-        };
-        let Some(mut cam) = self.camera_node() else {
-            godot_error!("GameWorld: camera reference not set");
-            self.disable_processing();
-            return;
-        };
+        let mut tm = self.tile_map.clone();
+        let mut resource_map = self.resource_node_map.clone();
+        let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
         let Some((tile_set, source_id)) = self.build_terrain_tile_set(ts) else {
@@ -145,9 +133,7 @@ impl INode2D for GameWorld {
 
     fn process(&mut self, delta: f64) {
         let input = Input::singleton();
-        let Some(mut cam) = self.camera_node() else {
-            return;
-        };
+        let mut cam = self.camera.clone();
 
         let vs = self.get_viewport_size();
         let ws = self.world_size();
@@ -268,23 +254,6 @@ impl INode2D for GameWorld {
 }
 
 impl GameWorld {
-    fn tile_map_node(&self) -> Option<Gd<TileMapLayer>> {
-        let tile_map = self.tile_map.clone();
-        tile_map.is_instance_valid().then_some(tile_map)
-    }
-
-    fn resource_node_map_node(&self) -> Option<Gd<TileMapLayer>> {
-        let resource_node_map = self.resource_node_map.clone();
-        resource_node_map
-            .is_instance_valid()
-            .then_some(resource_node_map)
-    }
-
-    fn camera_node(&self) -> Option<Gd<Camera2D>> {
-        let camera = self.camera.clone();
-        camera.is_instance_valid().then_some(camera)
-    }
-
     fn disable_processing(&mut self) {
         self.base_mut().set_process_input(false);
         self.base_mut().set_process(false);
@@ -367,9 +336,7 @@ impl GameWorld {
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
-        let Some(mut cam) = self.camera_node() else {
-            return;
-        };
+        let mut cam = self.camera.clone();
         let old_zoom = cam.get_zoom().x;
 
         let vs = self.get_viewport_size();
@@ -536,11 +503,7 @@ impl GameWorld {
         self.rendered_surface = surface;
         self.selected_cell = None;
 
-        let Some(mut tile_map) = self.tile_map_node() else {
-            godot_error!("GameWorld: tile_map reference not set");
-            self.disable_processing();
-            return;
-        };
+        let mut tile_map = self.tile_map.clone();
         let Some(tile_source_id) = self.tile_source_id else {
             godot_error!("GameWorld: tile source id not initialized");
             self.disable_processing();
@@ -551,20 +514,11 @@ impl GameWorld {
             return;
         }
 
-        let Some(mut resource_map) = self.resource_node_map_node() else {
-            godot_error!("GameWorld: resource_node_map reference not set");
-            self.disable_processing();
-            return;
-        };
+        let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
 
-        if let Some(mut camera) = self.camera_node() {
-            self.configure_camera_for_surface(&mut camera);
-        } else {
-            godot_error!("GameWorld: camera reference not set");
-            self.disable_processing();
-            return;
-        }
+        let mut camera = self.camera.clone();
+        self.configure_camera_for_surface(&mut camera);
 
         let active_surface_index = surface_index_i32(self.rendered_surface);
 

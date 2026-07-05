@@ -33,24 +33,13 @@ impl IPanelContainer for SurfaceSelector {
     }
 
     fn ready(&mut self) {
-        if self.game_world_node().is_none() {
-            godot_warn!("SurfaceSelector: game_world reference not set");
-            return;
-        }
-        if self.button_container_node().is_none() {
-            godot_warn!("SurfaceSelector: button_container reference not set");
-            return;
-        }
-
         self.rebuild_buttons();
         self.refresh_button_states();
         self.base_mut().set_process(true);
     }
 
     fn process(&mut self, _delta: f64) {
-        let Some(game_world) = self.game_world_node() else {
-            return;
-        };
+        let game_world = self.game_world.clone();
 
         let surface_count = game_world.bind().surface_count();
         if surface_count != self.cached_surface_count {
@@ -65,30 +54,12 @@ impl IPanelContainer for SurfaceSelector {
 }
 
 impl SurfaceSelector {
-    fn game_world_node(&self) -> Option<Gd<GameWorld>> {
-        let game_world = self.game_world.clone();
-        game_world.is_instance_valid().then_some(game_world)
-    }
-
-    fn button_container_node(&self) -> Option<Gd<VBoxContainer>> {
-        let button_container = self.button_container.clone();
-        button_container
-            .is_instance_valid()
-            .then_some(button_container)
-    }
-
     fn rebuild_buttons(&mut self) {
-        let Some(game_world) = self.game_world_node() else {
-            return;
-        };
-        let Some(mut button_container) = self.button_container_node() else {
-            return;
-        };
+        let game_world = self.game_world.clone();
+        let mut button_container = self.button_container.clone();
 
         for mut button in self.surface_buttons.drain(..) {
-            if button.is_instance_valid() {
-                button.queue_free();
-            }
+            button.queue_free();
         }
 
         let surface_count = game_world.bind().surface_count();
@@ -98,14 +69,12 @@ impl SurfaceSelector {
             button.set_text(format!("Surface {}", index + 1).as_str());
             button.set_h_size_flags(control::SizeFlags::EXPAND_FILL);
 
-            let mut selected_game_world = game_world.clone();
-            button.signals().pressed().connect(move || {
-                if selected_game_world.is_instance_valid() {
-                    selected_game_world
-                        .bind_mut()
-                        .set_active_surface_index(index);
-                }
-            });
+            button.signals().pressed().connect_other(
+                &game_world,
+                move |game_world: &mut GameWorld| {
+                    game_world.set_active_surface_index(index);
+                },
+            );
 
             button_container.add_child(&button);
             self.surface_buttons.push(button);
@@ -117,15 +86,11 @@ impl SurfaceSelector {
     }
 
     fn refresh_button_states(&mut self) {
-        let Some(game_world) = self.game_world_node() else {
-            return;
-        };
+        let game_world = self.game_world.clone();
         let active_surface_index = game_world.bind().active_surface_index();
 
         for (index, button) in self.surface_buttons.iter_mut().enumerate() {
-            if button.is_instance_valid() {
-                button.set_disabled(i32::try_from(index) == Ok(active_surface_index));
-            }
+            button.set_disabled(i32::try_from(index) == Ok(active_surface_index));
         }
 
         self.cached_active_surface_index = active_surface_index;

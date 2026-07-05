@@ -32,40 +32,22 @@ impl IControl for RootMenu {
     }
 
     fn ready(&mut self) {
-        if let Some(new_game_btn) =
-            self.button_node(self.new_game_button.clone(), "new_game_button")
-        {
-            let mut new_game_tree = self.base().get_tree();
-            new_game_btn.signals().pressed().connect(move || {
-                change_scene(&mut new_game_tree, GAME_WORLD_SCENE);
-            });
-        }
+        let new_game_btn = self.new_game_button.clone();
+        let mut new_game_tree = self.base().get_tree();
+        new_game_btn.signals().pressed().connect(move || {
+            change_scene(&mut new_game_tree, GAME_WORLD_SCENE);
+        });
 
-        if let Some(exit_btn) = self.button_node(self.exit_button.clone(), "exit_button") {
-            let mut exit_tree = self.base().get_tree();
-            exit_btn.signals().pressed().connect(move || {
-                exit_tree.quit();
-            });
-        }
+        let exit_btn = self.exit_button.clone();
+        let mut exit_tree = self.base().get_tree();
+        exit_btn.signals().pressed().connect(move || {
+            exit_tree.quit();
+        });
 
-        if let Some(settings_btn) =
-            self.button_node(self.settings_button.clone(), "settings_button")
-        {
-            settings_btn.signals().pressed().connect(|| {
-                godot_print!("Settings pressed");
-            });
-        }
-    }
-}
-
-impl RootMenu {
-    fn button_node(&self, button: Gd<Button>, name: &str) -> Option<Gd<Button>> {
-        if button.is_instance_valid() {
-            Some(button)
-        } else {
-            godot_warn!("RootMenu: {name} reference not set");
-            None
-        }
+        let settings_btn = self.settings_button.clone();
+        settings_btn.signals().pressed().connect(|| {
+            godot_print!("Settings pressed");
+        });
     }
 }
 
