@@ -158,6 +158,21 @@ impl ConstructionProgress {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Bundle)]
+pub struct BuildingBlueprintBundle {
+    blueprint: BuildingBlueprint,
+    construction_progress: ConstructionProgress,
+}
+
+impl BuildingBlueprintBundle {
+    pub const fn new(kind: BuildingKind, footprint: BuildingFootprint) -> Self {
+        Self {
+            blueprint: BuildingBlueprint { kind, footprint },
+            construction_progress: ConstructionProgress::new(ResourceAmounts::zero()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct WarehouseInventory {
     contents: ResourceAmounts,
@@ -194,10 +209,7 @@ pub fn place_building_blueprint(
 ) -> Result<Entity, BuildingPlacementError> {
     let footprint = validate_building_blueprint_placement(world, kind, origin)?;
 
-    let entity = world.spawn((
-        BuildingBlueprint { kind, footprint },
-        ConstructionProgress::new(ResourceAmounts::zero()),
-    ));
+    let entity = world.spawn(BuildingBlueprintBundle::new(kind, footprint));
 
     Ok(entity.id())
 }

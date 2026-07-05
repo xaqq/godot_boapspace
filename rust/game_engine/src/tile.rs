@@ -8,6 +8,23 @@ pub struct TileIndex {
     entities: Vec<Option<Entity>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Bundle)]
+pub struct TileBundle {
+    tile: Tile,
+    position: TilePosition,
+    terrain: Terrain,
+}
+
+impl TileBundle {
+    pub const fn new(coord: CellCoord) -> Self {
+        Self {
+            tile: Tile,
+            position: TilePosition { coord },
+            terrain: Terrain::new(TerrainKind::Grass),
+        }
+    }
+}
+
 impl TileIndex {
     pub fn new(size: GridSize) -> Self {
         let cell_count = size
@@ -67,13 +84,7 @@ pub fn spawn_initial_tiles(mut commands: Commands, grid: Res<Grid>) {
     let mut tile_index = TileIndex::new(size);
 
     for coord in size.iter_coords() {
-        let entity = commands
-            .spawn((
-                Tile,
-                TilePosition { coord },
-                Terrain::new(TerrainKind::Grass),
-            ))
-            .id();
+        let entity = commands.spawn(TileBundle::new(coord)).id();
         debug_assert!(tile_index.set(coord, entity));
     }
 
@@ -87,15 +98,7 @@ mod tests {
     #[test]
     fn test_tile_index_set_get() {
         let mut world = World::new();
-        let entity = world
-            .spawn((
-                Tile,
-                TilePosition {
-                    coord: CellCoord::new(1, 1),
-                },
-                Terrain::new(TerrainKind::Grass),
-            ))
-            .id();
+        let entity = world.spawn(TileBundle::new(CellCoord::new(1, 1))).id();
         let mut index = TileIndex::new(GridSize::new(3, 3));
 
         assert!(index.set(CellCoord::new(1, 1), entity));
@@ -106,15 +109,7 @@ mod tests {
     #[test]
     fn test_tile_index_rejects_out_of_bounds_set() {
         let mut world = World::new();
-        let entity = world
-            .spawn((
-                Tile,
-                TilePosition {
-                    coord: CellCoord::new(3, 0),
-                },
-                Terrain::new(TerrainKind::Grass),
-            ))
-            .id();
+        let entity = world.spawn(TileBundle::new(CellCoord::new(3, 0))).id();
         let mut index = TileIndex::new(GridSize::new(3, 3));
 
         assert!(!index.set(CellCoord::new(3, 0), entity));

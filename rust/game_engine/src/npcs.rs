@@ -47,18 +47,33 @@ pub const fn world_duration_from_day(day: u64) -> Duration {
     Duration::from_secs(day * SECONDS_PER_DAY)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Bundle)]
+pub struct InitialNpcBundle {
+    npc: Npc,
+    name: NpcName,
+    birth_date: BirthDate,
+    position: NpcPosition,
+    inventory: NpcInventory,
+}
+
+impl InitialNpcBundle {
+    pub fn new(coord: CellCoord) -> Self {
+        Self {
+            npc: Npc,
+            name: NpcName::new(INITIAL_NPC_NAME),
+            birth_date: BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
+            position: NpcPosition { coord },
+            inventory: NpcInventory::empty(),
+        }
+    }
+}
+
 pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
     let Some(coord) = center_coord(&grid) else {
         return;
     };
 
-    commands.spawn((
-        Npc,
-        NpcName::new(INITIAL_NPC_NAME),
-        BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
-        NpcPosition { coord },
-        NpcInventory::empty(),
-    ));
+    commands.spawn(InitialNpcBundle::new(coord));
 }
 
 pub fn center_coord(grid: &Grid) -> Option<CellCoord> {

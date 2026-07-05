@@ -1,10 +1,7 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
-use game_engine::buildings::{
-    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
-};
+use game_engine::buildings::{BuildingBlueprintBundle, BuildingFootprint, BuildingKind};
 use game_engine::grid::{CellCoord, GridSize};
-use game_engine::resources::ResourceAmounts;
 use game_engine::simulation::{GameSimulation, SurfaceId};
 use game_engine::tasks::{
     maintain_construction_tasks, ProgressBuildingConstruction,
@@ -110,12 +107,9 @@ fn test_construction_tasks_are_scoped_per_surface() {
 
 fn spawn_blueprint(world: &mut World) -> Entity {
     world
-        .spawn((
-            BuildingBlueprint {
-                kind: BuildingKind::Warehouse,
-                footprint: BuildingFootprint::new(CellCoord::new(0, 0), 2, 2),
-            },
-            ConstructionProgress::new(ResourceAmounts::zero()),
+        .spawn(BuildingBlueprintBundle::new(
+            BuildingKind::Warehouse,
+            BuildingFootprint::new(CellCoord::new(0, 0), 2, 2),
         ))
         .id()
 }

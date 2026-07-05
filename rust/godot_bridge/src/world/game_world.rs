@@ -1184,19 +1184,16 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::buildings::{BuildingBlueprint, ConstructionProgress};
+    use game_engine::buildings::BuildingBlueprintBundle;
     use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
 
     #[test]
     fn task_table_rows_format_construction_tasks() {
         let mut world = World::new();
         let blueprint = world
-            .spawn((
-                BuildingBlueprint {
-                    kind: BuildingKind::Warehouse,
-                    footprint: BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
-                },
-                ConstructionProgress::new(ResourceAmounts::zero()),
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
             ))
             .id();
         let task = world
