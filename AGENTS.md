@@ -50,9 +50,6 @@ godot/                      # Godot project (engine v4.7)
 
 - **Game logic (`game_engine`)**: `GameSimulation` owns independent surface runtimes. Each surface has its own Bevy `World`, `Grid`, `GameResources`, and `Schedule`. Pure Rust, no Godot dependency.
 - **Godot bridge (`godot_bridge`)**: Owns one `GameSimulation` and calls `tick()` from Godot process code. Godot classes access the rendered surface through typed Rust methods.
-- **Tile selection**: Stays entirely in Godot layer (`GameWorld.selected_cell`). Not in ECS.
-- **Resources**: ECS `Resource<GameResources>` is the source of truth. `ResourceHeader` reads the active surface ECS world through typed `GameWorld` bridge access. The former `ResourceManager` autoload has been removed.
-- **Signals**: `tile_selected`, `tile_desele[simulation_tests.rs](rust/game_engine/tests/simulation_tests.rs)cted`, `resources_changed` all on `GameWorld`.
 
 ## Commands
 
