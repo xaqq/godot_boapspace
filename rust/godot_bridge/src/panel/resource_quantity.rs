@@ -1,8 +1,11 @@
-use crate::assets::{load_texture, resource_asset_path};
+use super::resource_tooltip::ResourceTooltip;
+use crate::assets::{load_packed_scene, load_texture, resource_asset_path};
 use game_engine::resources::ResourceKind;
-use godot::classes::{HBoxContainer, IHBoxContainer, Label, TextureRect};
+use godot::classes::{HBoxContainer, IHBoxContainer, Label, Object, TextureRect};
 use godot::obj::OnEditor;
 use godot::prelude::*;
+
+const RESOURCE_TOOLTIP_SCENE_PATH: &str = "res://panel/resource_tooltip.tscn";
 
 #[derive(GodotClass)]
 #[class(base = HBoxContainer)]
@@ -39,6 +42,33 @@ impl IHBoxContainer for ResourceQuantity {
         }
 
         amount_label.set_text(amount_text(0).as_str());
+
+        let tooltip_text = self.kind.label();
+        self.base_mut().set_tooltip_text(tooltip_text);
+    }
+
+    fn make_custom_tooltip(&self, _for_text: GString) -> Option<Gd<Object>> {
+        let scene = load_packed_scene(RESOURCE_TOOLTIP_SCENE_PATH, "ResourceQuantity")?;
+        let Some(node) = scene.instantiate() else {
+            godot_error!(
+                "ResourceQuantity: failed to instantiate tooltip scene {RESOURCE_TOOLTIP_SCENE_PATH}"
+            );
+            return None;
+        };
+
+        match node.try_cast::<ResourceTooltip>() {
+            Ok(mut tooltip) => {
+                tooltip.bind_mut().set_resource(self.kind);
+                Some(tooltip.upcast::<Object>())
+            }
+            Err(node) => {
+                godot_error!(
+                    "ResourceQuantity: instantiated tooltip scene root as {}, expected ResourceTooltip",
+                    node.get_class()
+                );
+                None
+            }
+        }
     }
 }
 

@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://cq6564l44sqse"]
+
+[node name="ResourceTooltip" type="ResourceTooltip" unique_id=2101000201 node_paths=PackedStringArray("text_label")]
+text_label = NodePath("TextLabel")
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 6
+
+[node name="TextLabel" type="RichTextLabel" parent="." unique_id=2101000202]
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+selection_enabled = false
+context_menu_enabled = false
+autowrap_mode = 3

@@ -1,5 +1,5 @@
 use game_engine::resources::ResourceKind;
-use godot::classes::{ResourceLoader, Texture2D};
+use godot::classes::{PackedScene, ResourceLoader, Texture2D};
 use godot::obj::Singleton;
 use godot::prelude::*;
 
@@ -32,6 +32,28 @@ pub(crate) fn load_texture(path: &str, context: &str) -> Option<Gd<Texture2D>> {
         Err(resource) => {
             godot_error!(
                 "{context}: loaded asset {path} as {}, expected Texture2D",
+                resource.get_class()
+            );
+            None
+        }
+    }
+}
+
+pub(crate) fn load_packed_scene(path: &str, context: &str) -> Option<Gd<PackedScene>> {
+    let Some(resource) = ResourceLoader::singleton()
+        .load_ex(path)
+        .type_hint("PackedScene")
+        .done()
+    else {
+        godot_error!("{context}: failed to load scene asset {path}");
+        return None;
+    };
+
+    match resource.try_cast::<PackedScene>() {
+        Ok(scene) => Some(scene),
+        Err(resource) => {
+            godot_error!(
+                "{context}: loaded asset {path} as {}, expected PackedScene",
                 resource.get_class()
             );
             None

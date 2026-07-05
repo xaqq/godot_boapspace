@@ -13,6 +13,7 @@ mod panel {
     mod npc_info_panel;
     mod resource_header;
     mod resource_quantity;
+    mod resource_tooltip;
     mod surface_selector;
     mod tile_info_panel;
 }

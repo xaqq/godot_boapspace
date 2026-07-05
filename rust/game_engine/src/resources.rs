@@ -21,6 +21,19 @@ impl ResourceKind {
             ResourceKind::Gold => "Gold",
         }
     }
+
+    pub const fn description(self) -> &'static str {
+        match self {
+            ResourceKind::Wood => {
+                "Flexible timber used for basic construction, repairs, and early infrastructure."
+            }
+            ResourceKind::Stone => {
+                "Durable building material for stronger structures and long-lived foundations."
+            }
+            ResourceKind::Food => "Essential supplies that keep colonists fed and productive.",
+            ResourceKind::Gold => "Valuable currency used for advanced construction and trade.",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -196,5 +209,33 @@ mod tests {
 
             assert_eq!(round_tripped, kind);
         }
+    }
+
+    #[test]
+    fn resource_kind_metadata_is_present() {
+        for kind in ResourceKind::ALL {
+            assert!(!kind.label().is_empty());
+            assert!(!kind.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn resource_kind_descriptions_match_expected_text() {
+        assert_eq!(
+            ResourceKind::Wood.description(),
+            "Flexible timber used for basic construction, repairs, and early infrastructure."
+        );
+        assert_eq!(
+            ResourceKind::Stone.description(),
+            "Durable building material for stronger structures and long-lived foundations."
+        );
+        assert_eq!(
+            ResourceKind::Food.description(),
+            "Essential supplies that keep colonists fed and productive."
+        );
+        assert_eq!(
+            ResourceKind::Gold.description(),
+            "Valuable currency used for advanced construction and trade."
+        );
     }
 }
