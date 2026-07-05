@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://panel/building_palette.tscn" id="6_build_palette"]
 [ext_resource type="PackedScene" path="res://panel/building_info_panel.tscn" id="7_building_info_panel"]
 [ext_resource type="PackedScene" path="res://panel/task_list_panel.tscn" id="8_task_list_panel"]
+[ext_resource type="PackedScene" path="res://panel/map_entity_tooltip_panel.tscn" id="9_map_entity_tooltip_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -121,6 +122,9 @@ navigation_enabled = false
 
 [node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
 navigation_enabled = false
+
+[node name="MapEntityTooltipPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("9_map_entity_tooltip_panel")]
+game_world = NodePath("../SubViewport/GameWorld")
 
 [node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
 visible = false

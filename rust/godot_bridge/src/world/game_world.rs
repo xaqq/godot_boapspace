@@ -65,6 +65,38 @@ struct SelectedBuilding {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MapEntityKind {
+    Building,
+    Npc,
+    ResourceNode,
+}
+
+impl MapEntityKind {
+    pub(crate) const fn signal_value(self) -> i64 {
+        match self {
+            Self::Building => 0,
+            Self::Npc => 1,
+            Self::ResourceNode => 2,
+        }
+    }
+
+    pub(crate) const fn from_signal_value(value: i64) -> Option<Self> {
+        match value {
+            0 => Some(Self::Building),
+            1 => Some(Self::Npc),
+            2 => Some(Self::ResourceNode),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MapEntityTarget {
+    kind: MapEntityKind,
+    entity: Entity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NpcRenderInfo {
     entity: Entity,
     coord: CellCoord,
@@ -101,6 +133,7 @@ pub(crate) struct GameWorld {
     selected_cell: Option<SelectedCell>,
     selected_npc: Option<SelectedNpc>,
     selected_building: Option<SelectedBuilding>,
+    hovered_map_entity: Option<MapEntityTarget>,
     build_mode: Option<BuildingKind>,
     tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
@@ -128,6 +161,7 @@ impl INode2D for GameWorld {
             selected_cell: None,
             selected_npc: None,
             selected_building: None,
+            hovered_map_entity: None,
             build_mode: None,
             tile_source_id: None,
             _tile_set: None,
@@ -248,6 +282,7 @@ impl INode2D for GameWorld {
         if self.build_mode.is_some() {
             self.base_mut().queue_redraw();
         }
+        self.update_hovered_map_entity();
     }
 
     fn draw(&mut self) {
@@ -615,11 +650,44 @@ impl GameWorld {
         }
     }
 
+    fn update_hovered_map_entity(&mut self) {
+        let target = self.map_entity_target_under_mouse();
+        self.set_hovered_map_entity(target);
+    }
+
+    fn clear_hovered_map_entity(&mut self) {
+        self.set_hovered_map_entity(None);
+    }
+
+    fn set_hovered_map_entity(&mut self, target: Option<MapEntityTarget>) {
+        if self.hovered_map_entity == target {
+            return;
+        }
+
+        self.hovered_map_entity = target;
+        let Some(target) = target else {
+            self.signals().map_entity_unhovered().emit();
+            return;
+        };
+
+        let Some(entity_id) = encode_entity_id(target.entity) else {
+            godot_error!("GameWorld: hovered map entity id is too large for Godot");
+            self.hovered_map_entity = None;
+            self.signals().map_entity_unhovered().emit();
+            return;
+        };
+
+        self.signals()
+            .map_entity_hovered()
+            .emit(target.kind.signal_value(), entity_id);
+    }
+
     fn start_build_mode(&mut self, kind: BuildingKind) {
         self.build_mode = Some(kind);
         self.clear_tile_selection();
         self.clear_npc_selection();
         self.clear_building_selection();
+        self.clear_hovered_map_entity();
         self.base_mut().queue_redraw();
     }
 
@@ -656,6 +724,31 @@ impl GameWorld {
         Some((footprint, valid))
     }
 
+    fn map_entity_target_under_mouse(&self) -> Option<MapEntityTarget> {
+        if self.build_mode.is_some() {
+            return None;
+        }
+
+        let viewport = self.base().get_viewport()?;
+        let mouse_pos = viewport.get_mouse_position();
+        let viewport_size = self.get_viewport_size();
+        if mouse_pos.x < 0.0
+            || mouse_pos.y < 0.0
+            || mouse_pos.x >= viewport_size.x
+            || mouse_pos.y >= viewport_size.y
+        {
+            return None;
+        }
+
+        let local_mouse_pos = self.base().get_local_mouse_position();
+        let coord = Grid::world_to_cell(
+            WorldPosition::new(local_mouse_pos.x, local_mouse_pos.y),
+            self.grid_size(),
+        )?;
+
+        self.with_rendered_surface_world(|world| map_entity_target_at(world, coord))
+    }
+
     fn grid_size(&self) -> game_engine::grid::GridSize {
         self.game.grid_size(self.rendered_surface)
     }
@@ -688,24 +781,11 @@ impl GameWorld {
     }
 
     fn npc_entity_at(&self, coord: CellCoord) -> Option<Entity> {
-        self.with_rendered_surface_world(|world| {
-            let mut query = world.try_query::<(Entity, &NpcPosition, &Npc)>()?;
-            query
-                .iter(world)
-                .find_map(|(entity, position, _)| (position.coord == coord).then_some(entity))
-        })
+        self.with_rendered_surface_world(|world| npc_entity_at(world, coord))
     }
 
     fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
-        self.with_rendered_surface_world(|world| {
-            world
-                .try_query::<(Entity, &BuildingBlueprint)>()
-                .and_then(|mut query| {
-                    query.iter(world).find_map(|(entity, blueprint)| {
-                        blueprint.footprint.contains(coord).then_some(entity)
-                    })
-                })
-        })
+        self.with_rendered_surface_world(|world| building_entity_at(world, coord))
     }
 
     fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
@@ -929,6 +1009,7 @@ impl GameWorld {
         self.selected_cell = None;
         self.selected_npc = None;
         self.selected_building = None;
+        self.hovered_map_entity = None;
         self.build_mode = None;
 
         let mut tile_map = self.tile_map.clone();
@@ -957,6 +1038,7 @@ impl GameWorld {
         self.signals().tile_deselected().emit();
         self.signals().npc_deselected().emit();
         self.signals().building_deselected().emit();
+        self.signals().map_entity_unhovered().emit();
         self.signals().resources_changed().emit();
         self.signals().surface_changed().emit(active_surface_index);
     }
@@ -987,6 +1069,12 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn surface_changed(index: i32);
+
+    #[signal]
+    pub(crate) fn map_entity_hovered(kind: i64, entity_id: i64);
+
+    #[signal]
+    pub(crate) fn map_entity_unhovered();
 
     #[func]
     pub(crate) fn is_simulation_playing(&self) -> bool {
@@ -1059,6 +1147,51 @@ fn encode_entity_id(entity: Entity) -> Option<i64> {
 pub(crate) fn decode_entity_id(entity_id: i64) -> Option<Entity> {
     let bits = u64::try_from(entity_id).ok()?;
     Entity::try_from_bits(bits)
+}
+
+fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarget> {
+    if let Some(entity) = building_entity_at(world, coord) {
+        return Some(MapEntityTarget {
+            kind: MapEntityKind::Building,
+            entity,
+        });
+    }
+
+    if let Some(entity) = npc_entity_at(world, coord) {
+        return Some(MapEntityTarget {
+            kind: MapEntityKind::Npc,
+            entity,
+        });
+    }
+
+    resource_node_entity_at(world, coord).map(|entity| MapEntityTarget {
+        kind: MapEntityKind::ResourceNode,
+        entity,
+    })
+}
+
+fn building_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
+    world
+        .try_query::<(Entity, &BuildingBlueprint)>()
+        .and_then(|mut query| {
+            query.iter(world).find_map(|(entity, blueprint)| {
+                blueprint.footprint.contains(coord).then_some(entity)
+            })
+        })
+}
+
+fn npc_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
+    let mut query = world.try_query::<(Entity, &NpcPosition, &Npc)>()?;
+    query
+        .iter(world)
+        .find_map(|(entity, position, _)| (position.coord == coord).then_some(entity))
+}
+
+fn resource_node_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
+    let mut query = world.try_query::<(Entity, &TilePosition, &ResourceNode, &Tile)>()?;
+    query
+        .iter(world)
+        .find_map(|(entity, position, _, _)| (position.coord == coord).then_some(entity))
 }
 
 fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
@@ -1211,7 +1344,9 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 mod tests {
     use super::*;
     use game_engine::buildings::BuildingBlueprintBundle;
+    use game_engine::npcs::InitialNpcBundle;
     use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
+    use game_engine::tile::TileBundle;
 
     #[test]
     fn task_table_rows_format_construction_tasks() {
@@ -1239,5 +1374,75 @@ mod tests {
                 ),
             }]
         );
+    }
+
+    #[test]
+    fn map_entity_target_returns_resource_node_for_resource_cell() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        let resource = spawn_resource_node(&mut world, coord);
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::ResourceNode,
+                entity: resource,
+            })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_prioritizes_npc_over_resource_node() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        spawn_resource_node(&mut world, coord);
+        let npc = world.spawn(InitialNpcBundle::new(coord)).id();
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::Npc,
+                entity: npc,
+            })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_prioritizes_building_over_npc_and_resource_node() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        spawn_resource_node(&mut world, coord);
+        world.spawn(InitialNpcBundle::new(coord));
+        let building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+            ))
+            .id();
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::Building,
+                entity: building,
+            })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_returns_none_for_empty_cell() {
+        let mut world = World::new();
+        spawn_resource_node(&mut world, CellCoord::new(2, 3));
+
+        assert_eq!(map_entity_target_at(&world, CellCoord::new(4, 5)), None);
+    }
+
+    fn spawn_resource_node(world: &mut World, coord: CellCoord) -> Entity {
+        let entity = world.spawn(TileBundle::new(coord)).id();
+        world.entity_mut(entity).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 100,
+        });
+        entity
     }
 }
