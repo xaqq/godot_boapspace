@@ -5,9 +5,8 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Scope
 
 - `lib.rs` registers the extension modules.
-- `game_world.rs` is the main `Node2D`: it owns `game_engine::simulation::GameSimulation`, renders the active surface grid, handles camera/input, exposes typed active-surface ECS world access, and emits gameplay signals.
-- `resource_header.rs` and `tile_info_panel.rs` are HUD/panel controls backed by `.tscn` scenes.
-- `root_menu.rs` and `ingame_menu.rs` are menu controls.
+- Menus should go into `menu` module
+- Information / control panel should go to `panel` module.
 
 ## Godot Rust Conventions
 
@@ -20,33 +19,4 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Scene Wiring
 
 - When adding or renaming exported fields, update the matching scene file under `godot/`.
-- `tile_info_panel.tscn` currently wires `pos_label` and `resource_label`; its `game_world` reference is expected to be assigned by the containing scene.
 - Panel classes should update existing labels or controls rather than finding nodes by string paths at runtime.
-
-## Tile Selection
-
-- Tile selection is intentionally owned by `GameWorld.selected_cell`, not by ECS.
-- `GameWorld` emits `tile_selected(tile_entity_id)` and `tile_deselected()`.
-- UI panels such as `TileInfoPanel` should listen to those signals and keep no independent selection source of truth.
-- If tile data becomes game logic, add it to `game_engine::grid` first and expose it through typed `GameWorld` methods or signals.
-
-## Resources
-
-- Per-surface `game_engine::resources::GameResources` is the source of truth for wood, stone, food, and gold.
-- UI reads resources through typed active-surface ECS world access on `GameWorld`; do not add per-resource Godot `#[func]` getters for the HUD.
-- Emit `resources_changed` after resource mutations. Existing HUD code may poll, but new event-driven UI should connect to the signal when practical.
-
-## Build And Test
-
-Run from the repository root:
-
-```bash
-cargo build --manifest-path rust/Cargo.toml
-cargo test --manifest-path rust/Cargo.toml
-```
-
-Open the Godot editor only when needed:
-
-```bash
-~/.local/bin/godot4 godot/project.godot --editor
-```

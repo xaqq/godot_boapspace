@@ -11,45 +11,13 @@ Godot 4.7 game with a Rust GDExtension (`godot = "0.5"`) and a Bevy ECS game eng
 - Simulation is written in Rust using Bevy ECS; Godot stays responsible for UI,
   rendering, input, and engine integration.
 
-## Structure
-
-```
-rust/                       # Cargo workspace
-  Cargo.toml                # Workspace root (members: game_engine, godot_bridge)
-  game_engine/              # Pure Rust lib — Bevy ECS game logic (no Godot)
-    Cargo.toml              # depends on bevy_ecs
-    src/
-      lib.rs
-      grid.rs               # Grid resource (256x256 tile map)
-      resources.rs          # GameResources resource (wood/stone/food/gold)
-      systems.rs            # ECS schedule construction
-      simulation.rs         # GameSimulation facade, owns independent surface Worlds
-    tests/
-      grid_tests.rs         # Integration tests for grid
-      resource_tests.rs     # Integration tests for resources
-  godot_bridge/             # GDExtension cdylib
-    Cargo.toml              # depends on game_engine + godot
-    src/
-      lib.rs                # ExtensionLibrary entry point
-      game_world.rs         # Main gameplay Node2D (owns GameSimulation, rendering, input)
-      resource_header.rs    # HUD — reads active surface resources through GameWorld ECS world access
-      tile_info_panel.rs    # Selected tile info — listens to GameWorld signals
-      root_menu.rs          # Main menu
-      ingame_menu.rs        # Pause menu
-godot/                      # Godot project (engine v4.7)
-  project.godot
-  godot_boapspace.gdextension
-  main_ui.tscn
-  game_world.tscn
-  ingame_menu.tscn
-  resource_header.tscn
-  tile_info_panel.tscn
-```
 
 ## Key design
 
-- **Game logic (`game_engine`)**: `GameSimulation` owns independent surface runtimes. Each surface has its own Bevy `World`, `Grid`, `GameResources`, and `Schedule`. Pure Rust, no Godot dependency.
-- **Godot bridge (`godot_bridge`)**: Owns one `GameSimulation` and calls `tick()` from Godot process code. Godot classes access the rendered surface through typed Rust methods.
+- **Game logic (`game_engine`)**: Rust implementation of the game logic. Contains the whole game logic as a library.
+- **Godot bridge (`godot_bridge`)**: A relatively thin GDExtension that allows Godot to use our `game_engine`.
+  Owns one `GameSimulation` is responsible for advancing it (via `tick()`). UI component query the ECS `World` to retrieve relevant data.
+
 
 ## Commands
 
@@ -59,17 +27,9 @@ cargo test --manifest-path rust/Cargo.toml            # Run all tests
 ~/.local/bin/godot4 godot/project.godot --editor      # Open editor
 ```
 
-## Build & run
 
-```bash
-cargo build --manifest-path rust/Cargo.toml
-~/.local/bin/godot4 godot/project.godot --editor
-```
+## Godot Key facts
 
-## Key facts
-
-- `crate-type = ["cdylib"]` — builds a `.so` / `.dll` / `.dylib`, not an executable.
-- Entry symbol: `gdext_rust_init` (godot-rust convention).
 - Prefer strong types over strings: use typed method calls (`bind()`/`bind_mut()`, direct
   calls on `#[func]` methods) instead of `Gd::call("method_name", &[])`. Use `#[export]`
   fields of typed `Gd<T>` / `OnEditor<Gd<T>>` for child node references instead of
@@ -80,4 +40,19 @@ cargo build --manifest-path rust/Cargo.toml
   for imported PNGs at runtime; it bypasses Godot's import/export pipeline and triggers
   export warnings. If pixel data is genuinely needed, import/load the asset as an Image
   resource or derive pixels from a loaded texture intentionally.
-- Tests in `game_engine/` — unit tests in `src/` via `#[cfg(test)]`, integration tests in `tests/`.
+- Godot scene directory hierarchy and corresponding rust implementation should match. 
+
+
+## Working agreements
+
+- This project, particularly the `game_engine` library, should be correctly tested. Unit and integrations tests
+  where relevant.
+- Do not use GDSCript, always write any code in Rust.
+- Code quality is important. Most of the code is and will be AI generated, but must still be readable and maintainable.
+- Avoid making assumptions or adding things without asking; You are welcome to ask instead.
+- Do not hesitate to perform exploration task by fanning out subagents.
+
+## Git workflow
+
+- When asked to switch to a new worktree for work, create those somewhere in the repository.
+- New worktree should be based off local `master` branch unless explicitly specified otherwise.

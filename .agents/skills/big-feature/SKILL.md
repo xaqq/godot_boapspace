@@ -13,7 +13,7 @@ the desired behavior, and turn the idea into a concrete feature brief.
 
 ## Questions
 
-Ask compact batches of high-value clarifying questions until there is a clear
+Ask batches of high-value clarifying questions until there is a clear
 understanding of the feature. Prefer questions that resolve product behavior,
 scope, edge cases, constraints, acceptance criteria, and integration points.
 Avoid asking questions that can be answered by inspecting the repository.
