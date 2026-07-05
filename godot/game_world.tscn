@@ -64,10 +64,9 @@ handle_input_locally = false
 size = Vector2i(948, 621)
 render_target_update_mode = 4
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "npc_map", "camera")]
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "camera")]
 tile_map = NodePath("TileMap")
 resource_node_map = NodePath("ResourceNodeMap")
-npc_map = NodePath("NpcMap")
 camera = NodePath("Camera2D")
 physics_interpolation_mode = 2
 
@@ -78,9 +77,6 @@ collision_enabled = false
 navigation_enabled = false
 
 [node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
-navigation_enabled = false
-
-[node name="NpcMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000007]
 navigation_enabled = false
 
 [node name="IngameMenu" parent="." unique_id=513882939 instance=ExtResource("1_ingame_menu")]

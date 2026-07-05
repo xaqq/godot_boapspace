@@ -10,11 +10,13 @@ use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
     canvas_item::TextureFilter, Camera2D, INode2D, Input, InputEvent, InputEventMouseButton,
-    Node2D, ResourceLoader, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
+    Node2D, ResourceLoader, Sprite2D, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource,
+    TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
 use godot::prelude::*;
+use std::collections::{HashMap, HashSet};
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -53,6 +55,12 @@ struct SelectedNpc {
     entity: Entity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NpcRenderInfo {
+    entity: Entity,
+    coord: CellCoord,
+}
+
 #[derive(GodotClass)]
 #[class(base = Node2D)]
 pub(crate) struct GameWorld {
@@ -61,9 +69,6 @@ pub(crate) struct GameWorld {
 
     #[export]
     resource_node_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    npc_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
     camera: OnEditor<Gd<Camera2D>>,
@@ -75,7 +80,8 @@ pub(crate) struct GameWorld {
     tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
-    _npc_tile_set: Option<Gd<TileSet>>,
+    npc_texture: Option<Gd<Texture2D>>,
+    npc_sprites: HashMap<Entity, Gd<Sprite2D>>,
 
     base: Base<Node2D>,
 }
@@ -89,7 +95,6 @@ impl INode2D for GameWorld {
         Self {
             tile_map: OnEditor::default(),
             resource_node_map: OnEditor::default(),
-            npc_map: OnEditor::default(),
             camera: OnEditor::default(),
             game,
             rendered_surface,
@@ -98,7 +103,8 @@ impl INode2D for GameWorld {
             tile_source_id: None,
             _tile_set: None,
             _resource_node_tile_set: None,
-            _npc_tile_set: None,
+            npc_texture: None,
+            npc_sprites: HashMap::new(),
             base,
         }
     }
@@ -106,7 +112,6 @@ impl INode2D for GameWorld {
     fn ready(&mut self) {
         let mut tm = self.tile_map.clone();
         let mut resource_map = self.resource_node_map.clone();
-        let mut npc_map = self.npc_map.clone();
         let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
@@ -138,16 +143,12 @@ impl INode2D for GameWorld {
         resource_map.set_z_index(1);
         self.populate_resource_node_map(&mut resource_map);
 
-        let Some(npc_tile_set) = self.build_npc_tile_set(ts) else {
+        let Some(npc_texture) = load_texture(NPC_COLONIST_PATH) else {
             self.disable_processing();
             return;
         };
-        npc_map.set_tile_set(&npc_tile_set);
-        self._npc_tile_set = Some(npc_tile_set);
-        npc_map.set_navigation_enabled(false);
-        npc_map.set_texture_filter(TextureFilter::NEAREST);
-        npc_map.set_z_index(2);
-        self.populate_npc_map(&mut npc_map);
+        self.npc_texture = Some(npc_texture);
+        self.sync_npc_sprites();
 
         cam.set_enabled(true);
         cam.make_current();
@@ -206,6 +207,7 @@ impl INode2D for GameWorld {
         }
 
         self.game.tick(delta as f32);
+        self.sync_npc_sprites();
     }
 
     fn draw(&mut self) {
@@ -482,6 +484,71 @@ impl GameWorld {
         .flatten()
     }
 
+    fn sync_npc_sprites(&mut self) {
+        let Some(npcs) = self.npc_render_infos() else {
+            godot_error!("GameWorld: rendered surface no longer exists");
+            self.disable_processing();
+            return;
+        };
+        let Some(texture) = self.npc_texture.clone() else {
+            godot_error!("GameWorld: NPC texture not initialized");
+            self.disable_processing();
+            return;
+        };
+
+        let active_entities: HashSet<Entity> = npcs.iter().map(|npc| npc.entity).collect();
+        let stale_entities: Vec<Entity> = self
+            .npc_sprites
+            .keys()
+            .copied()
+            .filter(|entity| !active_entities.contains(entity))
+            .collect();
+        for entity in stale_entities {
+            if let Some(mut sprite) = self.npc_sprites.remove(&entity) {
+                sprite.queue_free();
+            }
+        }
+
+        let selected_entity = self.selected_npc.map(|selected| selected.entity);
+        let mut selected_coord = None;
+        for npc in npcs {
+            if selected_entity == Some(npc.entity) {
+                selected_coord = Some(npc.coord);
+            }
+
+            let position = cell_top_left(npc.coord);
+            if !self.npc_sprites.contains_key(&npc.entity) {
+                let mut sprite = Sprite2D::new_alloc();
+                sprite.set_texture(&texture);
+                sprite.set_centered(false);
+                sprite.set_texture_filter(TextureFilter::NEAREST);
+                sprite.set_z_index(2);
+                sprite.set_position(position);
+                self.base_mut().add_child(&sprite);
+                self.npc_sprites.insert(npc.entity, sprite);
+                continue;
+            }
+
+            if let Some(sprite) = self.npc_sprites.get_mut(&npc.entity) {
+                sprite.set_position(position);
+            }
+        }
+
+        if let Some(selected) = self.selected_npc {
+            if let Some(coord) = selected_coord {
+                if selected.coord != coord {
+                    self.selected_npc = Some(SelectedNpc {
+                        coord,
+                        entity: selected.entity,
+                    });
+                    self.base_mut().queue_redraw();
+                }
+            } else {
+                self.clear_npc_selection();
+            }
+        }
+    }
+
     fn build_terrain_tile_set(&self, tile_size: i32) -> Option<(Gd<TileSet>, i32)> {
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let mut tile_set = TileSet::new_gd();
@@ -524,22 +591,6 @@ impl GameWorld {
         Some(tile_set)
     }
 
-    fn build_npc_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
-
-        let texture = load_texture(NPC_COLONIST_PATH)?;
-        let source_ts = build_single_tile_atlas_source(texture, tile_size);
-        let source_id = tile_set.add_source(&source_ts);
-        if source_id < 0 {
-            godot_error!("GameWorld: failed to add NPC tile atlas source");
-            return None;
-        }
-
-        Some(tile_set)
-    }
-
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
         resource_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
@@ -563,27 +614,8 @@ impl GameWorld {
         self.with_rendered_surface_world(query_resource_nodes)
     }
 
-    fn populate_npc_map(&mut self, npc_map: &mut Gd<TileMapLayer>) {
-        npc_map.clear();
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let Some(npcs) = self.npc_positions() else {
-            godot_error!("GameWorld: rendered surface no longer exists");
-            self.disable_processing();
-            return;
-        };
-
-        for coord in npcs {
-            npc_map
-                .set_cell_ex(v2(coord.x(), coord.y()))
-                .source_id(0)
-                .atlas_coords(v2(0, 0))
-                .done();
-        }
-        npc_map.update_internals();
-    }
-
-    fn npc_positions(&self) -> Option<Vec<CellCoord>> {
-        self.with_rendered_surface_world(query_npc_positions)
+    fn npc_render_infos(&self) -> Option<Vec<NpcRenderInfo>> {
+        self.with_rendered_surface_world(query_npc_render_infos)
     }
 
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
@@ -609,8 +641,7 @@ impl GameWorld {
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
 
-        let mut npc_map = self.npc_map.clone();
-        self.populate_npc_map(&mut npc_map);
+        self.sync_npc_sprites();
 
         let mut camera = self.camera.clone();
         self.configure_camera_for_surface(&mut camera);
@@ -696,16 +727,26 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
         .unwrap_or_default()
 }
 
-fn query_npc_positions(world: &World) -> Vec<CellCoord> {
+fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
-        .try_query::<(&NpcPosition, &Npc)>()
+        .try_query::<(Entity, &NpcPosition, &Npc)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(position, _)| position.coord)
+                .map(|(entity, position, _)| NpcRenderInfo {
+                    entity,
+                    coord: position.coord,
+                })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn cell_top_left(coord: CellCoord) -> Vector2 {
+    Vector2::new(
+        coord.x() as f32 * grid::TILE_SIZE,
+        coord.y() as f32 * grid::TILE_SIZE,
+    )
 }
 
 fn resource_asset_path(kind: ResourceKind) -> &'static str {
