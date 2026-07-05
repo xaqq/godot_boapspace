@@ -5,6 +5,7 @@ pub use crate::components::{
 use crate::grid::{CellCoord, Grid};
 use bevy_ecs::prelude::*;
 use std::time::Duration;
+use crate::resources::ResourceAmounts;
 
 pub const INITIAL_NPC_NAME: &str = "Mara Voss";
 pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
@@ -99,7 +100,7 @@ impl InitialNpcBundle {
             birth_date: BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
             position: NpcPosition { coord },
             hunger: NpcHunger::fed(),
-            inventory: NpcInventory::empty(),
+            inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
         }
     }
 }
