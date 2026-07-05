@@ -1,12 +1,12 @@
 [gd_scene format=3 uid="uid://bg0w0rld000"]
 
-[ext_resource type="PackedScene" uid="uid://bgl6fb1fuuabc" path="res://ingame_menu.tscn" id="1_ingame_menu"]
-[ext_resource type="PackedScene" uid="uid://creshead0001" path="res://resource_header.tscn" id="2_resource_header"]
-[ext_resource type="PackedScene" uid="uid://tileinfop001" path="res://tile_info_panel.tscn" id="3_tile_info_panel"]
-[ext_resource type="PackedScene" uid="uid://vf07p3yy72o7" path="res://surface_selector.tscn" id="4_surface_selector"]
-[ext_resource type="PackedScene" path="res://npc_info_panel.tscn" id="5_npc_info_panel"]
-[ext_resource type="PackedScene" path="res://build_palette.tscn" id="6_build_palette"]
-[ext_resource type="PackedScene" path="res://building_info_panel.tscn" id="7_building_info_panel"]
+[ext_resource type="PackedScene" path="res://menu/ingame_menu.tscn" id="1_ingame_menu"]
+[ext_resource type="PackedScene" path="res://panel/resource_header.tscn" id="2_resource_header"]
+[ext_resource type="PackedScene" path="res://panel/tile_info_panel.tscn" id="3_tile_info_panel"]
+[ext_resource type="PackedScene" path="res://panel/surface_selector.tscn" id="4_surface_selector"]
+[ext_resource type="PackedScene" path="res://panel/npc_info_panel.tscn" id="5_npc_info_panel"]
+[ext_resource type="PackedScene" path="res://panel/building_palette.tscn" id="6_build_palette"]
+[ext_resource type="PackedScene" path="res://panel/building_info_panel.tscn" id="7_building_info_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3

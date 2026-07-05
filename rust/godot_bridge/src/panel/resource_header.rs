@@ -1,4 +1,4 @@
-use crate::game_world::GameWorld;
+use crate::world::game_world::GameWorld;
 use game_engine::resources::{GameResources, ResourceKind};
 use godot::classes::{HBoxContainer, IHBoxContainer, Label};
 use godot::obj::OnEditor;

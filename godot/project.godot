@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="godot_boapspace"
-run/main_scene="res://main_ui.tscn"
+run/main_scene="res://menu/root_menu.tscn"
 config/features=PackedStringArray("4.7")
 config/icon="res://icon.svg"
 

@@ -7,6 +7,7 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 - `lib.rs` registers the extension modules.
 - Menus should go into `menu` module
 - Information / control panel should go to `panel` module.
+- World view and simulation-facing scene nodes should go to `world` module.
 
 ## Godot Rust Conventions
 

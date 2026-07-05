@@ -1,4 +1,4 @@
-use crate::game_world::{decode_entity_id, GameWorld};
+use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::CellCoord;
 use game_engine::resource_nodes::ResourceNode;

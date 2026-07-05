@@ -3,7 +3,7 @@ use godot::global::Error;
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
-const GAME_WORLD_SCENE: &str = "res://game_world.tscn";
+const GAME_WORLD_SCENE: &str = "res://world/game_world.tscn";
 
 #[derive(GodotClass)]
 #[class(base = Control)]

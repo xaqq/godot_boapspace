@@ -3,7 +3,7 @@ use godot::global::Error;
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
-const MAIN_MENU_SCENE: &str = "res://main_ui.tscn";
+const MAIN_MENU_SCENE: &str = "res://menu/root_menu.tscn";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 
 #[derive(GodotClass)]

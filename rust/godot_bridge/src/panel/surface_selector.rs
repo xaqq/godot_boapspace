@@ -1,4 +1,4 @@
-use crate::game_world::GameWorld;
+use crate::world::game_world::GameWorld;
 use godot::classes::{control, Button, IPanelContainer, PanelContainer, VBoxContainer};
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
