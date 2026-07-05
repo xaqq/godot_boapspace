@@ -1,9 +1,10 @@
+use super::resource_quantity::ResourceQuantity;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::buildings::{
     Building, BuildingBlueprintKind, BuildingFootprint, ConstructionProgress, WarehouseInventory,
 };
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use godot::classes::{IPanelContainer, Label, PanelContainer};
+use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -23,7 +24,19 @@ pub(crate) struct BuildingInfoPanel {
     progress_label: OnEditor<Gd<Label>>,
 
     #[export]
-    inventory_label: OnEditor<Gd<Label>>,
+    inventory_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+
+    #[export]
+    stone_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+
+    #[export]
+    food_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+
+    #[export]
+    gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
@@ -39,7 +52,11 @@ impl IPanelContainer for BuildingInfoPanel {
             footprint_label: OnEditor::default(),
             cost_label: OnEditor::default(),
             progress_label: OnEditor::default(),
-            inventory_label: OnEditor::default(),
+            inventory_container: OnEditor::default(),
+            wood_inventory_quantity: OnEditor::default(),
+            stone_inventory_quantity: OnEditor::default(),
+            food_inventory_quantity: OnEditor::default(),
+            gold_inventory_quantity: OnEditor::default(),
             game_world: OnEditor::default(),
             base,
         }
@@ -51,14 +68,22 @@ impl IPanelContainer for BuildingInfoPanel {
         let footprint_label = self.footprint_label.clone();
         let cost_label = self.cost_label.clone();
         let progress_label = self.progress_label.clone();
-        let inventory_label = self.inventory_label.clone();
+        let inventory_container = self.inventory_container.clone();
+        let wood_inventory_quantity = self.wood_inventory_quantity.clone();
+        let stone_inventory_quantity = self.stone_inventory_quantity.clone();
+        let food_inventory_quantity = self.food_inventory_quantity.clone();
+        let gold_inventory_quantity = self.gold_inventory_quantity.clone();
 
         let selected_game_world = game_world.clone();
         let mut selected_name_label = name_label.clone();
         let mut selected_footprint_label = footprint_label.clone();
         let mut selected_cost_label = cost_label.clone();
         let mut selected_progress_label = progress_label.clone();
-        let mut selected_inventory_label = inventory_label.clone();
+        let mut selected_inventory_container = inventory_container.clone();
+        let mut selected_wood_inventory_quantity = wood_inventory_quantity.clone();
+        let mut selected_stone_inventory_quantity = stone_inventory_quantity.clone();
+        let mut selected_food_inventory_quantity = food_inventory_quantity.clone();
+        let mut selected_gold_inventory_quantity = gold_inventory_quantity.clone();
         game_world
             .signals()
             .building_selected()
@@ -70,7 +95,7 @@ impl IPanelContainer for BuildingInfoPanel {
                         &mut selected_footprint_label,
                         &mut selected_cost_label,
                         &mut selected_progress_label,
-                        &mut selected_inventory_label,
+                        &mut selected_inventory_container,
                     );
                     return;
                 };
@@ -81,11 +106,13 @@ impl IPanelContainer for BuildingInfoPanel {
                     format!("Cost: {}", format_deposited_cost(info.progress, info.cost)).as_str(),
                 );
                 selected_progress_label.set_text("");
-                selected_inventory_label.set_text(
-                    info.inventory
-                        .map(|inventory| format!("Inventory: {}", format_amounts(inventory, true)))
-                        .unwrap_or_default()
-                        .as_str(),
+                update_inventory(
+                    &mut selected_inventory_container,
+                    &mut selected_wood_inventory_quantity,
+                    &mut selected_stone_inventory_quantity,
+                    &mut selected_food_inventory_quantity,
+                    &mut selected_gold_inventory_quantity,
+                    info.inventory,
                 );
             });
 
@@ -93,14 +120,14 @@ impl IPanelContainer for BuildingInfoPanel {
         let mut deselected_footprint_label = footprint_label;
         let mut deselected_cost_label = cost_label;
         let mut deselected_progress_label = progress_label;
-        let mut deselected_inventory_label = inventory_label;
+        let mut deselected_inventory_container = inventory_container;
         game_world.signals().building_deselected().connect(move || {
             clear_building_labels(
                 &mut deselected_name_label,
                 &mut deselected_footprint_label,
                 &mut deselected_cost_label,
                 &mut deselected_progress_label,
-                &mut deselected_inventory_label,
+                &mut deselected_inventory_container,
             );
         });
     }
@@ -161,19 +188,30 @@ fn format_deposited_cost(progress: ResourceAmounts, cost: ResourceAmounts) -> St
     }
 }
 
-fn format_amounts(amounts: ResourceAmounts, include_zero: bool) -> String {
-    let parts = ResourceKind::ALL
-        .into_iter()
-        .filter_map(|kind| {
-            let amount = amounts.get(kind);
-            (include_zero || amount > 0).then(|| format!("{}: {}", kind.label(), amount))
-        })
-        .collect::<Vec<_>>();
-
-    if parts.is_empty() {
-        "None".to_string()
+fn update_inventory(
+    inventory_container: &mut Gd<VBoxContainer>,
+    wood_quantity: &mut Gd<ResourceQuantity>,
+    stone_quantity: &mut Gd<ResourceQuantity>,
+    food_quantity: &mut Gd<ResourceQuantity>,
+    gold_quantity: &mut Gd<ResourceQuantity>,
+    inventory: Option<ResourceAmounts>,
+) {
+    if let Some(inventory) = inventory {
+        wood_quantity
+            .bind_mut()
+            .set_amount(inventory.get(ResourceKind::Wood));
+        stone_quantity
+            .bind_mut()
+            .set_amount(inventory.get(ResourceKind::Stone));
+        food_quantity
+            .bind_mut()
+            .set_amount(inventory.get(ResourceKind::Food));
+        gold_quantity
+            .bind_mut()
+            .set_amount(inventory.get(ResourceKind::Gold));
+        inventory_container.show();
     } else {
-        parts.join(", ")
+        inventory_container.hide();
     }
 }
 
@@ -182,13 +220,13 @@ fn clear_building_labels(
     footprint_label: &mut Gd<Label>,
     cost_label: &mut Gd<Label>,
     progress_label: &mut Gd<Label>,
-    inventory_label: &mut Gd<Label>,
+    inventory_container: &mut Gd<VBoxContainer>,
 ) {
     name_label.set_text("Building: None");
     footprint_label.set_text("");
     cost_label.set_text("");
     progress_label.set_text("");
-    inventory_label.set_text("");
+    inventory_container.hide();
 }
 
 #[cfg(test)]

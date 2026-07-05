@@ -1,11 +1,17 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "cost_label", "progress_label", "inventory_label")]
+[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
+
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "cost_label", "progress_label", "inventory_container", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
 cost_label = NodePath("MarginContainer/VBoxContainer/cost_label")
 progress_label = NodePath("MarginContainer/VBoxContainer/progress_label")
-inventory_label = NodePath("MarginContainer/VBoxContainer/inventory_label")
+inventory_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer")
+wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
+stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
+food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
+gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
 custom_minimum_size = Vector2(200, 0)
 anchors_preset = 15
 anchor_right = 1.0
@@ -49,7 +55,33 @@ layout_mode = 2
 autowrap_mode = 3
 text = ""
 
-[node name="inventory_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
+[node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
+visible = false
 layout_mode = 2
-autowrap_mode = 3
-text = ""
+theme_override_constants/separation = 4
+
+[node name="InventoryLabel" type="Label" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271518]
+layout_mode = 2
+text = "Inventory:"
+
+[node name="InventoryGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271519]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 4
+
+[node name="WoodInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271520 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 0
+
+[node name="StoneInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271521 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 1
+
+[node name="FoodInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271522 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 2
+
+[node name="GoldInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271523 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 3

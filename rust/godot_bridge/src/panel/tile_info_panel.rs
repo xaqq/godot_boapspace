@@ -1,3 +1,4 @@
+use super::resource_quantity::ResourceQuantity;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::CellCoord;
@@ -13,7 +14,7 @@ pub(crate) struct TileInfoPanel {
     pos_label: OnEditor<Gd<Label>>,
 
     #[export]
-    resource_label: OnEditor<Gd<Label>>,
+    resource_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
@@ -26,7 +27,7 @@ impl IPanelContainer for TileInfoPanel {
     fn init(base: Base<PanelContainer>) -> Self {
         Self {
             pos_label: OnEditor::default(),
-            resource_label: OnEditor::default(),
+            resource_quantity: OnEditor::default(),
             game_world: OnEditor::default(),
             base,
         }
@@ -35,37 +36,30 @@ impl IPanelContainer for TileInfoPanel {
     fn ready(&mut self) {
         let game_world = self.game_world.clone();
         let pos_label = self.pos_label.clone();
-        let resource_label = self.resource_label.clone();
+        let resource_quantity = self.resource_quantity.clone();
 
         let selected_game_world = game_world.clone();
         let mut selected_pos_label = pos_label.clone();
-        let mut selected_resource_label = resource_label.clone();
+        let mut selected_resource_quantity = resource_quantity.clone();
         game_world
             .signals()
             .tile_selected()
             .connect(move |tile_entity_id| {
                 let game_world = selected_game_world.bind();
                 let Some(info) = tile_info(&game_world, tile_entity_id) else {
-                    clear_tile_labels(&mut selected_pos_label, &mut selected_resource_label);
+                    clear_tile_info(&mut selected_pos_label, &mut selected_resource_quantity);
                     return;
                 };
 
                 let position_text = format!("Cell: ({}, {})", info.coord.x(), info.coord.y());
-                let resource_text = info.resource.map_or_else(String::new, |resource| {
-                    format!(
-                        "Resource: {} ({})",
-                        resource.kind.label(),
-                        resource.quantity
-                    )
-                });
                 selected_pos_label.set_text(position_text.as_str());
-                selected_resource_label.set_text(resource_text.as_str());
+                update_resource_quantity(&mut selected_resource_quantity, info.resource);
             });
 
         let mut deselected_pos_label = pos_label;
-        let mut deselected_resource_label = resource_label;
+        let mut deselected_resource_quantity = resource_quantity;
         game_world.signals().tile_deselected().connect(move || {
-            clear_tile_labels(&mut deselected_pos_label, &mut deselected_resource_label);
+            clear_tile_info(&mut deselected_pos_label, &mut deselected_resource_quantity);
         });
     }
 }
@@ -89,7 +83,21 @@ fn tile_info(game_world: &GameWorld, tile_entity_id: i64) -> Option<TileInfo> {
     })
 }
 
-fn clear_tile_labels(pos_label: &mut Gd<Label>, resource_label: &mut Gd<Label>) {
+fn update_resource_quantity(
+    resource_quantity: &mut Gd<ResourceQuantity>,
+    resource: Option<ResourceNode>,
+) {
+    let mut resource_quantity = resource_quantity.bind_mut();
+    if let Some(resource) = resource {
+        resource_quantity.set_resource_kind(resource.kind);
+        resource_quantity.set_amount(resource.quantity);
+        resource_quantity.show_quantity();
+    } else {
+        resource_quantity.hide_quantity();
+    }
+}
+
+fn clear_tile_info(pos_label: &mut Gd<Label>, resource_quantity: &mut Gd<ResourceQuantity>) {
     pos_label.set_text("Cell: None");
-    resource_label.set_text("");
+    resource_quantity.bind_mut().hide_quantity();
 }

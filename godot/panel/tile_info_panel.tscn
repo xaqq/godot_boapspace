@@ -1,8 +1,10 @@
-[gd_scene format=3 uid="uid://tileinfop001"]
+[gd_scene load_steps=2 format=3 uid="uid://tileinfop001"]
 
-[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "resource_label")]
+[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
+
+[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "resource_quantity")]
 pos_label = NodePath("MarginContainer/VBoxContainer/pos_label")
-resource_label = NodePath("MarginContainer/VBoxContainer/resource_label")
+resource_quantity = NodePath("MarginContainer/VBoxContainer/ResourceQuantity")
 custom_minimum_size = Vector2(200, 0)
 anchors_preset = 15
 anchor_right = 1.0
@@ -32,6 +34,7 @@ layout_mode = 2
 layout_mode = 2
 text = "Cell: None"
 
-[node name="resource_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271509]
+[node name="ResourceQuantity" parent="MarginContainer/VBoxContainer" unique_id=1173271509 instance=ExtResource("1_resource_quantity")]
+visible = false
 layout_mode = 2
-text = ""
+kind = 0

@@ -34,17 +34,8 @@ impl IHBoxContainer for ResourceQuantity {
     }
 
     fn ready(&mut self) {
-        let mut icon_rect = self.icon_rect.clone();
-        let mut amount_label = self.amount_label.clone();
-
-        if let Some(texture) = load_texture(resource_asset_path(self.kind), "ResourceQuantity") {
-            icon_rect.set_texture(&texture);
-        }
-
-        amount_label.set_text(amount_text(0).as_str());
-
-        let tooltip_text = self.kind.label();
-        self.base_mut().set_tooltip_text(tooltip_text);
+        self.refresh_resource();
+        self.set_amount(0);
     }
 
     fn make_custom_tooltip(&self, _for_text: GString) -> Option<Gd<Object>> {
@@ -73,9 +64,33 @@ impl IHBoxContainer for ResourceQuantity {
 }
 
 impl ResourceQuantity {
+    pub(crate) fn set_resource_kind(&mut self, kind: ResourceKind) {
+        self.kind = kind;
+        self.refresh_resource();
+    }
+
     pub(crate) fn set_amount(&mut self, amount: u32) {
         let mut amount_label = self.amount_label.clone();
         amount_label.set_text(amount_text(amount).as_str());
+    }
+
+    pub(crate) fn show_quantity(&mut self) {
+        self.base_mut().show();
+    }
+
+    pub(crate) fn hide_quantity(&mut self) {
+        self.base_mut().hide();
+    }
+
+    fn refresh_resource(&mut self) {
+        let mut icon_rect = self.icon_rect.clone();
+        let tooltip_text = self.kind.label();
+
+        if let Some(texture) = load_texture(resource_asset_path(self.kind), "ResourceQuantity") {
+            icon_rect.set_texture(&texture);
+        }
+
+        self.base_mut().set_tooltip_text(tooltip_text);
     }
 }
 
