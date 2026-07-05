@@ -6,7 +6,7 @@ use std::time::Duration;
 
 pub const INITIAL_NPC_NAME: &str = "Mara Voss";
 pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
-pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 12_000;
+pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 0;
 pub const SECONDS_PER_DAY: u64 = 86_400;
 const SECONDS_PER_HOUR: u64 = 3_600;
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_world_date_time_age_years_since_birth_date() {
-        let world_date_time = WorldDateTime::from_day(DEFAULT_WORLD_DATE_TIME_DAY);
+        let world_date_time = WorldDateTime::from_day(12_000);
 
         assert_eq!(
             world_date_time.age_years_since(BirthDate::new(world_duration_from_day(

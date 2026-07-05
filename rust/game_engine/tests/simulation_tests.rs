@@ -23,6 +23,13 @@ fn test_new_creates_default_surface() {
 }
 
 #[test]
+fn test_new_starts_world_date_time_at_epoch() {
+    let simulation = GameSimulation::new();
+
+    assert_eq!(simulation.world_date_time(), WorldDateTime::from_day(0));
+}
+
+#[test]
 fn test_create_surface_returns_distinct_id() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
@@ -389,7 +396,7 @@ fn test_initial_npc_has_identity_birth_date_age_and_center_position() {
     assert_eq!(initial_npc.0, expected_coord);
     assert_eq!(initial_npc.1, INITIAL_NPC_NAME);
     assert_eq!(initial_npc.2, INITIAL_NPC_BIRTH_DAY);
-    assert_eq!(initial_npc.3, 32);
+    assert_eq!(initial_npc.3, 0);
 }
 
 #[test]

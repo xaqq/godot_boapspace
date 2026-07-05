@@ -149,8 +149,8 @@ impl GameSimulation {
 
         self.world_date_time.advance_by(SIMULATION_TICK_DURATION);
         for surface in &mut self.surfaces {
-            surface.set_world_date_time(self.world_date_time);
             surface.tick();
+            surface.set_world_date_time(self.world_date_time);
         }
     }
 
