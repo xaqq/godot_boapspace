@@ -1,10 +1,14 @@
 [gd_scene format=3 uid="uid://creshead0001"]
 
-[node name="ResourceHeader" type="ResourceHeader" unique_id=2110331916 node_paths=PackedStringArray("wood_label", "stone_label", "food_label", "gold_label")]
-wood_label = NodePath("HBoxContainer#WoodLabel")
-stone_label = NodePath("HBoxContainer#StoneLabel")
-food_label = NodePath("HBoxContainer#FoodLabel")
-gold_label = NodePath("HBoxContainer#GoldLabel")
+[node name="ResourceHeader" type="ResourceHeader" unique_id=2110331916 node_paths=PackedStringArray("wood_icon", "wood_label", "stone_icon", "stone_label", "food_icon", "food_label", "gold_icon", "gold_label")]
+wood_icon = NodePath("WoodIcon")
+wood_label = NodePath("WoodLabel")
+stone_icon = NodePath("StoneIcon")
+stone_label = NodePath("StoneLabel")
+food_icon = NodePath("FoodIcon")
+food_label = NodePath("FoodLabel")
+gold_icon = NodePath("GoldIcon")
+gold_label = NodePath("GoldLabel")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -15,18 +19,34 @@ grow_vertical = 2
 size_flags_horizontal = 3
 alignment = 1
 
-[node name="HBoxContainer#GoldLabel" type="Label" parent="." unique_id=1205707213]
+[node name="WoodIcon" type="TextureRect" parent="." unique_id=1205707214]
+custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
-text = "Gold: 0"
 
-[node name="HBoxContainer#WoodLabel" type="Label" parent="." unique_id=1377808860]
+[node name="WoodLabel" type="Label" parent="." unique_id=1377808860]
 layout_mode = 2
 text = "Wood: 0"
 
-[node name="HBoxContainer#FoodLabel" type="Label" parent="." unique_id=1168500328]
+[node name="StoneIcon" type="TextureRect" parent="." unique_id=1024009418]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+
+[node name="StoneLabel" type="Label" parent="." unique_id=1024009417]
+layout_mode = 2
+text = "Stone: 0"
+
+[node name="FoodIcon" type="TextureRect" parent="." unique_id=1168500329]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+
+[node name="FoodLabel" type="Label" parent="." unique_id=1168500328]
 layout_mode = 2
 text = "Food: 0"
 
-[node name="HBoxContainer#StoneLabel" type="Label" parent="." unique_id=1024009417]
+[node name="GoldIcon" type="TextureRect" parent="." unique_id=1205707215]
+custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
-text = "Stone: 0"
+
+[node name="GoldLabel" type="Label" parent="." unique_id=1205707213]
+layout_mode = 2
+text = "Gold: 0"

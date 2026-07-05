@@ -21,6 +21,11 @@ const ZOOM_MAX: f32 = 4.0;
 const ZOOM_FACTOR: f32 = 1.1;
 const PAN_SPEED: f32 = 600.0;
 const CAMERA_LIMIT_PADDING_FACTOR: f32 = 1.0;
+const TERRAIN_GRASS_PATH: &str = "res://assets/generated/terrain_grass.png";
+const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
+const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
+const RESOURCE_FOOD_PATH: &str = "res://assets/generated/resource_food.png";
+const RESOURCE_GOLD_PATH: &str = "res://assets/generated/resource_gold.png";
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -96,42 +101,10 @@ impl INode2D for GameWorld {
         };
 
         let ts = grid::TILE_SIZE as i32;
-        let atlas_w = ts;
-        let atlas_h = ts;
-
-        let Some(mut image) = Image::create(atlas_w, atlas_h, false, image::Format::RGBA8) else {
-            godot_error!("GameWorld: failed to create tile atlas image");
+        let Some((tile_set, source_id)) = self.build_terrain_tile_set(ts) else {
             self.disable_processing();
             return;
         };
-        image.fill(Color::from_rgba8(0, 0, 0, 0));
-
-        let grass = Color::from_rgb(0.25, 0.55, 0.15);
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let rect = |x: i32, y: i32, w: i32, h: i32| Rect2i::new(v2(x, y), v2(w, h));
-
-        image.fill_rect(rect(0, 0, ts, ts), grass);
-
-        let Some(texture) = ImageTexture::create_from_image(&image) else {
-            godot_error!("GameWorld: failed to create tile atlas texture");
-            self.disable_processing();
-            return;
-        };
-
-        let mut source = TileSetAtlasSource::new_gd();
-        source.set_texture(&texture);
-        source.set_texture_region_size(v2(ts, ts));
-        source.create_tile_ex(v2(0, 0)).done();
-
-        let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(ts, ts));
-        let source_ts = source.upcast::<TileSetSource>();
-        let source_id = tile_set.add_source(&source_ts);
-        if source_id < 0 {
-            godot_error!("GameWorld: failed to add tile atlas source");
-            self.disable_processing();
-            return;
-        }
 
         self.tile_source_id = Some(source_id);
         tm.set_tile_set(&tile_set);
@@ -446,6 +419,31 @@ impl GameWorld {
         .flatten()
     }
 
+    fn build_terrain_tile_set(&self, tile_size: i32) -> Option<(Gd<TileSet>, i32)> {
+        let image = load_tile_image(TERRAIN_GRASS_PATH, tile_size)?;
+        let Some(texture) = ImageTexture::create_from_image(&image) else {
+            godot_error!("GameWorld: failed to create terrain tile texture");
+            return None;
+        };
+
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let mut source = TileSetAtlasSource::new_gd();
+        source.set_texture(&texture);
+        source.set_texture_region_size(v2(tile_size, tile_size));
+        source.create_tile_ex(v2(0, 0)).done();
+
+        let mut tile_set = TileSet::new_gd();
+        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let source_ts = source.upcast::<TileSetSource>();
+        let source_id = tile_set.add_source(&source_ts);
+        if source_id < 0 {
+            godot_error!("GameWorld: failed to add terrain tile atlas source");
+            return None;
+        }
+
+        Some((tile_set, source_id))
+    }
+
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
         let atlas_w = tile_size * ResourceKind::ALL.len() as i32;
         let atlas_h = tile_size;
@@ -456,7 +454,14 @@ impl GameWorld {
         image.fill(Color::from_rgba8(0, 0, 0, 0));
 
         for (index, kind) in ResourceKind::ALL.into_iter().enumerate() {
-            self.draw_resource_node_tile(&mut image, tile_size, index as i32, kind);
+            let path = resource_asset_path(kind);
+            let tile_image = load_tile_image(path, tile_size)?;
+            let src_rect = Rect2i::new(Vector2i::ZERO, Vector2i::new(tile_size, tile_size));
+            image.blit_rect(
+                &tile_image,
+                src_rect,
+                Vector2i::new(index as i32 * tile_size, 0),
+            );
         }
 
         let Some(texture) = ImageTexture::create_from_image(&image) else {
@@ -482,48 +487,6 @@ impl GameWorld {
         }
 
         Some(tile_set)
-    }
-
-    fn draw_resource_node_tile(
-        &self,
-        image: &mut Gd<Image>,
-        tile_size: i32,
-        tile_index: i32,
-        kind: ResourceKind,
-    ) {
-        let base_x = tile_index * tile_size;
-        let color = match kind {
-            ResourceKind::Wood => Color::from_rgb(0.18, 0.42, 0.16),
-            ResourceKind::Stone => Color::from_rgb(0.55, 0.58, 0.6),
-            ResourceKind::Food => Color::from_rgb(0.85, 0.23, 0.18),
-            ResourceKind::Gold => Color::from_rgb(0.95, 0.72, 0.18),
-        };
-        let shadow = Color::from_rgba(0.02, 0.02, 0.02, 0.35);
-        let highlight = Color::from_rgba(1.0, 1.0, 1.0, 0.35);
-        let center = tile_size as f32 / 2.0;
-
-        for y in 0..tile_size {
-            for x in 0..tile_size {
-                let dx = x as f32 + 0.5 - center;
-                let dy = y as f32 + 0.5 - center;
-                let distance = (dx * dx + dy * dy).sqrt();
-                let radius = tile_size as f32 * 0.28;
-                if distance <= radius {
-                    image.set_pixel(base_x + x, y, color);
-                } else if distance <= radius + 2.0 && dy > 0.0 {
-                    image.set_pixel(base_x + x, y, shadow);
-                }
-            }
-        }
-
-        let glint_start_x = base_x + tile_size / 2 - tile_size / 10;
-        let glint_start_y = tile_size / 2 - tile_size / 7;
-        let glint_size = (tile_size / 10).max(2);
-        for y in glint_start_y..glint_start_y + glint_size {
-            for x in glint_start_x..glint_start_x + glint_size {
-                image.set_pixel(x, y, highlight);
-            }
-        }
     }
 
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
@@ -699,4 +662,30 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn resource_asset_path(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::Wood => RESOURCE_WOOD_PATH,
+        ResourceKind::Stone => RESOURCE_STONE_PATH,
+        ResourceKind::Food => RESOURCE_FOOD_PATH,
+        ResourceKind::Gold => RESOURCE_GOLD_PATH,
+    }
+}
+
+fn load_tile_image(path: &str, tile_size: i32) -> Option<Gd<Image>> {
+    let Some(mut image) = Image::load_from_file(path) else {
+        godot_error!("GameWorld: failed to load image asset {path}");
+        return None;
+    };
+
+    image.convert(image::Format::RGBA8);
+    if image.get_size() != Vector2i::new(tile_size, tile_size) {
+        image
+            .resize_ex(tile_size, tile_size)
+            .interpolation(image::Interpolation::NEAREST)
+            .done();
+    }
+
+    Some(image)
 }
