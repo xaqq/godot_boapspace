@@ -1,5 +1,4 @@
 use bevy_ecs::world::World;
-use game_engine::components::TileDisplay;
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::resource_nodes::{ResourceNode, TilePosition};
 use game_engine::resources::ResourceKind;
@@ -31,8 +30,6 @@ fn world_limit(value: f32) -> i32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SelectedCell {
     coord: CellCoord,
-    tile_display: TileDisplay,
-    resource_kind: Option<ResourceKind>,
 }
 
 #[derive(GodotClass)]
@@ -253,9 +250,7 @@ impl INode2D for GameWorld {
             let coord = selected.coord;
             let cell_pos = Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts);
             let cell_size = Vector2::new(ts, ts);
-            let highlight = match selected.tile_display {
-                TileDisplay::Empty => Color::from_rgb(1.0, 0.84, 0.0),
-            };
+            let highlight = Color::from_rgb(1.0, 0.84, 0.0);
             let mut fill = highlight;
             fill.a = 0.15;
             base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
@@ -332,19 +327,16 @@ impl GameWorld {
     fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) -> bool {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let Some(entries) = self.game.tile_display_entries(self.rendered_surface) else {
-            godot_error!("GameWorld: rendered surface tile display entries unavailable");
+        let Some(coords) = self.game.tile_coords(self.rendered_surface) else {
+            godot_error!("GameWorld: rendered surface tile coordinates unavailable");
             return false;
         };
 
-        for entry in entries {
-            let atlas_x = match entry.display {
-                TileDisplay::Empty => 0,
-            };
+        for coord in coords {
             tile_map
-                .set_cell_ex(v2(entry.coord.x(), entry.coord.y()))
+                .set_cell_ex(v2(coord.x(), coord.y()))
                 .source_id(source_id)
-                .atlas_coords(v2(atlas_x, 0))
+                .atlas_coords(v2(0, 0))
                 .done();
         }
         tile_map.update_internals();
@@ -373,23 +365,14 @@ impl GameWorld {
             if self.selected_cell.map(|selected| selected.coord) == Some(coord) {
                 self.clear_selection();
             } else {
-                let tile_display = self.tile_display_at(coord).unwrap_or_default();
                 let resource_kind = self.resource_node_at(coord);
-                self.selected_cell = Some(SelectedCell {
-                    coord,
-                    tile_display,
-                    resource_kind,
-                });
+                self.selected_cell = Some(SelectedCell { coord });
                 self.base_mut().queue_redraw();
-                let type_name = GString::from(tile_display.type_name());
                 let resource_name =
                     GString::from(resource_kind.map(ResourceKind::label).unwrap_or(""));
-                self.signals().tile_selected().emit(
-                    coord.x(),
-                    coord.y(),
-                    &type_name,
-                    &resource_name,
-                );
+                self.signals()
+                    .tile_selected()
+                    .emit(coord.x(), coord.y(), &resource_name);
             }
         } else {
             self.clear_selection();
@@ -441,10 +424,6 @@ impl GameWorld {
 
     pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> Option<R> {
         self.game.with_surface_world(self.rendered_surface, f)
-    }
-
-    fn tile_display_at(&self, coord: CellCoord) -> Option<TileDisplay> {
-        self.game.tile_display_at(self.rendered_surface, coord)
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
@@ -609,7 +588,7 @@ impl GameWorld {
 #[godot_api]
 impl GameWorld {
     #[signal]
-    pub(crate) fn tile_selected(x: i32, y: i32, type_name: GString, resource_name: GString);
+    pub(crate) fn tile_selected(x: i32, y: i32, resource_name: GString);
 
     #[signal]
     pub(crate) fn tile_deselected();

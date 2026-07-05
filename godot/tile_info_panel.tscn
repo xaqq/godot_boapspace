@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://tileinfop001"]
 
-[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "type_label")]
+[node name="TileInfoPanel" type="TileInfoPanel" unique_id=963753129 node_paths=PackedStringArray("pos_label", "resource_label")]
 pos_label = NodePath("MarginContainer/VBoxContainer/pos_label")
-type_label = NodePath("MarginContainer/VBoxContainer/type_label")
+resource_label = NodePath("MarginContainer/VBoxContainer/resource_label")
 custom_minimum_size = Vector2(200, 0)
 anchors_preset = 15
 anchor_right = 1.0
@@ -34,6 +34,6 @@ layout_mode = 2
 layout_mode = 2
 text = "Cell: None"
 
-[node name="type_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271509]
+[node name="resource_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271509]
 layout_mode = 2
-text = "Type: --"
+text = ""

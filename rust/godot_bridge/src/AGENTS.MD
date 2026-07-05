@@ -20,13 +20,13 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Scene Wiring
 
 - When adding or renaming exported fields, update the matching scene file under `godot/`.
-- `tile_info_panel.tscn` currently wires `pos_label` and `type_label`; its `game_world` reference is expected to be assigned by the containing scene.
+- `tile_info_panel.tscn` currently wires `pos_label` and `resource_label`; its `game_world` reference is expected to be assigned by the containing scene.
 - Panel classes should update existing labels or controls rather than finding nodes by string paths at runtime.
 
 ## Tile Selection
 
 - Tile selection is intentionally owned by `GameWorld.selected_cell`, not by ECS.
-- `GameWorld` emits `tile_selected(x, y, type_name)` and `tile_deselected()`.
+- `GameWorld` emits `tile_selected(x, y, resource_name)` and `tile_deselected()`.
 - UI panels such as `TileInfoPanel` should listen to those signals and keep no independent selection source of truth.
 - If tile data becomes game logic, add it to `game_engine::grid` first and expose it through typed `GameWorld` methods or signals.
 

@@ -1,4 +1,4 @@
-use crate::components::{Terrain, TerrainKind, Tile, TileDisplay, TileDisplayEntry};
+use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::GameResources;
@@ -98,13 +98,8 @@ impl GameSimulation {
         tile_terrain_at(self.surface(surface_id)?, coord)
     }
 
-    pub fn tile_display_at(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<TileDisplay> {
-        self.tile_terrain_at(surface_id, coord)
-            .map(TileDisplay::from)
-    }
-
-    pub fn tile_display_entries(&self, surface_id: SurfaceId) -> Option<Vec<TileDisplayEntry>> {
-        tile_display_entries(self.surface(surface_id)?)
+    pub fn tile_coords(&self, surface_id: SurfaceId) -> Option<Vec<CellCoord>> {
+        tile_coords(self.surface(surface_id)?)
     }
 
     pub fn with_surface_world<R>(
@@ -128,18 +123,14 @@ fn tile_terrain_at(surface: &SurfaceRuntime, coord: CellCoord) -> Option<Terrain
     Some(surface.world.get::<Terrain>(entity)?.kind)
 }
 
-fn tile_display_entries(surface: &SurfaceRuntime) -> Option<Vec<TileDisplayEntry>> {
+fn tile_coords(surface: &SurfaceRuntime) -> Option<Vec<CellCoord>> {
     let index = surface.world.get_resource::<TileIndex>()?;
     Some(
         index
             .iter()
             .filter_map(|(coord, entity)| {
                 surface.world.get::<Tile>(entity)?;
-                let terrain = surface.world.get::<Terrain>(entity)?;
-                Some(TileDisplayEntry {
-                    coord,
-                    display: TileDisplay::from(terrain.kind),
-                })
+                Some(coord)
             })
             .collect(),
     )

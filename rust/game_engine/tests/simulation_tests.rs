@@ -1,4 +1,4 @@
-use game_engine::components::{Terrain, TerrainKind, Tile, TileDisplay, TilePosition};
+use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
@@ -78,18 +78,21 @@ fn test_surface_world_read_closure_can_read_resources() {
 }
 
 #[test]
-fn test_tile_display_reads_are_scoped_per_surface() {
+fn test_tile_coordinate_reads_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
-    let default_cell = simulation.tile_display_at(default_surface, CellCoord::new(100, 100));
-    let second_cell = simulation.tile_display_at(second_surface, CellCoord::new(100, 100));
-    let second_valid_cell = simulation.tile_display_at(second_surface, CellCoord::new(3, 4));
+    let default_coords = simulation
+        .tile_coords(default_surface)
+        .expect("default surface should exist");
+    let second_coords = simulation
+        .tile_coords(second_surface)
+        .expect("second surface should exist");
 
-    assert_eq!(default_cell, Some(TileDisplay::Empty));
-    assert_eq!(second_cell, None);
-    assert_eq!(second_valid_cell, Some(TileDisplay::Empty));
+    assert!(default_coords.contains(&CellCoord::new(100, 100)));
+    assert!(!second_coords.contains(&CellCoord::new(100, 100)));
+    assert!(second_coords.contains(&CellCoord::new(3, 4)));
 }
 
 #[test]
@@ -163,30 +166,22 @@ fn test_tile_entities_are_unique_within_bounds_and_grass() {
 }
 
 #[test]
-fn test_tile_display_entries_are_complete_unique_and_empty() {
+fn test_tile_coords_are_complete_unique_and_in_bounds() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(7, 9));
     let size = simulation.grid_size(surface).expect("surface should exist");
-    let entries = simulation
-        .tile_display_entries(surface)
+    let coords = simulation
+        .tile_coords(surface)
         .expect("surface should exist");
-    let unique_tiles = entries
-        .iter()
-        .map(|entry| entry.coord)
-        .collect::<HashSet<_>>();
+    let unique_tiles = coords.iter().copied().collect::<HashSet<_>>();
 
     assert_eq!(
-        entries.len(),
+        coords.len(),
         size.cell_count().expect("grid size should fit")
     );
-    assert_eq!(entries.len(), unique_tiles.len());
-    for entry in entries {
-        assert!(
-            size.contains(entry.coord),
-            "{:?} should be within {size:?}",
-            entry.coord
-        );
-        assert_eq!(entry.display, TileDisplay::Empty);
+    assert_eq!(coords.len(), unique_tiles.len());
+    for coord in coords {
+        assert!(size.contains(coord), "{coord:?} should be within {size:?}");
     }
 }
 

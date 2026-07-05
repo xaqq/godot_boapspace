@@ -27,32 +27,6 @@ pub enum TerrainKind {
     Grass,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TileDisplay {
-    #[default]
-    Empty,
-}
-
-impl TileDisplay {
-    pub const fn type_name(self) -> &'static str {
-        match self {
-            TileDisplay::Empty => "Empty",
-        }
-    }
-}
-
-impl From<TerrainKind> for TileDisplay {
-    fn from(_kind: TerrainKind) -> Self {
-        Self::Empty
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TileDisplayEntry {
-    pub coord: CellCoord,
-    pub display: TileDisplay,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ResourceNode {
     pub kind: ResourceKind,
