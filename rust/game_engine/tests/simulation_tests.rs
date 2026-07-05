@@ -7,7 +7,7 @@ use game_engine::npcs::{
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{
-    GameSimulation, SurfaceLookupError, DEFAULT_GRID_SIZE, SIMULATION_TICK_SECONDS,
+    GameSimulation, SimulationSpeed, SurfaceLookupError, DEFAULT_GRID_SIZE, SIMULATION_TICK_SECONDS,
 };
 use game_engine::tile::TileIndex;
 use std::collections::HashSet;
@@ -107,6 +107,13 @@ fn test_simulation_starts_playing() {
 }
 
 #[test]
+fn test_simulation_defaults_to_one_x_speed() {
+    let simulation = GameSimulation::new();
+
+    assert_eq!(simulation.simulation_speed(), SimulationSpeed::OneX);
+}
+
+#[test]
 fn test_tick_advances_world_date_time_by_fixed_duration() {
     let mut simulation = GameSimulation::new();
     let before = simulation.world_date_time();
@@ -120,10 +127,67 @@ fn test_tick_advances_world_date_time_by_fixed_duration() {
 }
 
 #[test]
+fn test_two_x_speed_runs_two_fixed_ticks() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.set_simulation_speed(SimulationSpeed::TwoX);
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        before.elapsed_since_world_epoch() + Duration::from_secs(2 * SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
+fn test_four_x_speed_runs_four_fixed_ticks() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.set_simulation_speed(SimulationSpeed::FourX);
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        before.elapsed_since_world_epoch() + Duration::from_secs(4 * SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
+fn test_fifty_x_speed_runs_fifty_fixed_ticks() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.set_simulation_speed(SimulationSpeed::FiftyX);
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        before.elapsed_since_world_epoch() + Duration::from_secs(50 * SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
+fn test_hundred_x_speed_runs_one_hundred_fixed_ticks() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.set_simulation_speed(SimulationSpeed::HundredX);
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        before.elapsed_since_world_epoch() + Duration::from_secs(100 * SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
 fn test_paused_tick_does_not_advance_world_date_time() {
     let mut simulation = GameSimulation::new();
     let before = simulation.world_date_time();
 
+    simulation.set_simulation_speed(SimulationSpeed::FourX);
     simulation.pause();
     simulation.tick(1.0 / 60.0);
 
@@ -168,6 +232,26 @@ fn test_tick_syncs_world_date_time_across_surfaces() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
 
+    simulation.tick(1.0 / 60.0);
+    let current_date_time = simulation.world_date_time();
+
+    assert_eq!(
+        surface_world_date_time(&simulation, default_surface),
+        current_date_time
+    );
+    assert_eq!(
+        surface_world_date_time(&simulation, second_surface),
+        current_date_time
+    );
+}
+
+#[test]
+fn test_four_x_tick_syncs_world_date_time_across_surfaces() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation.create_surface(GridSize::new(4, 4));
+
+    simulation.set_simulation_speed(SimulationSpeed::FourX);
     simulation.tick(1.0 / 60.0);
     let current_date_time = simulation.world_date_time();
 

@@ -9,7 +9,7 @@ use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use game_engine::simulation::{GameSimulation, SurfaceId};
+use game_engine::simulation::{GameSimulation, SimulationSpeed, SurfaceId};
 use game_engine::tasks::ProgressBuildingConstruction;
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
@@ -1090,6 +1090,26 @@ impl GameWorld {
     pub(crate) fn simulation_datetime_text(&self) -> GString {
         let text = self.simulation_datetime_text_string();
         GString::from(text.as_str())
+    }
+
+    #[func]
+    pub(crate) fn simulation_speed_multiplier(&self) -> i32 {
+        i32::try_from(self.game.simulation_speed().multiplier()).unwrap_or(i32::MAX)
+    }
+
+    #[func]
+    pub(crate) fn set_simulation_speed_multiplier(&mut self, multiplier: i32) -> bool {
+        let Ok(multiplier) = u32::try_from(multiplier) else {
+            godot_warn!("GameWorld: ignoring negative simulation speed multiplier");
+            return false;
+        };
+        let Some(simulation_speed) = SimulationSpeed::from_multiplier(multiplier) else {
+            godot_warn!("GameWorld: ignoring unsupported simulation speed multiplier {multiplier}");
+            return false;
+        };
+
+        self.game.set_simulation_speed(simulation_speed);
+        true
     }
 
     #[func]

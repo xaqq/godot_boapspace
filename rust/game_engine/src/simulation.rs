@@ -16,8 +16,40 @@ use bevy_ecs::system::RunSystemOnce;
 use std::time::Duration;
 
 pub const DEFAULT_GRID_SIZE: GridSize = GridSize::new(256, 256);
-pub const SIMULATION_TICK_SECONDS: u64 = 10 * 60;
+pub const SIMULATION_TICK_SECONDS: u64 = 60;
 const SIMULATION_TICK_DURATION: Duration = Duration::from_secs(SIMULATION_TICK_SECONDS);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationSpeed {
+    OneX,
+    TwoX,
+    FourX,
+    FiftyX,
+    HundredX,
+}
+
+impl SimulationSpeed {
+    pub const fn multiplier(self) -> u32 {
+        match self {
+            Self::OneX => 1,
+            Self::TwoX => 2,
+            Self::FourX => 4,
+            Self::FiftyX => 50,
+            Self::HundredX => 100,
+        }
+    }
+
+    pub const fn from_multiplier(multiplier: u32) -> Option<Self> {
+        match multiplier {
+            1 => Some(Self::OneX),
+            2 => Some(Self::TwoX),
+            4 => Some(Self::FourX),
+            50 => Some(Self::FiftyX),
+            100 => Some(Self::HundredX),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SurfaceId(usize);
@@ -84,6 +116,7 @@ pub struct GameSimulation {
     default_surface: SurfaceId,
     world_date_time: WorldDateTime,
     playing: bool,
+    simulation_speed: SimulationSpeed,
 }
 
 impl GameSimulation {
@@ -96,6 +129,7 @@ impl GameSimulation {
             default_surface: SurfaceId(0),
             world_date_time,
             playing: true,
+            simulation_speed: SimulationSpeed::OneX,
         }
     }
 
@@ -145,15 +179,29 @@ impl GameSimulation {
         self.world_date_time
     }
 
+    pub const fn simulation_speed(&self) -> SimulationSpeed {
+        self.simulation_speed
+    }
+
+    pub fn set_simulation_speed(&mut self, simulation_speed: SimulationSpeed) {
+        self.simulation_speed = simulation_speed;
+    }
+
     pub fn tick(&mut self, _delta: f32) {
         if !self.playing {
             return;
         }
 
+        for _ in 0..self.simulation_speed.multiplier() {
+            self.run_fixed_tick();
+        }
+    }
+
+    fn run_fixed_tick(&mut self) {
         self.world_date_time.advance_by(SIMULATION_TICK_DURATION);
         for surface in &mut self.surfaces {
-            surface.tick();
             surface.set_world_date_time(self.world_date_time);
+            surface.tick();
         }
     }
 

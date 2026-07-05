@@ -26,8 +26,13 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "datetime_label", "game_world")]
+[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "speed_1x_button", "speed_2x_button", "speed_4x_button", "speed_50x_button", "speed_100x_button", "datetime_label", "game_world")]
 play_pause_button = NodePath("PlayPauseButton")
+speed_1x_button = NodePath("Speed1xButton")
+speed_2x_button = NodePath("Speed2xButton")
+speed_4x_button = NodePath("Speed4xButton")
+speed_50x_button = NodePath("Speed50xButton")
+speed_100x_button = NodePath("Speed100xButton")
 datetime_label = NodePath("DateTimeLabel")
 game_world = NodePath("../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
@@ -37,6 +42,32 @@ theme_override_constants/separation = 8
 custom_minimum_size = Vector2(72, 0)
 layout_mode = 2
 text = "Pause"
+
+[node name="Speed1xButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+disabled = true
+text = "1x"
+
+[node name="Speed2xButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+text = "2x"
+
+[node name="Speed4xButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+text = "4x"
+
+[node name="Speed50xButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+text = "50x"
+
+[node name="Speed100xButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(60, 0)
+layout_mode = 2
+text = "100x"
 
 [node name="DateTimeLabel" type="Label" parent="VBoxContainer/HeaderBar"]
 custom_minimum_size = Vector2(132, 0)
