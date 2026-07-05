@@ -50,6 +50,8 @@ cargo test --manifest-path rust/Cargo.toml            # Run all tests
 - Do not use GDSCript, always write any code in Rust.
 - Code quality is important. Most of the code is and will be AI generated, but must still be readable and maintainable.
 - Avoid making assumptions or adding things without asking; You are welcome to ask instead.
+- When asking questions with the questions/request_user_input tool, do not set `autoResolutionMs`.
+  Questions should wait for an answer unless the user explicitly allows auto-resolve.
 - Do not hesitate to perform exploration task by fanning out subagents.
 
 ## Git workflow
