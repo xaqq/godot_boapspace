@@ -21,3 +21,6 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 
 - When adding or renaming exported fields, update the matching scene file under `godot/`.
 - Panel classes should update existing labels or controls rather than finding nodes by string paths at runtime.
+- Prefer static node configuration in Godot scenes over Rust setup code. Properties like sizing,
+  wrapping, margins, selection, scroll behavior, and other fixed UI presentation should live in
+  `.tscn` files; Rust should set dynamic state and content.
