@@ -2,7 +2,7 @@ use crate::assets::{load_texture, resource_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
@@ -75,7 +75,6 @@ struct BuildingRenderInfo {
     entity: Entity,
     kind: BuildingKind,
     footprint: BuildingFootprint,
-    is_blueprint: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,7 +270,7 @@ impl INode2D for GameWorld {
         let blueprint_footprints = self
             .building_render_infos()
             .into_iter()
-            .filter_map(|building| building.is_blueprint.then_some(building.footprint))
+            .map(|building| building.footprint)
             .collect::<Vec<_>>();
 
         let mut base = self.base_mut();
@@ -689,35 +688,21 @@ impl GameWorld {
 
     fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
         self.with_rendered_surface_world(|world| {
-            let building_entity = world
-                .try_query::<(Entity, &Building)>()
+            world
+                .try_query::<(Entity, &BuildingBlueprint)>()
                 .and_then(|mut query| {
-                    query.iter(world).find_map(|(entity, building)| {
-                        building.footprint.contains(coord).then_some(entity)
+                    query.iter(world).find_map(|(entity, blueprint)| {
+                        blueprint.footprint.contains(coord).then_some(entity)
                     })
-                });
-            building_entity.or_else(|| {
-                world
-                    .try_query::<(Entity, &BuildingBlueprint)>()
-                    .and_then(|mut query| {
-                        query.iter(world).find_map(|(entity, blueprint)| {
-                            blueprint.footprint.contains(coord).then_some(entity)
-                        })
-                    })
-            })
+                })
         })
     }
 
     fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
         self.with_rendered_surface_world(|world| {
             world
-                .get::<Building>(entity)
-                .map(|building| building.footprint)
-                .or_else(|| {
-                    world
-                        .get::<BuildingBlueprint>(entity)
-                        .map(|blueprint| blueprint.footprint)
-                })
+                .get::<BuildingBlueprint>(entity)
+                .map(|blueprint| blueprint.footprint)
         })
     }
 
@@ -756,7 +741,7 @@ impl GameWorld {
                 sprite.set_texture_filter(TextureFilter::NEAREST);
                 sprite.set_z_index(2);
                 sprite.set_position(position);
-                sprite.set_modulate(building_sprite_modulate(building.is_blueprint));
+                sprite.set_modulate(building_sprite_modulate());
                 self.base_mut().add_child(&sprite);
                 self.building_sprites.insert(building.entity, sprite);
                 continue;
@@ -765,7 +750,7 @@ impl GameWorld {
             if let Some(sprite) = self.building_sprites.get_mut(&building.entity) {
                 sprite.set_texture(&texture);
                 sprite.set_position(position);
-                sprite.set_modulate(building_sprite_modulate(building.is_blueprint));
+                sprite.set_modulate(building_sprite_modulate());
             }
         }
 
@@ -1063,37 +1048,19 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
 }
 
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
-    let mut buildings = world
-        .try_query::<(Entity, &Building)>()
+    world
+        .try_query::<(Entity, &BuildingBlueprint)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(entity, building)| BuildingRenderInfo {
+                .map(|(entity, blueprint)| BuildingRenderInfo {
                     entity,
-                    kind: building.kind,
-                    footprint: building.footprint,
-                    is_blueprint: false,
+                    kind: blueprint.kind,
+                    footprint: blueprint.footprint,
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_default();
-
-    if let Some(mut query) = world.try_query::<(Entity, &BuildingBlueprint, Option<&Building>)>() {
-        buildings.extend(
-            query
-                .iter(world)
-                .filter_map(|(entity, blueprint, building)| {
-                    building.is_none().then_some(BuildingRenderInfo {
-                        entity,
-                        kind: blueprint.kind,
-                        footprint: blueprint.footprint,
-                        is_blueprint: true,
-                    })
-                }),
-        );
-    }
-
-    buildings
+        .unwrap_or_default()
 }
 
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
@@ -1192,11 +1159,7 @@ fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {
     )
 }
 
-fn building_sprite_modulate(is_blueprint: bool) -> Color {
-    if !is_blueprint {
-        return Color::from_rgb(1.0, 1.0, 1.0);
-    }
-
+fn building_sprite_modulate() -> Color {
     let mut color = Color::from_rgb(0.55, 0.9, 1.0);
     color.a = 0.62;
     color

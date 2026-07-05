@@ -1,8 +1,8 @@
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
     ConstructionProgress, WarehouseInventory,
 };
-use game_engine::grid::{CellCoord, Grid, GridSize};
+use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
@@ -41,11 +41,8 @@ fn test_place_building_blueprint_inside_bounds() {
     let info = simulation
         .with_surface_world(surface, |world| {
             let blueprint = world.get::<BuildingBlueprint>(entity)?;
-            Some((
-                blueprint.kind,
-                blueprint.footprint,
-                world.get::<Building>(entity).is_some(),
-            ))
+            let progress = world.get::<ConstructionProgress>(entity)?;
+            Some((blueprint.kind, blueprint.footprint, progress.deposited()))
         })
         .expect("placed building should be queryable");
 
@@ -53,7 +50,9 @@ fn test_place_building_blueprint_inside_bounds() {
     assert_eq!(info.1.origin(), CellCoord::new(1, 1));
     assert_eq!(info.1.width(), 2);
     assert_eq!(info.1.height(), 2);
-    assert!(!info.2);
+    for kind in ResourceKind::ALL {
+        assert_eq!(info.2.get(kind), 0);
+    }
 }
 
 #[test]
@@ -68,33 +67,15 @@ fn test_place_building_blueprint_rejects_out_of_bounds() {
 }
 
 #[test]
-fn test_place_building_blueprint_rejects_building_overlap() {
+fn test_place_building_blueprint_rejects_blueprint_overlap() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(8, 8));
 
     simulation
         .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(2, 2))
-        .expect("first building should place");
+        .expect("first blueprint should place");
     let result =
         simulation.place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(3, 3));
-
-    assert_eq!(result, Err(BuildingPlacementError::OverlapsBuilding));
-}
-
-#[test]
-fn test_place_building_blueprint_rejects_constructed_building_overlap() {
-    let mut world = bevy_ecs::world::World::new();
-    world.insert_resource(Grid::new(8, 8));
-    world.spawn(Building {
-        kind: BuildingKind::Warehouse,
-        footprint: BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
-    });
-
-    let result = game_engine::buildings::place_building_blueprint(
-        &mut world,
-        BuildingKind::TownHall,
-        CellCoord::new(3, 3),
-    );
 
     assert_eq!(result, Err(BuildingPlacementError::OverlapsBuilding));
 }

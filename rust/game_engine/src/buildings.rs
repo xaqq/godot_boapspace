@@ -63,12 +63,6 @@ impl BuildingDefinition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct Building {
-    pub kind: BuildingKind,
-    pub footprint: BuildingFootprint,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct BuildingBlueprint {
     pub kind: BuildingKind,
     pub footprint: BuildingFootprint,
@@ -220,30 +214,20 @@ pub fn validate_building_blueprint_placement(
     if !footprint.is_within(size) {
         return Err(BuildingPlacementError::OutOfBounds);
     }
-    if overlaps_existing_building(world, footprint) {
+    if overlaps_existing_blueprint(world, footprint) {
         return Err(BuildingPlacementError::OverlapsBuilding);
     }
 
     Ok(footprint)
 }
 
-fn overlaps_existing_building(world: &World, footprint: BuildingFootprint) -> bool {
-    let overlaps_building = world
-        .try_query::<&Building>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .any(|building| footprint.overlaps(building.footprint))
-        })
-        .unwrap_or(false);
-    let overlaps_blueprint = world
+fn overlaps_existing_blueprint(world: &World, footprint: BuildingFootprint) -> bool {
+    world
         .try_query::<&BuildingBlueprint>()
         .map(|mut query| {
             query
                 .iter(world)
                 .any(|blueprint| footprint.overlaps(blueprint.footprint))
         })
-        .unwrap_or(false);
-
-    overlaps_building || overlaps_blueprint
+        .unwrap_or(false)
 }
