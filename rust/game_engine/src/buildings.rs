@@ -196,15 +196,12 @@ pub fn place_building_blueprint(
 ) -> Result<Entity, BuildingPlacementError> {
     let footprint = validate_building_blueprint_placement(world, kind, origin)?;
 
-    let mut entity = world.spawn((
+    let entity = world.spawn((
         Building { kind },
         BuildingBlueprint,
         footprint,
         ConstructionProgress::new(ResourceAmounts::zero()),
     ));
-    if kind == BuildingBlueprintKind::Warehouse {
-        entity.insert(WarehouseInventory::empty());
-    }
 
     Ok(entity.id())
 }

@@ -150,7 +150,7 @@ fn test_construction_progress_starts_empty() {
 }
 
 #[test]
-fn test_warehouse_inventory_starts_empty() {
+fn test_warehouse_blueprint_does_not_have_inventory() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let entity = simulation
@@ -161,17 +161,11 @@ fn test_warehouse_inventory_starts_empty() {
         )
         .expect("warehouse should place");
 
-    let inventory = simulation
-        .with_surface_world(surface, |world| {
-            world
-                .get::<WarehouseInventory>(entity)
-                .map(|i| i.contents())
-        })
-        .expect("warehouse inventory should exist");
+    let has_inventory = simulation.with_surface_world(surface, |world| {
+        world.get::<WarehouseInventory>(entity).is_some()
+    });
 
-    for kind in ResourceKind::ALL {
-        assert_eq!(inventory.get(kind), 0);
-    }
+    assert!(!has_inventory);
 }
 
 #[test]
