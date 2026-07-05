@@ -22,8 +22,6 @@ pub(crate) struct ResourceHeader {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    cached_amounts: [Option<u32>; ResourceKind::ALL.len()],
-
     base: Base<HBoxContainer>,
 }
 
@@ -36,7 +34,6 @@ impl IHBoxContainer for ResourceHeader {
             food_label: OnEditor::default(),
             gold_label: OnEditor::default(),
             game_world: OnEditor::default(),
-            cached_amounts: [None; ResourceKind::ALL.len()],
             base,
         }
     }
@@ -81,12 +78,8 @@ impl IHBoxContainer for ResourceHeader {
 }
 
 impl ResourceHeader {
-    fn update_label(&mut self, label: &mut Gd<Label>, kind: ResourceKind, amount: u32) {
-        let cached_amount = &mut self.cached_amounts[resource_index(kind)];
-        if *cached_amount != Some(amount) {
-            label.set_text(resource_text(kind, amount).as_str());
-            *cached_amount = Some(amount);
-        }
+    fn update_label(&self, label: &mut Gd<Label>, kind: ResourceKind, amount: u32) {
+        label.set_text(resource_text(kind, amount).as_str());
     }
 }
 
