@@ -1,6 +1,8 @@
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
-use game_engine::buildings::{Building, BuildingBlueprintKind, BuildingFootprint};
+use game_engine::buildings::{
+    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint,
+};
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
@@ -76,6 +78,7 @@ struct BuildingRenderInfo {
     entity: Entity,
     kind: BuildingBlueprintKind,
     footprint: BuildingFootprint,
+    is_blueprint: bool,
 }
 
 #[derive(GodotClass)]
@@ -261,6 +264,15 @@ impl INode2D for GameWorld {
         let selected_npc = self.selected_npc;
         let selected_building = self.selected_building;
         let build_preview = self.build_preview();
+        let blueprint_footprints = self
+            .building_render_infos()
+            .map(|buildings| {
+                buildings
+                    .into_iter()
+                    .filter_map(|building| building.is_blueprint.then_some(building.footprint))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         let mut base = self.base_mut();
         for x in 0..=w {
@@ -279,6 +291,18 @@ impl INode2D for GameWorld {
         .filled(false)
         .width(8.0)
         .done();
+
+        for footprint in blueprint_footprints {
+            let highlight = Color::from_rgb(0.15, 0.85, 1.0);
+            let mut fill = highlight;
+            fill.a = 0.14;
+            let rect = footprint_rect(footprint);
+            base.draw_rect_ex(rect, fill).filled(true).done();
+            base.draw_rect_ex(rect, highlight)
+                .filled(false)
+                .width(3.0)
+                .done();
+        }
 
         if let Some(selected) = selected_cell {
             let coord = selected.coord;
@@ -723,6 +747,7 @@ impl GameWorld {
                 sprite.set_texture_filter(TextureFilter::NEAREST);
                 sprite.set_z_index(2);
                 sprite.set_position(position);
+                sprite.set_modulate(building_sprite_modulate(building.is_blueprint));
                 self.base_mut().add_child(&sprite);
                 self.building_sprites.insert(building.entity, sprite);
                 continue;
@@ -731,6 +756,7 @@ impl GameWorld {
             if let Some(sprite) = self.building_sprites.get_mut(&building.entity) {
                 sprite.set_texture(&texture);
                 sprite.set_position(position);
+                sprite.set_modulate(building_sprite_modulate(building.is_blueprint));
             }
         }
 
@@ -1034,15 +1060,23 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
 
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
     world
-        .try_query::<(Entity, &Building, &BuildingFootprint)>()
+        .try_query::<(
+            Entity,
+            &Building,
+            &BuildingFootprint,
+            Option<&BuildingBlueprint>,
+        )>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(entity, building, footprint)| BuildingRenderInfo {
-                    entity,
-                    kind: building.kind,
-                    footprint: *footprint,
-                })
+                .map(
+                    |(entity, building, footprint, blueprint)| BuildingRenderInfo {
+                        entity,
+                        kind: building.kind,
+                        footprint: *footprint,
+                        is_blueprint: blueprint.is_some(),
+                    },
+                )
                 .collect()
         })
         .unwrap_or_default()
@@ -1078,6 +1112,16 @@ fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {
             footprint.height() as f32 * grid::TILE_SIZE,
         ),
     )
+}
+
+fn building_sprite_modulate(is_blueprint: bool) -> Color {
+    if !is_blueprint {
+        return Color::from_rgb(1.0, 1.0, 1.0);
+    }
+
+    let mut color = Color::from_rgb(0.55, 0.9, 1.0);
+    color.a = 0.62;
+    color
 }
 
 fn resource_asset_path(kind: ResourceKind) -> &'static str {
