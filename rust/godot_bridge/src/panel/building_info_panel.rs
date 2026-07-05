@@ -116,24 +116,22 @@ struct BuildingInfo {
 
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
-    game_world
-        .with_rendered_surface_world(|world| {
-            let building = world.get::<Building>(entity)?;
-            let footprint = world.get::<BuildingFootprint>(entity)?;
-            let progress = world.get::<ConstructionProgress>(entity)?;
-            let inventory = world
-                .get::<WarehouseInventory>(entity)
-                .map(|inventory| inventory.contents());
+    game_world.with_rendered_surface_world(|world| {
+        let building = world.get::<Building>(entity)?;
+        let footprint = world.get::<BuildingFootprint>(entity)?;
+        let progress = world.get::<ConstructionProgress>(entity)?;
+        let inventory = world
+            .get::<WarehouseInventory>(entity)
+            .map(|inventory| inventory.contents());
 
-            Some(BuildingInfo {
-                kind: building.kind,
-                footprint: *footprint,
-                cost: building.kind.definition().construction_cost(),
-                progress: progress.deposited(),
-                inventory,
-            })
+        Some(BuildingInfo {
+            kind: building.kind,
+            footprint: *footprint,
+            cost: building.kind.definition().construction_cost(),
+            progress: progress.deposited(),
+            inventory,
         })
-        .flatten()
+    })
 }
 
 fn format_footprint(footprint: BuildingFootprint) -> String {

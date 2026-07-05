@@ -6,7 +6,7 @@ use game_engine::npcs::{
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
-use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
+use game_engine::simulation::{GameSimulation, SurfaceLookupError, DEFAULT_GRID_SIZE};
 use game_engine::tile::TileIndex;
 use std::collections::HashSet;
 
@@ -16,7 +16,7 @@ fn test_new_creates_default_surface() {
     let surface = simulation.default_surface_id();
 
     assert_eq!(simulation.surface_count(), 1);
-    assert_eq!(simulation.grid_size(surface), Some(DEFAULT_GRID_SIZE));
+    assert_eq!(simulation.grid_size(surface), DEFAULT_GRID_SIZE);
 }
 
 #[test]
@@ -27,10 +27,7 @@ fn test_create_surface_returns_distinct_id() {
 
     assert_ne!(default_surface, second_surface);
     assert_eq!(simulation.surface_count(), 2);
-    assert_eq!(
-        simulation.grid_size(second_surface),
-        Some(GridSize::new(10, 12))
-    );
+    assert_eq!(simulation.grid_size(second_surface), GridSize::new(10, 12));
 }
 
 #[test]
@@ -39,8 +36,8 @@ fn test_surface_id_at_returns_valid_surface_ids() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
-    assert_eq!(simulation.surface_id_at(0), Some(default_surface));
-    assert_eq!(simulation.surface_id_at(1), Some(second_surface));
+    assert_eq!(simulation.surface_id_at(0), Ok(default_surface));
+    assert_eq!(simulation.surface_id_at(1), Ok(second_surface));
 }
 
 #[test]
@@ -48,7 +45,13 @@ fn test_surface_id_at_rejects_invalid_indexes() {
     let mut simulation = GameSimulation::new();
     simulation.create_surface(GridSize::new(10, 12));
 
-    assert_eq!(simulation.surface_id_at(2), None);
+    assert_eq!(
+        simulation.surface_id_at(2),
+        Err(SurfaceLookupError::IndexOutOfRange {
+            index: 2,
+            surface_count: 2,
+        })
+    );
 }
 
 #[test]
@@ -61,8 +64,8 @@ fn test_resources_are_available_per_surface() {
     let second_amounts = simulation.with_surface_world(second_surface, resource_amounts);
 
     let starting_amounts = [GameResources::STARTING_AMOUNT; ResourceKind::ALL.len()];
-    assert_eq!(default_amounts, Some(starting_amounts));
-    assert_eq!(second_amounts, Some(starting_amounts));
+    assert_eq!(default_amounts, starting_amounts);
+    assert_eq!(second_amounts, starting_amounts);
 }
 
 #[test]
@@ -78,8 +81,8 @@ fn test_surface_world_read_closure_can_read_resources() {
         world.resource::<GameResources>().get(ResourceKind::Gold)
     });
 
-    assert_eq!(default_food, Some(GameResources::STARTING_AMOUNT));
-    assert_eq!(second_gold, Some(GameResources::STARTING_AMOUNT));
+    assert_eq!(default_food, GameResources::STARTING_AMOUNT);
+    assert_eq!(second_gold, GameResources::STARTING_AMOUNT);
 }
 
 #[test]
@@ -88,16 +91,23 @@ fn test_tile_coordinate_reads_are_scoped_per_surface() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
-    let default_coords = simulation
-        .tile_coords(default_surface)
-        .expect("default surface should exist");
-    let second_coords = simulation
-        .tile_coords(second_surface)
-        .expect("second surface should exist");
+    let default_coords = simulation.tile_coords(default_surface);
+    let second_coords = simulation.tile_coords(second_surface);
 
     assert!(default_coords.contains(&CellCoord::new(100, 100)));
     assert!(!second_coords.contains(&CellCoord::new(100, 100)));
     assert!(second_coords.contains(&CellCoord::new(3, 4)));
+}
+
+#[test]
+fn test_tile_terrain_at_returns_none_for_missing_tile() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(4, 4));
+
+    assert_eq!(
+        simulation.tile_terrain_at(surface, CellCoord::new(10, 10)),
+        None
+    );
 }
 
 #[test]
@@ -124,17 +134,16 @@ fn test_surface_spawns_one_tile_entity_per_cell() {
 fn test_tile_index_contains_one_entity_per_cell() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 5));
-    let size = simulation.grid_size(surface).expect("surface should exist");
-    let (indexed_size, indexed_len, indexed_coords) = simulation
-        .with_surface_world(surface, |world| {
+    let size = simulation.grid_size(surface);
+    let (indexed_size, indexed_len, indexed_coords) =
+        simulation.with_surface_world(surface, |world| {
             let index = world.resource::<TileIndex>();
             (
                 index.size(),
                 index.len(),
                 index.iter().map(|(coord, _)| coord).collect::<Vec<_>>(),
             )
-        })
-        .expect("surface should exist");
+        });
     let unique_tiles = indexed_coords.iter().copied().collect::<HashSet<_>>();
 
     assert_eq!(indexed_size, size);
@@ -152,7 +161,7 @@ fn test_tile_index_contains_one_entity_per_cell() {
 fn test_tile_entities_are_unique_within_bounds_and_grass() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(7, 9));
-    let size = simulation.grid_size(surface).expect("surface should exist");
+    let size = simulation.grid_size(surface);
     let tiles = tiles(&simulation, surface);
     let unique_tiles = tiles
         .iter()
@@ -174,10 +183,8 @@ fn test_tile_entities_are_unique_within_bounds_and_grass() {
 fn test_tile_coords_are_complete_unique_and_in_bounds() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(7, 9));
-    let size = simulation.grid_size(surface).expect("surface should exist");
-    let coords = simulation
-        .tile_coords(surface)
-        .expect("surface should exist");
+    let size = simulation.grid_size(surface);
+    let coords = simulation.tile_coords(surface);
     let unique_tiles = coords.iter().copied().collect::<HashSet<_>>();
 
     assert_eq!(
@@ -204,7 +211,7 @@ fn test_default_and_created_surfaces_have_resource_nodes() {
 fn test_resource_nodes_are_within_bounds() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(17, 19));
-    let size = simulation.grid_size(surface).expect("surface should exist");
+    let size = simulation.grid_size(surface);
 
     for (coord, _, _) in resource_nodes(&mut simulation, surface) {
         assert!(size.contains(coord), "{coord:?} should be within {size:?}");
@@ -215,9 +222,8 @@ fn test_resource_nodes_are_within_bounds() {
 fn test_resource_nodes_are_attached_to_tile_entities() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
-    let (node_count, attached_count) = simulation
-        .with_surface_world(surface, resource_node_attachment_counts)
-        .expect("surface should exist");
+    let (node_count, attached_count) =
+        simulation.with_surface_world(surface, resource_node_attachment_counts);
 
     assert_ne!(node_count, 0);
     assert_eq!(node_count, attached_count);
@@ -347,27 +353,21 @@ fn resource_nodes(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, ResourceKind, u32)> {
-    simulation
-        .with_surface_world(surface, query_resource_nodes)
-        .expect("surface should exist")
+    simulation.with_surface_world(surface, query_resource_nodes)
 }
 
 fn tiles(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, TerrainKind)> {
-    simulation
-        .with_surface_world(surface, query_tiles)
-        .expect("surface should exist")
+    simulation.with_surface_world(surface, query_tiles)
 }
 
 fn npcs(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, String, u64, u32)> {
-    simulation
-        .with_surface_world(surface, query_npcs)
-        .expect("surface should exist")
+    simulation.with_surface_world(surface, query_npcs)
 }
 
 fn resource_amounts(world: &bevy_ecs::world::World) -> [u32; ResourceKind::ALL.len()] {

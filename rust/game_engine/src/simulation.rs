@@ -24,6 +24,11 @@ impl SurfaceId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceLookupError {
+    IndexOutOfRange { index: usize, surface_count: usize },
+}
+
 struct SurfaceRuntime {
     world: World,
     schedule: Schedule,
@@ -91,8 +96,15 @@ impl GameSimulation {
         self.surfaces.len()
     }
 
-    pub fn surface_id_at(&self, index: usize) -> Option<SurfaceId> {
-        (index < self.surfaces.len()).then_some(SurfaceId(index))
+    pub fn surface_id_at(&self, index: usize) -> Result<SurfaceId, SurfaceLookupError> {
+        if index < self.surfaces.len() {
+            Ok(SurfaceId(index))
+        } else {
+            Err(SurfaceLookupError::IndexOutOfRange {
+                index,
+                surface_count: self.surfaces.len(),
+            })
+        }
     }
 
     pub fn tick(&mut self, _delta: f32) {
@@ -101,24 +113,20 @@ impl GameSimulation {
         }
     }
 
-    pub fn grid_size(&self, surface_id: SurfaceId) -> Option<GridSize> {
-        Some(self.surface(surface_id)?.grid().size())
+    pub fn grid_size(&self, surface_id: SurfaceId) -> GridSize {
+        self.surface(surface_id).grid().size()
     }
 
     pub fn tile_terrain_at(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<TerrainKind> {
-        tile_terrain_at(self.surface(surface_id)?, coord)
+        tile_terrain_at(self.surface(surface_id), coord)
     }
 
-    pub fn tile_coords(&self, surface_id: SurfaceId) -> Option<Vec<CellCoord>> {
-        tile_coords(self.surface(surface_id)?)
+    pub fn tile_coords(&self, surface_id: SurfaceId) -> Vec<CellCoord> {
+        tile_coords(self.surface(surface_id))
     }
 
-    pub fn with_surface_world<R>(
-        &self,
-        surface_id: SurfaceId,
-        f: impl FnOnce(&World) -> R,
-    ) -> Option<R> {
-        Some(f(&self.surface(surface_id)?.world))
+    pub fn with_surface_world<R>(&self, surface_id: SurfaceId, f: impl FnOnce(&World) -> R) -> R {
+        f(&self.surface(surface_id).world)
     }
 
     pub fn place_building_blueprint(
@@ -127,10 +135,7 @@ impl GameSimulation {
         kind: BuildingBlueprintKind,
         origin: CellCoord,
     ) -> Result<Entity, BuildingPlacementError> {
-        let Some(surface) = self.surface_mut(surface_id) else {
-            return Err(BuildingPlacementError::UnknownSurface);
-        };
-
+        let surface = self.surface_mut(surface_id);
         place_building_blueprint(&mut surface.world, kind, origin)
     }
 
@@ -140,41 +145,58 @@ impl GameSimulation {
         kind: BuildingBlueprintKind,
         origin: CellCoord,
     ) -> Result<BuildingFootprint, BuildingPlacementError> {
-        let Some(surface) = self.surface(surface_id) else {
-            return Err(BuildingPlacementError::UnknownSurface);
-        };
-
+        let surface = self.surface(surface_id);
         validate_building_blueprint_placement(&surface.world, kind, origin)
     }
 
-    fn surface(&self, surface_id: SurfaceId) -> Option<&SurfaceRuntime> {
-        self.surfaces.get(surface_id.index())
+    fn surface(&self, surface_id: SurfaceId) -> &SurfaceRuntime {
+        self.surfaces
+            .get(surface_id.index())
+            .expect("surface id should have been issued by this simulation")
     }
 
-    fn surface_mut(&mut self, surface_id: SurfaceId) -> Option<&mut SurfaceRuntime> {
-        self.surfaces.get_mut(surface_id.index())
+    fn surface_mut(&mut self, surface_id: SurfaceId) -> &mut SurfaceRuntime {
+        self.surfaces
+            .get_mut(surface_id.index())
+            .expect("surface id should have been issued by this simulation")
     }
 }
 
 fn tile_terrain_at(surface: &SurfaceRuntime, coord: CellCoord) -> Option<TerrainKind> {
-    let index = surface.world.get_resource::<TileIndex>()?;
+    let index = surface
+        .world
+        .get_resource::<TileIndex>()
+        .expect("surface world should have a tile index");
     let entity = index.get(coord)?;
-    surface.world.get::<Tile>(entity)?;
+    surface
+        .world
+        .get::<Tile>(entity)
+        .expect("tile index should reference a tile entity");
 
-    Some(surface.world.get::<Terrain>(entity)?.kind)
+    Some(
+        surface
+            .world
+            .get::<Terrain>(entity)
+            .expect("tile entity should have terrain")
+            .kind,
+    )
 }
 
-fn tile_coords(surface: &SurfaceRuntime) -> Option<Vec<CellCoord>> {
-    let index = surface.world.get_resource::<TileIndex>()?;
-    Some(
-        index
-            .iter()
-            .filter_map(|(coord, entity)| {
-                surface.world.get::<Tile>(entity)?;
-                Some(coord)
-            })
-            .collect(),
-    )
+fn tile_coords(surface: &SurfaceRuntime) -> Vec<CellCoord> {
+    let index = surface
+        .world
+        .get_resource::<TileIndex>()
+        .expect("surface world should have a tile index");
+    index
+        .iter()
+        .map(|(coord, entity)| {
+            surface
+                .world
+                .get::<Tile>(entity)
+                .expect("tile index should reference a tile entity");
+            coord
+        })
+        .collect()
 }
 
 impl Default for GameSimulation {

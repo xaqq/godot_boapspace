@@ -100,22 +100,20 @@ struct NpcInfo {
 
 fn npc_info(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcInfo> {
     let entity = decode_entity_id(npc_entity_id)?;
-    game_world
-        .with_rendered_surface_world(|world| {
-            world.get::<Npc>(entity)?;
-            let position = world.get::<NpcPosition>(entity)?;
-            let name = world.get::<NpcName>(entity)?;
-            let birth_date = world.get::<BirthDate>(entity)?;
-            let world_date_time = *world.resource::<WorldDateTime>();
+    game_world.with_rendered_surface_world(|world| {
+        world.get::<Npc>(entity)?;
+        let position = world.get::<NpcPosition>(entity)?;
+        let name = world.get::<NpcName>(entity)?;
+        let birth_date = world.get::<BirthDate>(entity)?;
+        let world_date_time = *world.resource::<WorldDateTime>();
 
-            Some(NpcInfo {
-                coord: position.coord,
-                name: name.as_str().to_string(),
-                birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
-                age_years: world_date_time.age_years_since(*birth_date),
-            })
+        Some(NpcInfo {
+            coord: position.coord,
+            name: name.as_str().to_string(),
+            birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
+            age_years: world_date_time.age_years_since(*birth_date),
         })
-        .flatten()
+    })
 }
 
 fn clear_npc_labels(

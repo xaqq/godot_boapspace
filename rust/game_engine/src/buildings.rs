@@ -185,7 +185,6 @@ impl Default for WarehouseInventory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildingPlacementError {
-    UnknownSurface,
     OutOfBounds,
     OverlapsBuilding,
 }

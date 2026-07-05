@@ -77,18 +77,16 @@ struct TileInfo {
 
 fn tile_info(game_world: &GameWorld, tile_entity_id: i64) -> Option<TileInfo> {
     let entity = decode_entity_id(tile_entity_id)?;
-    game_world
-        .with_rendered_surface_world(|world| {
-            world.get::<Tile>(entity)?;
-            let position = world.get::<TilePosition>(entity)?;
-            let resource = world.get::<ResourceNode>(entity).copied();
+    game_world.with_rendered_surface_world(|world| {
+        world.get::<Tile>(entity)?;
+        let position = world.get::<TilePosition>(entity)?;
+        let resource = world.get::<ResourceNode>(entity).copied();
 
-            Some(TileInfo {
-                coord: position.coord,
-                resource,
-            })
+        Some(TileInfo {
+            coord: position.coord,
+            resource,
         })
-        .flatten()
+    })
 }
 
 fn clear_tile_labels(pos_label: &mut Gd<Label>, resource_label: &mut Gd<Label>) {

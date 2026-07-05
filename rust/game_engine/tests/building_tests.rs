@@ -49,7 +49,6 @@ fn test_place_building_blueprint_inside_bounds() {
             world.get::<BuildingBlueprint>(entity)?;
             Some((building.kind, *footprint))
         })
-        .flatten()
         .expect("placed building should be queryable");
 
     assert_eq!(info.0, BuildingBlueprintKind::Warehouse);
@@ -99,7 +98,6 @@ fn test_blueprint_can_overlap_npc() {
     let surface = simulation.default_surface_id();
     let npc_coord = simulation
         .with_surface_world(surface, first_npc_coord)
-        .flatten()
         .expect("default surface should have an NPC");
 
     let result =
@@ -112,10 +110,9 @@ fn test_blueprint_can_overlap_npc() {
 fn test_blueprint_can_overlap_resource_node() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
-    let size = simulation.grid_size(surface).expect("surface should exist");
+    let size = simulation.grid_size(surface);
     let resource_coord = simulation
         .with_surface_world(surface, first_resource_node_coord)
-        .flatten()
         .expect("default surface should have resource nodes");
     let origin = origin_for_footprint_containing(size, resource_coord, 2, 2);
     let footprint = BuildingFootprint::new(origin, 2, 2);
@@ -145,7 +142,6 @@ fn test_construction_progress_starts_empty() {
                 .get::<ConstructionProgress>(entity)
                 .map(|p| p.deposited())
         })
-        .flatten()
         .expect("construction progress should exist");
 
     for kind in ResourceKind::ALL {
@@ -171,7 +167,6 @@ fn test_warehouse_inventory_starts_empty() {
                 .get::<WarehouseInventory>(entity)
                 .map(|i| i.contents())
         })
-        .flatten()
         .expect("warehouse inventory should exist");
 
     for kind in ResourceKind::ALL {
@@ -191,11 +186,9 @@ fn test_town_hall_does_not_have_warehouse_inventory() {
         )
         .expect("town hall should place");
 
-    let has_inventory = simulation
-        .with_surface_world(surface, |world| {
-            world.get::<WarehouseInventory>(entity).is_some()
-        })
-        .expect("surface should exist");
+    let has_inventory = simulation.with_surface_world(surface, |world| {
+        world.get::<WarehouseInventory>(entity).is_some()
+    });
 
     assert!(!has_inventory);
 }
@@ -244,12 +237,10 @@ fn building_count(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
 ) -> usize {
-    simulation
-        .with_surface_world(surface, |world| {
-            world
-                .try_query::<(&Building, &BuildingFootprint)>()
-                .map(|mut query| query.iter(world).count())
-                .unwrap_or_default()
-        })
-        .expect("surface should exist")
+    simulation.with_surface_world(surface, |world| {
+        world
+            .try_query::<(&Building, &BuildingFootprint)>()
+            .map(|mut query| query.iter(world).count())
+            .unwrap_or_default()
+    })
 }

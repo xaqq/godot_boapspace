@@ -266,13 +266,9 @@ impl INode2D for GameWorld {
         let build_preview = self.build_preview();
         let blueprint_footprints = self
             .building_render_infos()
-            .map(|buildings| {
-                buildings
-                    .into_iter()
-                    .filter_map(|building| building.is_blueprint.then_some(building.footprint))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+            .into_iter()
+            .filter_map(|building| building.is_blueprint.then_some(building.footprint))
+            .collect::<Vec<_>>();
 
         let mut base = self.base_mut();
         for x in 0..=w {
@@ -424,10 +420,7 @@ impl GameWorld {
     fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) -> bool {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let Some(coords) = self.game.tile_coords(self.rendered_surface) else {
-            godot_error!("GameWorld: rendered surface tile coordinates unavailable");
-            return false;
-        };
+        let coords = self.game.tile_coords(self.rendered_surface);
 
         for coord in coords {
             tile_map
@@ -661,12 +654,10 @@ impl GameWorld {
     }
 
     fn grid_size(&self) -> game_engine::grid::GridSize {
-        self.game
-            .grid_size(self.rendered_surface)
-            .expect("rendered surface should exist")
+        self.game.grid_size(self.rendered_surface)
     }
 
-    pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> Option<R> {
+    pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> R {
         self.game.with_surface_world(self.rendered_surface, f)
     }
 
@@ -677,7 +668,6 @@ impl GameWorld {
             world.get::<Tile>(entity)?;
             Some(entity)
         })
-        .flatten()
     }
 
     fn npc_entity_at(&self, coord: CellCoord) -> Option<Entity> {
@@ -687,7 +677,6 @@ impl GameWorld {
                 .iter(world)
                 .find_map(|(entity, position, _)| (position.coord == coord).then_some(entity))
         })
-        .flatten()
     }
 
     fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
@@ -697,7 +686,6 @@ impl GameWorld {
                 .iter(world)
                 .find_map(|(entity, footprint, _)| footprint.contains(coord).then_some(entity))
         })
-        .flatten()
     }
 
     fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
@@ -705,15 +693,10 @@ impl GameWorld {
             world.get::<Building>(entity)?;
             world.get::<BuildingFootprint>(entity).copied()
         })
-        .flatten()
     }
 
     fn sync_building_sprites(&mut self) {
-        let Some(buildings) = self.building_render_infos() else {
-            godot_error!("GameWorld: rendered surface no longer exists");
-            self.disable_processing();
-            return;
-        };
+        let buildings = self.building_render_infos();
 
         let active_entities: HashSet<Entity> =
             buildings.iter().map(|building| building.entity).collect();
@@ -769,11 +752,7 @@ impl GameWorld {
     }
 
     fn sync_npc_sprites(&mut self) {
-        let Some(npcs) = self.npc_render_infos() else {
-            godot_error!("GameWorld: rendered surface no longer exists");
-            self.disable_processing();
-            return;
-        };
+        let npcs = self.npc_render_infos();
         let Some(texture) = self.npc_texture.clone() else {
             godot_error!("GameWorld: NPC texture not initialized");
             self.disable_processing();
@@ -896,11 +875,7 @@ impl GameWorld {
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
         resource_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let Some(nodes) = self.resource_nodes() else {
-            godot_error!("GameWorld: rendered surface no longer exists");
-            self.disable_processing();
-            return;
-        };
+        let nodes = self.resource_nodes();
 
         for (coord, kind) in nodes {
             resource_map
@@ -912,15 +887,15 @@ impl GameWorld {
         resource_map.update_internals();
     }
 
-    fn resource_nodes(&self) -> Option<Vec<(CellCoord, ResourceKind)>> {
+    fn resource_nodes(&self) -> Vec<(CellCoord, ResourceKind)> {
         self.with_rendered_surface_world(query_resource_nodes)
     }
 
-    fn building_render_infos(&self) -> Option<Vec<BuildingRenderInfo>> {
+    fn building_render_infos(&self) -> Vec<BuildingRenderInfo> {
         self.with_rendered_surface_world(query_building_render_infos)
     }
 
-    fn npc_render_infos(&self) -> Option<Vec<NpcRenderInfo>> {
+    fn npc_render_infos(&self) -> Vec<NpcRenderInfo> {
         self.with_rendered_surface_world(query_npc_render_infos)
     }
 
@@ -1008,9 +983,12 @@ impl GameWorld {
             godot_warn!("GameWorld: ignoring negative surface index");
             return false;
         };
-        let Some(surface) = self.game.surface_id_at(index) else {
-            godot_warn!("GameWorld: ignoring unknown surface index {index}");
-            return false;
+        let surface = match self.game.surface_id_at(index) {
+            Ok(surface) => surface,
+            Err(error) => {
+                godot_warn!("GameWorld: ignoring unknown surface index {index}: {error:?}");
+                return false;
+            }
         };
 
         self.switch_rendered_surface(surface);

@@ -52,12 +52,10 @@ impl IHBoxContainer for ResourceHeader {
         let mut food_label = self.food_label.clone();
         let mut gold_label = self.gold_label.clone();
 
-        let Some(amounts) = game_world.bind().with_rendered_surface_world(|world| {
+        let amounts = game_world.bind().with_rendered_surface_world(|world| {
             let resources = world.resource::<GameResources>();
             ResourceKind::ALL.map(|kind| resources.get(kind))
-        }) else {
-            return;
-        };
+        });
 
         self.update_label(
             &mut wood_label,
