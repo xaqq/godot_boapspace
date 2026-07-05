@@ -2,6 +2,8 @@ use crate::components::{Terrain, TerrainKind, Tile, TilePosition};
 use crate::grid::{CellCoord, Grid, GridSize};
 use bevy_ecs::prelude::*;
 
+const TERRAIN_PATCH_SIZE: i32 = 8;
+
 #[derive(Debug, Clone, Resource)]
 pub struct TileIndex {
     size: GridSize,
@@ -17,10 +19,14 @@ pub struct TileBundle {
 
 impl TileBundle {
     pub const fn new(coord: CellCoord) -> Self {
+        Self::new_with_terrain(coord, TerrainKind::Grass)
+    }
+
+    pub const fn new_with_terrain(coord: CellCoord, terrain: TerrainKind) -> Self {
         Self {
             tile: Tile,
             position: TilePosition { coord },
-            terrain: Terrain::new(TerrainKind::Grass),
+            terrain: Terrain::new(terrain),
         }
     }
 }
@@ -84,11 +90,44 @@ pub fn spawn_initial_tiles(mut commands: Commands, grid: Res<Grid>) {
     let mut tile_index = TileIndex::new(size);
 
     for coord in size.iter_coords() {
-        let entity = commands.spawn(TileBundle::new(coord)).id();
+        let terrain = terrain_kind_at(size, coord);
+        let entity = commands
+            .spawn(TileBundle::new_with_terrain(coord, terrain))
+            .id();
         debug_assert!(tile_index.set(coord, entity));
     }
 
     commands.insert_resource(tile_index);
+}
+
+pub fn terrain_kind_at(size: GridSize, coord: CellCoord) -> TerrainKind {
+    let patch_coord = CellCoord::new(
+        coord.x().div_euclid(TERRAIN_PATCH_SIZE),
+        coord.y().div_euclid(TERRAIN_PATCH_SIZE),
+    );
+
+    match terrain_hash(size, patch_coord) % 100 {
+        0..=7 => TerrainKind::Water,
+        8..=19 => TerrainKind::Sand,
+        20..=39 => TerrainKind::Dirt,
+        _ => TerrainKind::Grass,
+    }
+}
+
+fn terrain_hash(size: GridSize, coord: CellCoord) -> u64 {
+    let mut value = 0x517c_c1b7_2722_0a95_u64;
+    value ^= (size.width() as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    value = value.rotate_left(23);
+    value ^= (size.height() as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = value.rotate_left(29);
+    value ^= (coord.x() as i64 as u64).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value = value.rotate_left(31);
+    value ^= (coord.y() as i64 as u64).wrapping_mul(0xd6e8_feb8_6659_fd93);
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 #[cfg(test)]

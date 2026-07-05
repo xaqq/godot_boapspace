@@ -1,10 +1,10 @@
-use crate::assets::{load_texture, resource_asset_path};
+use crate::assets::{load_texture, resource_asset_path, terrain_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
     BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
-use game_engine::components::{Tile, TilePosition};
+use game_engine::components::{TerrainKind, Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
@@ -33,7 +33,6 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
-const TERRAIN_GRASS_PATH: &str = "res://assets/generated/terrain_grass.png";
 const NPC_COLONIST_PATH: &str = "res://assets/generated/npc_colonist.png";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
@@ -135,7 +134,6 @@ pub(crate) struct GameWorld {
     selected_building: Option<SelectedBuilding>,
     hovered_map_entity: Option<MapEntityTarget>,
     build_mode: Option<BuildingKind>,
-    tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
     npc_texture: Option<Gd<Texture2D>>,
@@ -163,7 +161,6 @@ impl INode2D for GameWorld {
             selected_building: None,
             hovered_map_entity: None,
             build_mode: None,
-            tile_source_id: None,
             _tile_set: None,
             _resource_node_tile_set: None,
             npc_texture: None,
@@ -180,19 +177,18 @@ impl INode2D for GameWorld {
         let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
-        let Some((tile_set, source_id)) = self.build_terrain_tile_set(ts) else {
+        let Some(tile_set) = self.build_terrain_tile_set(ts) else {
             self.disable_processing();
             return;
         };
 
-        self.tile_source_id = Some(source_id);
         tm.set_tile_set(&tile_set);
         self._tile_set = Some(tile_set);
         tm.set_navigation_enabled(false);
         tm.set_texture_filter(TextureFilter::NEAREST);
         tm.set_draw_behind_parent(true);
 
-        if !self.populate_tile_map(&mut tm, source_id) {
+        if !self.populate_tile_map(&mut tm) {
             self.disable_processing();
             return;
         }
@@ -455,15 +451,24 @@ impl GameWorld {
         )
     }
 
-    fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) -> bool {
+    fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>) -> bool {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let coords = self.game.tile_coords(self.rendered_surface);
 
         for coord in coords {
+            let Some(terrain) = self.game.tile_terrain_at(self.rendered_surface, coord) else {
+                godot_error!(
+                    "GameWorld: terrain missing for tile at ({}, {})",
+                    coord.x(),
+                    coord.y()
+                );
+                return false;
+            };
+
             tile_map
                 .set_cell_ex(v2(coord.x(), coord.y()))
-                .source_id(source_id)
+                .source_id(terrain_source_id(terrain))
                 .atlas_coords(v2(0, 0))
                 .done();
         }
@@ -913,20 +918,30 @@ impl GameWorld {
         }
     }
 
-    fn build_terrain_tile_set(&self, tile_size: i32) -> Option<(Gd<TileSet>, i32)> {
+    fn build_terrain_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(tile_size, tile_size));
 
-        let texture = load_texture(TERRAIN_GRASS_PATH, "GameWorld")?;
-        let source_ts = build_single_tile_atlas_source(texture, tile_size);
-        let source_id = tile_set.add_source(&source_ts);
-        if source_id < 0 {
-            godot_error!("GameWorld: failed to add terrain tile atlas source");
-            return None;
+        for kind in TerrainKind::ALL {
+            let path = terrain_asset_path(kind);
+            let texture = load_texture(path, "GameWorld")?;
+            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let expected_source_id = terrain_source_id(kind);
+            let source_id = tile_set
+                .add_source_ex(&source_ts)
+                .atlas_source_id_override(expected_source_id)
+                .done();
+            if source_id != expected_source_id {
+                godot_error!(
+                    "GameWorld: failed to add {} terrain tile source",
+                    kind.label()
+                );
+                return None;
+            }
         }
 
-        Some((tile_set, source_id))
+        Some(tile_set)
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
@@ -1013,12 +1028,7 @@ impl GameWorld {
         self.build_mode = None;
 
         let mut tile_map = self.tile_map.clone();
-        let Some(tile_source_id) = self.tile_source_id else {
-            godot_error!("GameWorld: tile source id not initialized");
-            self.disable_processing();
-            return;
-        };
-        if !self.populate_tile_map(&mut tile_map, tile_source_id) {
+        if !self.populate_tile_map(&mut tile_map) {
             self.disable_processing();
             return;
         }
@@ -1349,6 +1359,10 @@ fn building_asset_path(kind: BuildingKind) -> &'static str {
         BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
         BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
     }
+}
+
+fn terrain_source_id(kind: TerrainKind) -> i32 {
+    kind as i32
 }
 
 fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {

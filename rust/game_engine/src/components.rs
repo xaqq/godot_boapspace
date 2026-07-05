@@ -25,10 +25,27 @@ impl Terrain {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TerrainKind {
     #[default]
-    Grass,
+    Grass = 0,
+    Sand = 1,
+    Dirt = 2,
+    Water = 3,
+}
+
+impl TerrainKind {
+    pub const ALL: [Self; 4] = [Self::Grass, Self::Sand, Self::Dirt, Self::Water];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Grass => "Grass",
+            Self::Sand => "Sand",
+            Self::Dirt => "Dirt",
+            Self::Water => "Water",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]

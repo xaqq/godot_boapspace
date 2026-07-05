@@ -303,14 +303,18 @@ fn test_tile_index_contains_one_entity_per_cell() {
 }
 
 #[test]
-fn test_tile_entities_are_unique_within_bounds_and_grass() {
+fn test_tile_entities_are_unique_within_bounds_and_have_valid_terrain() {
     let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(7, 9));
+    let surface = simulation.create_surface(GridSize::new(64, 64));
     let size = simulation.grid_size(surface);
     let tiles = tiles(&simulation, surface);
     let unique_tiles = tiles
         .iter()
         .map(|(coord, _)| *coord)
+        .collect::<HashSet<_>>();
+    let terrain_kinds = tiles
+        .iter()
+        .map(|(_, terrain)| *terrain)
         .collect::<HashSet<_>>();
 
     assert_eq!(tiles.len(), unique_tiles.len());
@@ -320,8 +324,14 @@ fn test_tile_entities_are_unique_within_bounds_and_grass() {
     );
     for (coord, terrain) in tiles {
         assert!(size.contains(coord), "{coord:?} should be within {size:?}");
-        assert_eq!(terrain, TerrainKind::Grass);
+        assert!(TerrainKind::ALL.contains(&terrain));
     }
+    assert!(
+        TerrainKind::ALL
+            .iter()
+            .all(|terrain| terrain_kinds.contains(terrain)),
+        "initial terrain generation should produce every terrain kind"
+    );
 }
 
 #[test]
