@@ -10,7 +10,7 @@ use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::{GameSimulation, SurfaceId};
-use game_engine::tasks::{ProgressBuildingConstruction, ProgressBuildingConstructionTaskBundle};
+use game_engine::tasks::ProgressBuildingConstruction;
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
@@ -1197,6 +1197,7 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 mod tests {
     use super::*;
     use game_engine::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
+    use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
 
     #[test]
     fn task_table_rows_format_construction_tasks() {

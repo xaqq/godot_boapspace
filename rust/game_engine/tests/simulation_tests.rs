@@ -5,7 +5,7 @@ use game_engine::npcs::{
     INITIAL_NPC_NAME, SECONDS_PER_DAY,
 };
 use game_engine::resource_nodes::ResourceNode;
-use game_engine::resources::{GameResources, ResourceKind};
+use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceLookupError, DEFAULT_GRID_SIZE};
 use game_engine::tile::TileIndex;
 use std::collections::HashSet;
@@ -52,37 +52,6 @@ fn test_surface_id_at_rejects_invalid_indexes() {
             surface_count: 2,
         })
     );
-}
-
-#[test]
-fn test_resources_are_available_per_surface() {
-    let mut simulation = GameSimulation::new();
-    let default_surface = simulation.default_surface_id();
-    let second_surface = simulation.create_surface(GridSize::new(8, 8));
-
-    let default_amounts = simulation.with_surface_world(default_surface, resource_amounts);
-    let second_amounts = simulation.with_surface_world(second_surface, resource_amounts);
-
-    let starting_amounts = [GameResources::STARTING_AMOUNT; ResourceKind::ALL.len()];
-    assert_eq!(default_amounts, starting_amounts);
-    assert_eq!(second_amounts, starting_amounts);
-}
-
-#[test]
-fn test_surface_world_read_closure_can_read_resources() {
-    let mut simulation = GameSimulation::new();
-    let default_surface = simulation.default_surface_id();
-    let second_surface = simulation.create_surface(GridSize::new(8, 8));
-
-    let default_food = simulation.with_surface_world(default_surface, |world| {
-        world.resource::<GameResources>().get(ResourceKind::Food)
-    });
-    let second_gold = simulation.with_surface_world(second_surface, |world| {
-        world.resource::<GameResources>().get(ResourceKind::Gold)
-    });
-
-    assert_eq!(default_food, GameResources::STARTING_AMOUNT);
-    assert_eq!(second_gold, GameResources::STARTING_AMOUNT);
 }
 
 #[test]
@@ -388,11 +357,6 @@ fn npcs(
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, String, u64, u32)> {
     simulation.with_surface_world(surface, query_npcs)
-}
-
-fn resource_amounts(world: &bevy_ecs::world::World) -> [u32; ResourceKind::ALL.len()] {
-    let resources = world.resource::<GameResources>();
-    ResourceKind::ALL.map(|kind| resources.get(kind))
 }
 
 fn resource_node_attachment_counts(world: &bevy_ecs::world::World) -> (usize, usize) {

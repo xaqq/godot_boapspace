@@ -11,7 +11,6 @@ mod panel {
     mod building_info_panel;
     mod building_palette;
     mod npc_info_panel;
-    mod resource_header;
     mod resource_quantity;
     mod resource_quantity_progress;
     mod resource_tooltip;
