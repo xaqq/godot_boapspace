@@ -1,6 +1,7 @@
 use crate::grid::CellCoord;
 use crate::resources::ResourceKind;
 use bevy_ecs::prelude::Component;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct TilePosition {
@@ -55,16 +56,18 @@ impl NpcName {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct BirthDate {
-    day: i32,
+    elapsed_since_world_epoch: Duration,
 }
 
 impl BirthDate {
-    pub const fn new(day: i32) -> Self {
-        Self { day }
+    pub const fn new(elapsed_since_world_epoch: Duration) -> Self {
+        Self {
+            elapsed_since_world_epoch,
+        }
     }
 
-    pub const fn day(self) -> i32 {
-        self.day
+    pub const fn elapsed_since_world_epoch(self) -> Duration {
+        self.elapsed_since_world_epoch
     }
 }
 

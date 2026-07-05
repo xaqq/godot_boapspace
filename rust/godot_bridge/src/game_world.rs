@@ -2,7 +2,7 @@ use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
-use game_engine::npcs::{BirthDate, Npc, NpcName, NpcPosition, WorldDay};
+use game_engine::npcs::{BirthDate, Npc, NpcName, NpcPosition, WorldDateTime, SECONDS_PER_DAY};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
@@ -56,7 +56,7 @@ struct SelectedNpc {
 struct NpcSelectionInfo {
     coord: CellCoord,
     name: String,
-    birth_day: i32,
+    birth_day: u64,
     age_years: u32,
 }
 
@@ -672,13 +672,13 @@ impl GameWorld {
             let position = world.get::<NpcPosition>(entity)?;
             let name = world.get::<NpcName>(entity)?;
             let birth_date = world.get::<BirthDate>(entity)?;
-            let world_day = *world.resource::<WorldDay>();
+            let world_date_time = *world.resource::<WorldDateTime>();
 
             Some(NpcSelectionInfo {
                 coord: position.coord,
                 name: name.as_str().to_string(),
-                birth_day: birth_date.day(),
-                age_years: world_day.age_years_since(*birth_date),
+                birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
+                age_years: world_date_time.age_years_since(*birth_date),
             })
         })
         .flatten()

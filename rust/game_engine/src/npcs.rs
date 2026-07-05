@@ -2,30 +2,49 @@ pub use crate::components::{BirthDate, Npc, NpcName, NpcPosition};
 
 use crate::grid::{CellCoord, Grid};
 use bevy_ecs::prelude::*;
+use std::time::Duration;
 
 pub const INITIAL_NPC_NAME: &str = "Mara Voss";
-pub const INITIAL_NPC_BIRTH_DAY: i32 = 320;
-pub const DEFAULT_WORLD_DAY: i32 = 12_000;
-const DAYS_PER_YEAR: i32 = 365;
+pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
+pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 12_000;
+pub const SECONDS_PER_DAY: u64 = 86_400;
+const DAYS_PER_YEAR: u64 = 365;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
-pub struct WorldDay {
-    day: i32,
+pub struct WorldDateTime {
+    elapsed_since_world_epoch: Duration,
 }
 
-impl WorldDay {
-    pub const fn new(day: i32) -> Self {
-        Self { day }
+impl WorldDateTime {
+    pub const fn new(elapsed_since_world_epoch: Duration) -> Self {
+        Self {
+            elapsed_since_world_epoch,
+        }
     }
 
-    pub const fn day(self) -> i32 {
-        self.day
+    pub const fn from_day(day: u64) -> Self {
+        Self::new(Duration::from_secs(day * SECONDS_PER_DAY))
+    }
+
+    pub const fn elapsed_since_world_epoch(self) -> Duration {
+        self.elapsed_since_world_epoch
+    }
+
+    pub const fn day(self) -> u64 {
+        self.elapsed_since_world_epoch.as_secs() / SECONDS_PER_DAY
     }
 
     pub fn age_years_since(self, birth_date: BirthDate) -> u32 {
-        let lived_days = self.day.checked_sub(birth_date.day()).unwrap_or(0).max(0);
-        u32::try_from(lived_days / DAYS_PER_YEAR).unwrap_or(0)
+        let lived = self
+            .elapsed_since_world_epoch
+            .checked_sub(birth_date.elapsed_since_world_epoch())
+            .unwrap_or_default();
+        u32::try_from(lived.as_secs() / (DAYS_PER_YEAR * SECONDS_PER_DAY)).unwrap_or(u32::MAX)
     }
+}
+
+pub const fn world_duration_from_day(day: u64) -> Duration {
+    Duration::from_secs(day * SECONDS_PER_DAY)
 }
 
 pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
@@ -36,7 +55,7 @@ pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
     commands.spawn((
         Npc,
         NpcName::new(INITIAL_NPC_NAME),
-        BirthDate::new(INITIAL_NPC_BIRTH_DAY),
+        BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
         NpcPosition { coord },
     ));
 }
@@ -56,19 +75,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_world_day_age_years_since_birth_date() {
-        let world_day = WorldDay::new(DEFAULT_WORLD_DAY);
+    fn test_world_date_time_age_years_since_birth_date() {
+        let world_date_time = WorldDateTime::from_day(DEFAULT_WORLD_DATE_TIME_DAY);
 
         assert_eq!(
-            world_day.age_years_since(BirthDate::new(INITIAL_NPC_BIRTH_DAY)),
+            world_date_time.age_years_since(BirthDate::new(world_duration_from_day(
+                INITIAL_NPC_BIRTH_DAY
+            ))),
             32
         );
     }
 
     #[test]
-    fn test_world_day_does_not_return_negative_age() {
-        let world_day = WorldDay::new(10);
+    fn test_world_date_time_does_not_return_negative_age() {
+        let world_date_time = WorldDateTime::from_day(10);
 
-        assert_eq!(world_day.age_years_since(BirthDate::new(20)), 0);
+        assert_eq!(
+            world_date_time.age_years_since(BirthDate::new(world_duration_from_day(20))),
+            0
+        );
+    }
+
+    #[test]
+    fn test_world_date_time_exposes_day_from_duration() {
+        let world_date_time = WorldDateTime::new(Duration::from_secs(42 * SECONDS_PER_DAY));
+
+        assert_eq!(world_date_time.day(), 42);
     }
 }

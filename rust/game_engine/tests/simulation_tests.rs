@@ -1,7 +1,8 @@
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
-    BirthDate, Npc, NpcName, NpcPosition, WorldDay, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
+    BirthDate, Npc, NpcName, NpcPosition, WorldDateTime, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
+    SECONDS_PER_DAY,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
@@ -363,7 +364,7 @@ fn tiles(
 fn npcs(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
-) -> Vec<(CellCoord, String, i32, u32)> {
+) -> Vec<(CellCoord, String, u64, u32)> {
     simulation
         .with_surface_world(surface, query_npcs)
         .expect("surface should exist")
@@ -415,8 +416,8 @@ fn query_tiles(world: &bevy_ecs::world::World) -> Vec<(CellCoord, TerrainKind)> 
         .unwrap_or_default()
 }
 
-fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, i32, u32)> {
-    let world_day = *world.resource::<WorldDay>();
+fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, u64, u32)> {
+    let world_date_time = *world.resource::<WorldDateTime>();
 
     world
         .try_query::<(&NpcPosition, &NpcName, &BirthDate, &Npc)>()
@@ -427,8 +428,8 @@ fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, i32, u3
                     (
                         position.coord,
                         name.as_str().to_string(),
-                        birth_date.day(),
-                        world_day.age_years_since(*birth_date),
+                        birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
+                        world_date_time.age_years_since(*birth_date),
                     )
                 })
                 .collect()
