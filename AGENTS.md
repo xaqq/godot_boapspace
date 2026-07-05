@@ -78,4 +78,9 @@ cargo build --manifest-path rust/Cargo.toml
   fields of typed `Gd<T>` / `OnEditor<Gd<T>>` for child node references instead of
   `get_node("path")`. Only use `GString`/`StringName` where Godot APIs genuinely require
   strings (e.g. `change_scene_to_file`, resource paths).
+- For Godot project assets under `res://`, load imported assets through `ResourceLoader`
+  as Godot resources (`Texture2D`, `PackedScene`, etc.). Do not use `Image::load_from_file`
+  for imported PNGs at runtime; it bypasses Godot's import/export pipeline and triggers
+  export warnings. If pixel data is genuinely needed, import/load the asset as an Image
+  resource or derive pixels from a loaded texture intentionally.
 - Tests in `game_engine/` — unit tests in `src/` via `#[cfg(test)]`, integration tests in `tests/`.
