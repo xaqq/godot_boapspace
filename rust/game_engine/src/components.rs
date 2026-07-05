@@ -30,4 +30,5 @@ pub enum TerrainKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ResourceNode {
     pub kind: ResourceKind,
+    pub quantity: u32,
 }

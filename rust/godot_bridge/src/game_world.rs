@@ -1,8 +1,11 @@
+use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
+use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
-use game_engine::resource_nodes::{ResourceNode, TilePosition};
+use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
+use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
     canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
@@ -30,6 +33,7 @@ fn world_limit(value: f32) -> i32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SelectedCell {
     coord: CellCoord,
+    entity: Entity,
 }
 
 #[derive(GodotClass)]
@@ -362,17 +366,23 @@ impl GameWorld {
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         ) {
-            if self.selected_cell.map(|selected| selected.coord) == Some(coord) {
+            let Some(entity) = self.tile_entity_at(coord) else {
+                godot_error!("GameWorld: selected tile entity unavailable");
+                self.disable_processing();
+                return;
+            };
+
+            if self.selected_cell.map(|selected| selected.entity) == Some(entity) {
                 self.clear_selection();
             } else {
-                let resource_kind = self.resource_node_at(coord);
-                self.selected_cell = Some(SelectedCell { coord });
+                let Some(tile_entity_id) = encode_entity_id(entity) else {
+                    godot_error!("GameWorld: selected tile entity id is too large for Godot");
+                    return;
+                };
+
+                self.selected_cell = Some(SelectedCell { coord, entity });
                 self.base_mut().queue_redraw();
-                let resource_name =
-                    GString::from(resource_kind.map(ResourceKind::label).unwrap_or(""));
-                self.signals()
-                    .tile_selected()
-                    .emit(coord.x(), coord.y(), &resource_name);
+                self.signals().tile_selected().emit(tile_entity_id);
             }
         } else {
             self.clear_selection();
@@ -424,6 +434,16 @@ impl GameWorld {
 
     pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> Option<R> {
         self.game.with_surface_world(self.rendered_surface, f)
+    }
+
+    fn tile_entity_at(&self, coord: CellCoord) -> Option<Entity> {
+        self.with_rendered_surface_world(|world| {
+            let index = world.resource::<TileIndex>();
+            let entity = index.get(coord)?;
+            world.get::<Tile>(entity)?;
+            Some(entity)
+        })
+        .flatten()
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
@@ -525,17 +545,48 @@ impl GameWorld {
         resource_map.update_internals();
     }
 
-    fn resource_node_at(&self, coord: CellCoord) -> Option<ResourceKind> {
-        self.with_rendered_surface_world(|world| {
-            query_resource_nodes(world)
-                .into_iter()
-                .find_map(|(node_coord, kind)| (node_coord == coord).then_some(kind))
-        })
-        .flatten()
-    }
-
     fn resource_nodes(&self) -> Option<Vec<(CellCoord, ResourceKind)>> {
         self.with_rendered_surface_world(query_resource_nodes)
+    }
+
+    pub(crate) fn tile_position_text(&self, tile_entity_id: i64) -> GString {
+        let Some((coord, _)) = self.tile_selection_info(tile_entity_id) else {
+            return GString::from("Cell: None");
+        };
+
+        GString::from(format!("Cell: ({}, {})", coord.x(), coord.y()).as_str())
+    }
+
+    pub(crate) fn tile_resource_text(&self, tile_entity_id: i64) -> GString {
+        let Some((_, resource)) = self.tile_selection_info(tile_entity_id) else {
+            return GString::new();
+        };
+        let Some(resource) = resource else {
+            return GString::new();
+        };
+
+        GString::from(
+            format!(
+                "Resource: {} ({})",
+                resource.kind.label(),
+                resource.quantity
+            )
+            .as_str(),
+        )
+    }
+
+    fn tile_selection_info(
+        &self,
+        tile_entity_id: i64,
+    ) -> Option<(CellCoord, Option<ResourceNode>)> {
+        let entity = decode_entity_id(tile_entity_id)?;
+        self.with_rendered_surface_world(|world| {
+            world.get::<Tile>(entity)?;
+            let position = world.get::<TilePosition>(entity)?;
+            let resource = world.get::<ResourceNode>(entity).copied();
+            Some((position.coord, resource))
+        })
+        .flatten()
     }
 
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
@@ -588,7 +639,7 @@ impl GameWorld {
 #[godot_api]
 impl GameWorld {
     #[signal]
-    pub(crate) fn tile_selected(x: i32, y: i32, resource_name: GString);
+    pub(crate) fn tile_selected(tile_entity_id: i64);
 
     #[signal]
     pub(crate) fn tile_deselected();
@@ -629,13 +680,22 @@ fn surface_index_i32(surface: SurfaceId) -> i32 {
     i32::try_from(surface.index()).unwrap_or(i32::MAX)
 }
 
+fn encode_entity_id(entity: Entity) -> Option<i64> {
+    i64::try_from(entity.to_bits()).ok()
+}
+
+fn decode_entity_id(tile_entity_id: i64) -> Option<Entity> {
+    let bits = u64::try_from(tile_entity_id).ok()?;
+    Entity::try_from_bits(bits)
+}
+
 fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
     world
-        .try_query::<(&TilePosition, &ResourceNode)>()
+        .try_query::<(&TilePosition, &ResourceNode, &Tile)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(position, node)| (position.coord, node.kind))
+                .map(|(position, node, _)| (position.coord, node.kind))
                 .collect()
         })
         .unwrap_or_default()

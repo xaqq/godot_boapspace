@@ -201,8 +201,33 @@ fn test_resource_nodes_are_within_bounds() {
     let surface = simulation.create_surface(GridSize::new(17, 19));
     let size = simulation.grid_size(surface).expect("surface should exist");
 
-    for (coord, _) in resource_nodes(&mut simulation, surface) {
+    for (coord, _, _) in resource_nodes(&mut simulation, surface) {
         assert!(size.contains(coord), "{coord:?} should be within {size:?}");
+    }
+}
+
+#[test]
+fn test_resource_nodes_are_attached_to_tile_entities() {
+    let simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+    let (node_count, attached_count) = simulation
+        .with_surface_world(surface, resource_node_attachment_counts)
+        .expect("surface should exist");
+
+    assert_ne!(node_count, 0);
+    assert_eq!(node_count, attached_count);
+}
+
+#[test]
+fn test_resource_node_quantities_are_within_generated_range() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    for (_, _, quantity) in resource_nodes(&mut simulation, surface) {
+        assert!(
+            (50..=150).contains(&quantity),
+            "{quantity} should be within generated resource node range"
+        );
     }
 }
 
@@ -213,7 +238,7 @@ fn test_resource_nodes_do_not_share_tiles() {
     let nodes = resource_nodes(&mut simulation, surface);
     let unique_tiles = nodes
         .iter()
-        .map(|(coord, _)| *coord)
+        .map(|(coord, _, _)| *coord)
         .collect::<HashSet<_>>();
 
     assert_eq!(nodes.len(), unique_tiles.len());
@@ -267,16 +292,18 @@ fn test_tick_does_not_duplicate_resource_nodes() {
 fn sorted_resource_nodes(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
-) -> Vec<(CellCoord, ResourceKind)> {
+) -> Vec<(CellCoord, ResourceKind, u32)> {
     let mut nodes = resource_nodes(simulation, surface);
-    nodes.sort_unstable_by_key(|(coord, kind)| (coord.y(), coord.x(), *kind as u8));
+    nodes.sort_unstable_by_key(|(coord, kind, quantity)| {
+        (coord.y(), coord.x(), *kind as u8, *quantity)
+    });
     nodes
 }
 
 fn resource_nodes(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
-) -> Vec<(CellCoord, ResourceKind)> {
+) -> Vec<(CellCoord, ResourceKind, u32)> {
     simulation
         .with_surface_world(surface, query_resource_nodes)
         .expect("surface should exist")
@@ -296,13 +323,30 @@ fn resource_amounts(world: &bevy_ecs::world::World) -> [u32; ResourceKind::ALL.l
     ResourceKind::ALL.map(|kind| resources.get(kind))
 }
 
-fn query_resource_nodes(world: &bevy_ecs::world::World) -> Vec<(CellCoord, ResourceKind)> {
+fn resource_node_attachment_counts(world: &bevy_ecs::world::World) -> (usize, usize) {
     world
-        .try_query::<(&TilePosition, &ResourceNode)>()
+        .try_query::<(&ResourceNode, Option<&Tile>, Option<&TilePosition>)>()
+        .map(|mut query| {
+            query.iter(world).fold(
+                (0, 0),
+                |(node_count, attached_count), (_, tile, position)| {
+                    (
+                        node_count + 1,
+                        attached_count + usize::from(tile.is_some() && position.is_some()),
+                    )
+                },
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn query_resource_nodes(world: &bevy_ecs::world::World) -> Vec<(CellCoord, ResourceKind, u32)> {
+    world
+        .try_query::<(&TilePosition, &ResourceNode, &Tile)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(position, node)| (position.coord, node.kind))
+                .map(|(position, node, _)| (position.coord, node.kind, node.quantity))
                 .collect()
         })
         .unwrap_or_default()

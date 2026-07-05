@@ -26,7 +26,7 @@ This directory contains the Godot-facing Rust GDExtension classes for the projec
 ## Tile Selection
 
 - Tile selection is intentionally owned by `GameWorld.selected_cell`, not by ECS.
-- `GameWorld` emits `tile_selected(x, y, resource_name)` and `tile_deselected()`.
+- `GameWorld` emits `tile_selected(tile_entity_id)` and `tile_deselected()`.
 - UI panels such as `TileInfoPanel` should listen to those signals and keep no independent selection source of truth.
 - If tile data becomes game logic, add it to `game_engine::grid` first and expose it through typed `GameWorld` methods or signals.
 

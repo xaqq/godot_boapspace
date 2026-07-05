@@ -34,14 +34,18 @@ impl IPanelContainer for TileInfoPanel {
         let pos_label = self.pos_label.clone();
         let resource_label = self.resource_label.clone();
 
+        let selected_game_world = game_world.clone();
         let mut selected_pos_label = pos_label.clone();
         let mut selected_resource_label = resource_label.clone();
         game_world
             .signals()
             .tile_selected()
-            .connect(move |x, y, resource_name| {
-                selected_pos_label.set_text(format!("Cell: ({x}, {y})").as_str());
-                selected_resource_label.set_text(resource_text(&resource_name).as_str());
+            .connect(move |tile_entity_id| {
+                let game_world = selected_game_world.bind();
+                let position_text = game_world.tile_position_text(tile_entity_id).to_string();
+                let resource_text = game_world.tile_resource_text(tile_entity_id).to_string();
+                selected_pos_label.set_text(position_text.as_str());
+                selected_resource_label.set_text(resource_text.as_str());
             });
 
         let mut deselected_pos_label = pos_label;
@@ -50,13 +54,5 @@ impl IPanelContainer for TileInfoPanel {
             deselected_pos_label.set_text("Cell: None");
             deselected_resource_label.set_text("");
         });
-    }
-}
-
-fn resource_text(resource_name: &GString) -> String {
-    if resource_name.is_empty() {
-        String::new()
-    } else {
-        format!("Resource: {resource_name}")
     }
 }

@@ -1,12 +1,19 @@
-pub use crate::components::{ResourceNode, TilePosition};
+pub use crate::components::ResourceNode;
 
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::ResourceKind;
+use crate::tile::TileIndex;
 use bevy_ecs::prelude::*;
 
 const COVERAGE_PER_THOUSAND: usize = 15;
+const MIN_RESOURCE_NODE_QUANTITY: u32 = 50;
+const RESOURCE_NODE_QUANTITY_RANGE: u64 = 101;
 
-pub fn spawn_initial_resource_nodes(mut commands: Commands, grid: Res<Grid>) {
+pub fn spawn_initial_resource_nodes(
+    mut commands: Commands,
+    grid: Res<Grid>,
+    index: Res<TileIndex>,
+) {
     let size = grid.size();
     let Some(cell_count) = size.cell_count() else {
         return;
@@ -25,12 +32,14 @@ pub fn spawn_initial_resource_nodes(mut commands: Commands, grid: Res<Grid>) {
     candidates.sort_unstable_by_key(|(hash, coord)| (*hash, coord.y(), coord.x()));
 
     for (hash, coord) in candidates.into_iter().take(target_count) {
-        commands.spawn((
-            TilePosition { coord },
-            ResourceNode {
-                kind: resource_kind_for_hash(hash),
-            },
-        ));
+        let Some(entity) = index.get(coord) else {
+            continue;
+        };
+
+        commands.entity(entity).insert(ResourceNode {
+            kind: resource_kind_for_hash(hash),
+            quantity: resource_quantity_for_hash(hash),
+        });
     }
 }
 
@@ -41,6 +50,10 @@ fn resource_kind_for_hash(hash: u64) -> ResourceKind {
         2 => ResourceKind::Food,
         _ => ResourceKind::Gold,
     }
+}
+
+fn resource_quantity_for_hash(hash: u64) -> u32 {
+    MIN_RESOURCE_NODE_QUANTITY + (hash % RESOURCE_NODE_QUANTITY_RANGE) as u32
 }
 
 fn placement_hash(size: GridSize, coord: CellCoord) -> u64 {
