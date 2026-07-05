@@ -2,7 +2,7 @@ use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
-use game_engine::npcs::{BirthDate, Npc, NpcName, NpcPosition, WorldDateTime, SECONDS_PER_DAY};
+use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
@@ -51,13 +51,6 @@ struct SelectedCell {
 struct SelectedNpc {
     coord: CellCoord,
     entity: Entity,
-}
-
-struct NpcSelectionInfo {
-    coord: CellCoord,
-    name: String,
-    birth_day: u64,
-    age_years: u32,
 }
 
 #[derive(GodotClass)]
@@ -593,97 +586,6 @@ impl GameWorld {
         self.with_rendered_surface_world(query_npc_positions)
     }
 
-    pub(crate) fn tile_position_text(&self, tile_entity_id: i64) -> GString {
-        let Some((coord, _)) = self.tile_selection_info(tile_entity_id) else {
-            return GString::from("Cell: None");
-        };
-
-        GString::from(format!("Cell: ({}, {})", coord.x(), coord.y()).as_str())
-    }
-
-    pub(crate) fn tile_resource_text(&self, tile_entity_id: i64) -> GString {
-        let Some((_, resource)) = self.tile_selection_info(tile_entity_id) else {
-            return GString::new();
-        };
-        let Some(resource) = resource else {
-            return GString::new();
-        };
-
-        GString::from(
-            format!(
-                "Resource: {} ({})",
-                resource.kind.label(),
-                resource.quantity
-            )
-            .as_str(),
-        )
-    }
-
-    pub(crate) fn npc_name_text(&self, npc_entity_id: i64) -> GString {
-        let Some(info) = self.npc_selection_info(npc_entity_id) else {
-            return GString::from("Name: None");
-        };
-
-        GString::from(format!("Name: {}", info.name).as_str())
-    }
-
-    pub(crate) fn npc_birth_day_text(&self, npc_entity_id: i64) -> GString {
-        let Some(info) = self.npc_selection_info(npc_entity_id) else {
-            return GString::new();
-        };
-
-        GString::from(format!("Birth Day: {}", info.birth_day).as_str())
-    }
-
-    pub(crate) fn npc_age_text(&self, npc_entity_id: i64) -> GString {
-        let Some(info) = self.npc_selection_info(npc_entity_id) else {
-            return GString::new();
-        };
-
-        GString::from(format!("Age: {}", info.age_years).as_str())
-    }
-
-    pub(crate) fn npc_position_text(&self, npc_entity_id: i64) -> GString {
-        let Some(info) = self.npc_selection_info(npc_entity_id) else {
-            return GString::from("Cell: None");
-        };
-
-        GString::from(format!("Cell: ({}, {})", info.coord.x(), info.coord.y()).as_str())
-    }
-
-    fn tile_selection_info(
-        &self,
-        tile_entity_id: i64,
-    ) -> Option<(CellCoord, Option<ResourceNode>)> {
-        let entity = decode_entity_id(tile_entity_id)?;
-        self.with_rendered_surface_world(|world| {
-            world.get::<Tile>(entity)?;
-            let position = world.get::<TilePosition>(entity)?;
-            let resource = world.get::<ResourceNode>(entity).copied();
-            Some((position.coord, resource))
-        })
-        .flatten()
-    }
-
-    fn npc_selection_info(&self, npc_entity_id: i64) -> Option<NpcSelectionInfo> {
-        let entity = decode_entity_id(npc_entity_id)?;
-        self.with_rendered_surface_world(|world| {
-            world.get::<Npc>(entity)?;
-            let position = world.get::<NpcPosition>(entity)?;
-            let name = world.get::<NpcName>(entity)?;
-            let birth_date = world.get::<BirthDate>(entity)?;
-            let world_date_time = *world.resource::<WorldDateTime>();
-
-            Some(NpcSelectionInfo {
-                coord: position.coord,
-                name: name.as_str().to_string(),
-                birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
-                age_years: world_date_time.age_years_since(*birth_date),
-            })
-        })
-        .flatten()
-    }
-
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
         if self.rendered_surface == surface {
             return;
@@ -777,8 +679,8 @@ fn encode_entity_id(entity: Entity) -> Option<i64> {
     i64::try_from(entity.to_bits()).ok()
 }
 
-fn decode_entity_id(tile_entity_id: i64) -> Option<Entity> {
-    let bits = u64::try_from(tile_entity_id).ok()?;
+pub(crate) fn decode_entity_id(entity_id: i64) -> Option<Entity> {
+    let bits = u64::try_from(entity_id).ok()?;
     Entity::try_from_bits(bits)
 }
 
