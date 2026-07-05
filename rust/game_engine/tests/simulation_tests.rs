@@ -1,5 +1,6 @@
-use game_engine::grid::{CellCoord, Grid, GridSize};
-use game_engine::resource_nodes::{ResourceNode, TilePosition};
+use game_engine::components::{Terrain, TerrainKind, Tile, TileDisplay, TilePosition};
+use game_engine::grid::{CellCoord, GridSize};
+use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
 use std::collections::HashSet;
@@ -76,20 +77,18 @@ fn test_surface_world_read_closure_can_read_resources() {
 }
 
 #[test]
-fn test_grid_reads_are_scoped_per_surface() {
+fn test_tile_display_reads_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
-    let default_cell = simulation.with_surface_world(default_surface, |world| {
-        world.resource::<Grid>().get(CellCoord::new(100, 100))
-    });
-    let second_cell = simulation.with_surface_world(second_surface, |world| {
-        world.resource::<Grid>().get(CellCoord::new(100, 100))
-    });
+    let default_cell = simulation.tile_display_at(default_surface, CellCoord::new(100, 100));
+    let second_cell = simulation.tile_display_at(second_surface, CellCoord::new(100, 100));
+    let second_valid_cell = simulation.tile_display_at(second_surface, CellCoord::new(3, 4));
 
-    assert_eq!(default_cell, Some(Some(Default::default())));
-    assert_eq!(second_cell, Some(None));
+    assert_eq!(default_cell, Some(TileDisplay::Empty));
+    assert_eq!(second_cell, None);
+    assert_eq!(second_valid_cell, Some(TileDisplay::Empty));
 }
 
 #[test]
@@ -100,6 +99,38 @@ fn test_tick_runs_across_multiple_surfaces() {
     simulation.tick(1.0 / 60.0);
 
     assert_eq!(simulation.surface_count(), 2);
+}
+
+#[test]
+fn test_surface_spawns_one_tile_entity_per_cell() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(4, 5));
+
+    let tiles = tiles(&simulation, surface);
+
+    assert_eq!(tiles.len(), 20);
+}
+
+#[test]
+fn test_tile_entities_are_unique_within_bounds_and_grass() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(7, 9));
+    let size = simulation.grid_size(surface).expect("surface should exist");
+    let tiles = tiles(&simulation, surface);
+    let unique_tiles = tiles
+        .iter()
+        .map(|(coord, _)| *coord)
+        .collect::<HashSet<_>>();
+
+    assert_eq!(tiles.len(), unique_tiles.len());
+    assert_eq!(
+        tiles.len(),
+        size.cell_count().expect("grid size should fit")
+    );
+    for (coord, terrain) in tiles {
+        assert!(size.contains(coord), "{coord:?} should be within {size:?}");
+        assert_eq!(terrain, TerrainKind::Grass);
+    }
 }
 
 #[test]
@@ -199,6 +230,15 @@ fn resource_nodes(
         .expect("surface should exist")
 }
 
+fn tiles(
+    simulation: &GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> Vec<(CellCoord, TerrainKind)> {
+    simulation
+        .with_surface_world(surface, query_tiles)
+        .expect("surface should exist")
+}
+
 fn resource_amounts(world: &bevy_ecs::world::World) -> [u32; ResourceKind::ALL.len()] {
     let resources = world.resource::<GameResources>();
     ResourceKind::ALL.map(|kind| resources.get(kind))
@@ -211,6 +251,18 @@ fn query_resource_nodes(world: &bevy_ecs::world::World) -> Vec<(CellCoord, Resou
             query
                 .iter(world)
                 .map(|(position, node)| (position.coord, node.kind))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn query_tiles(world: &bevy_ecs::world::World) -> Vec<(CellCoord, TerrainKind)> {
+    world
+        .try_query::<(&TilePosition, &Terrain, &Tile)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(position, terrain, _)| (position.coord, terrain.kind))
                 .collect()
         })
         .unwrap_or_default()

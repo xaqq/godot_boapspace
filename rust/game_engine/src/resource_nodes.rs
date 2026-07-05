@@ -1,18 +1,10 @@
+pub use crate::components::{ResourceNode, TilePosition};
+
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::ResourceKind;
 use bevy_ecs::prelude::*;
 
 const COVERAGE_PER_THOUSAND: usize = 15;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct ResourceNode {
-    pub kind: ResourceKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct TilePosition {
-    pub coord: CellCoord,
-}
 
 pub fn spawn_initial_resource_nodes(mut commands: Commands, grid: Res<Grid>) {
     let size = grid.size();

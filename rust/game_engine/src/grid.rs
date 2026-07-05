@@ -97,39 +97,16 @@ impl GridSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CellType {
-    #[default]
-    Empty,
-    Building,
-}
-
-impl CellType {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            CellType::Empty => "Empty",
-            CellType::Building => "Building",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Resource)]
 pub struct Grid {
     size: GridSize,
-    cells: Vec<CellType>,
 }
 
 impl Grid {
     pub fn new(width: usize, height: usize) -> Self {
         let size = GridSize::new(width, height);
-        let cell_count = size
-            .cell_count()
-            .expect("grid dimensions should fit in addressable memory");
 
-        Self {
-            size,
-            cells: vec![CellType::Empty; cell_count],
-        }
+        Self { size }
     }
 
     pub const fn size(&self) -> GridSize {
@@ -142,30 +119,6 @@ impl Grid {
 
     pub const fn height(&self) -> usize {
         self.size.height()
-    }
-
-    fn index(&self, coord: CellCoord) -> Option<usize> {
-        if !self.size.contains(coord) {
-            return None;
-        }
-
-        let x = usize::try_from(coord.x()).ok()?;
-        let y = usize::try_from(coord.y()).ok()?;
-
-        y.checked_mul(self.size.width())?.checked_add(x)
-    }
-
-    pub fn get(&self, coord: CellCoord) -> Option<CellType> {
-        self.index(coord).map(|i| self.cells[i])
-    }
-
-    pub fn set(&mut self, coord: CellCoord, cell: CellType) -> bool {
-        if let Some(i) = self.index(coord) {
-            self.cells[i] = cell;
-            true
-        } else {
-            false
-        }
     }
 
     pub fn cell_to_world(coord: CellCoord) -> WorldPosition {
@@ -202,37 +155,22 @@ mod tests {
         let g = Grid::new(10, 5);
         assert_eq!(g.width(), 10);
         assert_eq!(g.height(), 5);
-        assert_eq!(g.cells.len(), 50);
     }
 
     #[test]
-    fn test_get_in_bounds() {
+    fn test_contains_bounds() {
         let g = Grid::new(10, 10);
-        assert_eq!(g.get(CellCoord::new(5, 5)), Some(CellType::Empty));
+        assert!(g.size().contains(CellCoord::new(5, 5)));
+        assert!(!g.size().contains(CellCoord::new(-1, 0)));
+        assert!(!g.size().contains(CellCoord::new(10, 0)));
+        assert!(!g.size().contains(CellCoord::new(0, -1)));
+        assert!(!g.size().contains(CellCoord::new(0, 10)));
     }
 
     #[test]
-    fn test_get_out_of_bounds() {
-        let g = Grid::new(10, 10);
-        assert_eq!(g.get(CellCoord::new(-1, 0)), None);
-        assert_eq!(g.get(CellCoord::new(10, 0)), None);
-        assert_eq!(g.get(CellCoord::new(0, -1)), None);
-        assert_eq!(g.get(CellCoord::new(0, 10)), None);
-    }
-
-    #[test]
-    fn test_set_and_get() {
-        let mut g = Grid::new(10, 10);
-        let coord = CellCoord::new(3, 4);
-        assert!(g.set(coord, CellType::Building));
-        assert_eq!(g.get(coord), Some(CellType::Building));
-    }
-
-    #[test]
-    fn test_set_out_of_bounds_fails() {
-        let mut g = Grid::new(10, 10);
-        assert!(!g.set(CellCoord::new(10, 0), CellType::Building));
-        assert!(!g.set(CellCoord::new(-1, 0), CellType::Building));
+    fn test_iter_coords_matches_cell_count() {
+        let size = GridSize::new(10, 10);
+        assert_eq!(Some(size.iter_coords().count()), size.cell_count());
     }
 
     #[test]

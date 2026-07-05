@@ -1,5 +1,6 @@
 use bevy_ecs::world::World;
-use game_engine::grid::{self, CellCoord, CellType, Grid, WorldPosition};
+use game_engine::components::TileDisplay;
+use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::resource_nodes::{ResourceNode, TilePosition};
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
@@ -30,7 +31,7 @@ fn world_limit(value: f32) -> i32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SelectedCell {
     coord: CellCoord,
-    cell_type: CellType,
+    tile_display: TileDisplay,
     resource_kind: Option<ResourceKind>,
 }
 
@@ -94,7 +95,7 @@ impl INode2D for GameWorld {
         };
 
         let ts = grid::TILE_SIZE as i32;
-        let atlas_w = ts * 2;
+        let atlas_w = ts;
         let atlas_h = ts;
 
         let Some(mut image) = Image::create(atlas_w, atlas_h, false, image::Format::RGBA8) else {
@@ -105,15 +106,10 @@ impl INode2D for GameWorld {
         image.fill(Color::from_rgba8(0, 0, 0, 0));
 
         let grass = Color::from_rgb(0.25, 0.55, 0.15);
-        let brown = Color::from_rgb(0.55, 0.45, 0.25);
-
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let rect = |x: i32, y: i32, w: i32, h: i32| Rect2i::new(v2(x, y), v2(w, h));
 
         image.fill_rect(rect(0, 0, ts, ts), grass);
-
-        let bx = ts;
-        image.fill_rect(rect(bx, 0, ts, ts), brown);
 
         let Some(texture) = ImageTexture::create_from_image(&image) else {
             godot_error!("GameWorld: failed to create tile atlas texture");
@@ -125,7 +121,6 @@ impl INode2D for GameWorld {
         source.set_texture(&texture);
         source.set_texture_region_size(v2(ts, ts));
         source.create_tile_ex(v2(0, 0)).done();
-        source.create_tile_ex(v2(1, 0)).done();
 
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(ts, ts));
@@ -255,9 +250,8 @@ impl INode2D for GameWorld {
             let coord = selected.coord;
             let cell_pos = Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts);
             let cell_size = Vector2::new(ts, ts);
-            let highlight = match selected.cell_type {
-                CellType::Empty => Color::from_rgb(1.0, 0.84, 0.0),
-                CellType::Building => Color::from_rgb(0.45, 0.75, 1.0),
+            let highlight = match selected.tile_display {
+                TileDisplay::Empty => Color::from_rgb(1.0, 0.84, 0.0),
             };
             let mut fill = highlight;
             fill.a = 0.15;
@@ -336,9 +330,8 @@ impl GameWorld {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         for coord in self.grid_size().iter_coords() {
-            let atlas_x = match self.cell_type_at(coord).unwrap_or_default() {
-                CellType::Empty => 0,
-                CellType::Building => 1,
+            let atlas_x = match self.tile_display_at(coord).unwrap_or_default() {
+                TileDisplay::Empty => 0,
             };
             tile_map
                 .set_cell_ex(v2(coord.x(), coord.y()))
@@ -371,15 +364,15 @@ impl GameWorld {
             if self.selected_cell.map(|selected| selected.coord) == Some(coord) {
                 self.clear_selection();
             } else {
-                let cell_type = self.cell_type_at(coord).unwrap_or_default();
+                let tile_display = self.tile_display_at(coord).unwrap_or_default();
                 let resource_kind = self.resource_node_at(coord);
                 self.selected_cell = Some(SelectedCell {
                     coord,
-                    cell_type,
+                    tile_display,
                     resource_kind,
                 });
                 self.base_mut().queue_redraw();
-                let type_name = GString::from(cell_type.type_name());
+                let type_name = GString::from(tile_display.type_name());
                 let resource_name =
                     GString::from(resource_kind.map(ResourceKind::label).unwrap_or(""));
                 self.signals().tile_selected().emit(
@@ -441,9 +434,8 @@ impl GameWorld {
         self.game.with_surface_world(self.rendered_surface, f)
     }
 
-    fn cell_type_at(&self, coord: CellCoord) -> Option<CellType> {
-        self.with_rendered_surface_world(|world| world.resource::<Grid>().get(coord))
-            .flatten()
+    fn tile_display_at(&self, coord: CellCoord) -> Option<TileDisplay> {
+        self.game.tile_display_at(self.rendered_surface, coord)
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {

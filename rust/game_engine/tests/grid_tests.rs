@@ -1,24 +1,9 @@
-use game_engine::grid::{CellCoord, CellType, Grid, GridSize, WorldPosition};
+use game_engine::grid::{CellCoord, Grid, GridSize, WorldPosition};
 
 #[test]
 fn test_large_grid_creation() {
     let g = Grid::new(256, 256);
     assert_eq!(g.size(), GridSize::new(256, 256));
-}
-
-#[test]
-fn test_set_all_building_then_read_back() {
-    let mut g = Grid::new(10, 10);
-    for y in 0..10i32 {
-        for x in 0..10i32 {
-            assert!(g.set(CellCoord::new(x, y), CellType::Building));
-        }
-    }
-    for y in 0..10i32 {
-        for x in 0..10i32 {
-            assert_eq!(g.get(CellCoord::new(x, y)), Some(CellType::Building));
-        }
-    }
 }
 
 #[test]

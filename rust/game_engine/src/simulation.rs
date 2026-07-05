@@ -1,7 +1,9 @@
-use crate::grid::{Grid, GridSize};
+use crate::components::{Terrain, TerrainKind, Tile, TileDisplay, TilePosition};
+use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::GameResources;
 use crate::systems::build_surface_schedule;
+use crate::tile::spawn_initial_tiles;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use bevy_ecs::system::RunSystemOnce;
@@ -27,6 +29,9 @@ impl SurfaceRuntime {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(GameResources::default());
+        world
+            .run_system_once(spawn_initial_tiles)
+            .expect("initial tile spawn system should run");
         world
             .run_system_once(spawn_initial_resource_nodes)
             .expect("initial resource node spawn system should run");
@@ -89,6 +94,15 @@ impl GameSimulation {
         Some(self.surface(surface_id)?.grid().size())
     }
 
+    pub fn tile_terrain_at(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<TerrainKind> {
+        tile_terrain_at(self.surface(surface_id)?, coord)
+    }
+
+    pub fn tile_display_at(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<TileDisplay> {
+        self.tile_terrain_at(surface_id, coord)
+            .map(TileDisplay::from)
+    }
+
     pub fn with_surface_world<R>(
         &self,
         surface_id: SurfaceId,
@@ -100,6 +114,19 @@ impl GameSimulation {
     fn surface(&self, surface_id: SurfaceId) -> Option<&SurfaceRuntime> {
         self.surfaces.get(surface_id.index())
     }
+}
+
+fn tile_terrain_at(surface: &SurfaceRuntime, coord: CellCoord) -> Option<TerrainKind> {
+    if !surface.grid().size().contains(coord) {
+        return None;
+    }
+
+    let mut query = surface
+        .world
+        .try_query::<(&TilePosition, &Terrain, &Tile)>()?;
+    query
+        .iter(&surface.world)
+        .find_map(|(position, terrain, _)| (position.coord == coord).then_some(terrain.kind))
 }
 
 impl Default for GameSimulation {
