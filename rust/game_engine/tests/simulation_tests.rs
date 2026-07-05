@@ -1,8 +1,8 @@
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
-    BirthDate, Npc, NpcInventory, NpcName, NpcPosition, WorldDateTime, INITIAL_NPC_BIRTH_DAY,
-    INITIAL_NPC_NAME, SECONDS_PER_DAY,
+    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
+    INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, SECONDS_PER_DAY,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
@@ -419,6 +419,57 @@ fn test_initial_npc_inventory_starts_empty() {
     }
 }
 
+#[test]
+fn test_initial_npc_starts_fed() {
+    let simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    let hunger_state =
+        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+
+    assert_eq!(hunger_state, HungerState::Fed);
+}
+
+#[test]
+fn test_paused_tick_does_not_advance_npc_hunger() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    simulation.pause();
+    tick_days(&mut simulation, 2);
+
+    let hunger_state =
+        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+
+    assert_eq!(hunger_state, HungerState::Fed);
+}
+
+#[test]
+fn test_npc_becomes_hungry_after_one_day_without_food() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    tick_days(&mut simulation, 1);
+
+    let hunger_state =
+        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+
+    assert_eq!(hunger_state, HungerState::Hungry);
+}
+
+#[test]
+fn test_npc_becomes_starving_after_two_days_without_food() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    tick_days(&mut simulation, 2);
+
+    let hunger_state =
+        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+
+    assert_eq!(hunger_state, HungerState::Starving);
+}
+
 fn sorted_resource_nodes(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
@@ -449,6 +500,23 @@ fn npcs(
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, String, u64, u32)> {
     simulation.with_surface_world(surface, query_npcs)
+}
+
+fn npc_hunger_state(
+    simulation: &GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> Option<HungerState> {
+    simulation.with_surface_world(surface, |world| {
+        let mut query = world.try_query::<(&NpcHunger, &Npc)>()?;
+        query.iter(world).next().map(|(hunger, _)| hunger.state())
+    })
+}
+
+fn tick_days(simulation: &mut GameSimulation, days: u64) {
+    let ticks_per_day = SECONDS_PER_DAY / SIMULATION_TICK_SECONDS;
+    for _ in 0..(days * ticks_per_day) {
+        simulation.tick(1.0 / 60.0);
+    }
 }
 
 fn surface_world_date_time(

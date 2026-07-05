@@ -1,4 +1,6 @@
-pub use crate::components::{BirthDate, Npc, NpcInventory, NpcName, NpcPosition};
+pub use crate::components::{
+    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition,
+};
 
 use crate::grid::{CellCoord, Grid};
 use bevy_ecs::prelude::*;
@@ -64,12 +66,28 @@ pub const fn world_duration_from_day(day: u64) -> Duration {
     Duration::from_secs(day * SECONDS_PER_DAY)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
+pub struct SimulationTickDuration {
+    duration: Duration,
+}
+
+impl SimulationTickDuration {
+    pub const fn new(duration: Duration) -> Self {
+        Self { duration }
+    }
+
+    pub const fn duration(self) -> Duration {
+        self.duration
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Bundle)]
 pub struct InitialNpcBundle {
     npc: Npc,
     name: NpcName,
     birth_date: BirthDate,
     position: NpcPosition,
+    hunger: NpcHunger,
     inventory: NpcInventory,
 }
 
@@ -80,6 +98,7 @@ impl InitialNpcBundle {
             name: NpcName::new(INITIAL_NPC_NAME),
             birth_date: BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
             position: NpcPosition { coord },
+            hunger: NpcHunger::fed(),
             inventory: NpcInventory::empty(),
         }
     }
@@ -91,6 +110,15 @@ pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
     };
 
     commands.spawn(InitialNpcBundle::new(coord));
+}
+
+pub fn update_npc_hunger(
+    tick_duration: Res<SimulationTickDuration>,
+    mut npcs: Query<(&mut NpcHunger, &mut NpcInventory), With<Npc>>,
+) {
+    for (mut hunger, mut inventory) in &mut npcs {
+        hunger.advance_by(tick_duration.duration(), &mut inventory);
+    }
 }
 
 pub fn center_coord(grid: &Grid) -> Option<CellCoord> {

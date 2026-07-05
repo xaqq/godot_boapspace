@@ -4,7 +4,9 @@ use crate::buildings::{
 };
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
-use crate::npcs::{spawn_initial_default_npc, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
+use crate::npcs::{
+    spawn_initial_default_npc, SimulationTickDuration, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY,
+};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
@@ -41,6 +43,7 @@ impl SurfaceRuntime {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(world_date_time);
+        world.insert_resource(SimulationTickDuration::new(SIMULATION_TICK_DURATION));
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
