@@ -8,6 +8,8 @@ pub const INITIAL_NPC_NAME: &str = "Mara Voss";
 pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
 pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 12_000;
 pub const SECONDS_PER_DAY: u64 = 86_400;
+const SECONDS_PER_HOUR: u64 = 3_600;
+const SECONDS_PER_MINUTE: u64 = 60;
 const DAYS_PER_YEAR: u64 = 365;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
@@ -32,6 +34,21 @@ impl WorldDateTime {
 
     pub const fn day(self) -> u64 {
         self.elapsed_since_world_epoch.as_secs() / SECONDS_PER_DAY
+    }
+
+    pub fn advance_by(&mut self, delta: Duration) {
+        self.elapsed_since_world_epoch = self
+            .elapsed_since_world_epoch
+            .checked_add(delta)
+            .unwrap_or(Duration::MAX);
+    }
+
+    pub const fn hour(self) -> u8 {
+        ((self.elapsed_since_world_epoch.as_secs() % SECONDS_PER_DAY) / SECONDS_PER_HOUR) as u8
+    }
+
+    pub const fn minute(self) -> u8 {
+        ((self.elapsed_since_world_epoch.as_secs() % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE) as u8
     }
 
     pub fn age_years_since(self, birth_date: BirthDate) -> u32 {
@@ -117,5 +134,27 @@ mod tests {
         let world_date_time = WorldDateTime::new(Duration::from_secs(42 * SECONDS_PER_DAY));
 
         assert_eq!(world_date_time.day(), 42);
+    }
+
+    #[test]
+    fn test_world_date_time_advances_by_duration() {
+        let mut world_date_time = WorldDateTime::new(Duration::from_secs(42));
+
+        world_date_time.advance_by(Duration::from_secs(12));
+
+        assert_eq!(
+            world_date_time.elapsed_since_world_epoch(),
+            Duration::from_secs(54)
+        );
+    }
+
+    #[test]
+    fn test_world_date_time_exposes_hour_and_minute() {
+        let world_date_time = WorldDateTime::new(Duration::from_secs(
+            42 * SECONDS_PER_DAY + 9 * SECONDS_PER_HOUR + 5 * SECONDS_PER_MINUTE + 59,
+        ));
+
+        assert_eq!(world_date_time.hour(), 9);
+        assert_eq!(world_date_time.minute(), 5);
     }
 }

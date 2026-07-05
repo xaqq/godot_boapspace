@@ -25,9 +25,26 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HeaderBar" type="HBoxContainer" parent="VBoxContainer"]
+[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "datetime_label", "game_world")]
+play_pause_button = NodePath("PlayPauseButton")
+datetime_label = NodePath("DateTimeLabel")
+game_world = NodePath("../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 theme_override_constants/separation = 8
+
+[node name="PlayPauseButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(72, 0)
+layout_mode = 2
+text = "Pause"
+
+[node name="DateTimeLabel" type="Label" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(132, 0)
+layout_mode = 2
+text = "Day 12000 00:00"
+
+[node name="HeaderSpacer" type="Control" parent="VBoxContainer/HeaderBar"]
+layout_mode = 2
+size_flags_horizontal = 3
 
 [node name="TasksButton" type="Button" parent="VBoxContainer/HeaderBar"]
 layout_mode = 2

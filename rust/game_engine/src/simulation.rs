@@ -11,8 +11,11 @@ use crate::tile::{spawn_initial_tiles, TileIndex};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use bevy_ecs::system::RunSystemOnce;
+use std::time::Duration;
 
 pub const DEFAULT_GRID_SIZE: GridSize = GridSize::new(256, 256);
+pub const SIMULATION_TICK_SECONDS: u64 = 10 * 60;
+const SIMULATION_TICK_DURATION: Duration = Duration::from_secs(SIMULATION_TICK_SECONDS);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SurfaceId(usize);
@@ -34,10 +37,10 @@ struct SurfaceRuntime {
 }
 
 impl SurfaceRuntime {
-    fn new(size: GridSize, spawn_default_npc: bool) -> Self {
+    fn new(size: GridSize, spawn_default_npc: bool, world_date_time: WorldDateTime) -> Self {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
-        world.insert_resource(WorldDateTime::from_day(DEFAULT_WORLD_DATE_TIME_DAY));
+        world.insert_resource(world_date_time);
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
@@ -63,26 +66,40 @@ impl SurfaceRuntime {
     fn tick(&mut self) {
         self.schedule.run(&mut self.world);
     }
+
+    fn set_world_date_time(&mut self, world_date_time: WorldDateTime) {
+        if let Some(mut resource) = self.world.get_resource_mut::<WorldDateTime>() {
+            *resource = world_date_time;
+        } else {
+            self.world.insert_resource(world_date_time);
+        }
+    }
 }
 
 pub struct GameSimulation {
     surfaces: Vec<SurfaceRuntime>,
     default_surface: SurfaceId,
+    world_date_time: WorldDateTime,
+    playing: bool,
 }
 
 impl GameSimulation {
     pub fn new() -> Self {
-        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE, true);
+        let world_date_time = WorldDateTime::from_day(DEFAULT_WORLD_DATE_TIME_DAY);
+        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE, true, world_date_time);
 
         Self {
             surfaces: vec![default_surface],
             default_surface: SurfaceId(0),
+            world_date_time,
+            playing: true,
         }
     }
 
     pub fn create_surface(&mut self, size: GridSize) -> SurfaceId {
         let surface_id = SurfaceId(self.surfaces.len());
-        self.surfaces.push(SurfaceRuntime::new(size, false));
+        self.surfaces
+            .push(SurfaceRuntime::new(size, false, self.world_date_time));
         surface_id
     }
 
@@ -105,8 +122,34 @@ impl GameSimulation {
         }
     }
 
+    pub const fn is_playing(&self) -> bool {
+        self.playing
+    }
+
+    pub fn play(&mut self) {
+        self.playing = true;
+    }
+
+    pub fn pause(&mut self) {
+        self.playing = false;
+    }
+
+    pub fn toggle_playing(&mut self) {
+        self.playing = !self.playing;
+    }
+
+    pub const fn world_date_time(&self) -> WorldDateTime {
+        self.world_date_time
+    }
+
     pub fn tick(&mut self, _delta: f32) {
+        if !self.playing {
+            return;
+        }
+
+        self.world_date_time.advance_by(SIMULATION_TICK_DURATION);
         for surface in &mut self.surfaces {
+            surface.set_world_date_time(self.world_date_time);
             surface.tick();
         }
     }

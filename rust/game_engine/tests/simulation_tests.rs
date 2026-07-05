@@ -6,9 +6,12 @@ use game_engine::npcs::{
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
-use game_engine::simulation::{GameSimulation, SurfaceLookupError, DEFAULT_GRID_SIZE};
+use game_engine::simulation::{
+    GameSimulation, SurfaceLookupError, DEFAULT_GRID_SIZE, SIMULATION_TICK_SECONDS,
+};
 use game_engine::tile::TileIndex;
 use std::collections::HashSet;
+use std::time::Duration;
 
 #[test]
 fn test_new_creates_default_surface() {
@@ -87,6 +90,88 @@ fn test_tick_runs_across_multiple_surfaces() {
     simulation.tick(1.0 / 60.0);
 
     assert_eq!(simulation.surface_count(), 2);
+}
+
+#[test]
+fn test_simulation_starts_playing() {
+    let simulation = GameSimulation::new();
+
+    assert!(simulation.is_playing());
+}
+
+#[test]
+fn test_tick_advances_world_date_time_by_fixed_duration() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        before.elapsed_since_world_epoch() + Duration::from_secs(SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
+fn test_paused_tick_does_not_advance_world_date_time() {
+    let mut simulation = GameSimulation::new();
+    let before = simulation.world_date_time();
+
+    simulation.pause();
+    simulation.tick(1.0 / 60.0);
+
+    assert!(!simulation.is_playing());
+    assert_eq!(simulation.world_date_time(), before);
+}
+
+#[test]
+fn test_resume_allows_world_date_time_to_advance_again() {
+    let mut simulation = GameSimulation::new();
+
+    simulation.pause();
+    simulation.tick(1.0 / 60.0);
+    let paused_date_time = simulation.world_date_time();
+    simulation.play();
+    simulation.tick(1.0 / 60.0);
+
+    assert!(simulation.is_playing());
+    assert_eq!(
+        simulation.world_date_time().elapsed_since_world_epoch(),
+        paused_date_time.elapsed_since_world_epoch() + Duration::from_secs(SIMULATION_TICK_SECONDS)
+    );
+}
+
+#[test]
+fn test_created_surface_inherits_current_world_date_time() {
+    let mut simulation = GameSimulation::new();
+    simulation.tick(1.0 / 60.0);
+    let current_date_time = simulation.world_date_time();
+
+    let surface = simulation.create_surface(GridSize::new(4, 4));
+
+    assert_eq!(
+        surface_world_date_time(&simulation, surface),
+        current_date_time
+    );
+}
+
+#[test]
+fn test_tick_syncs_world_date_time_across_surfaces() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation.create_surface(GridSize::new(4, 4));
+
+    simulation.tick(1.0 / 60.0);
+    let current_date_time = simulation.world_date_time();
+
+    assert_eq!(
+        surface_world_date_time(&simulation, default_surface),
+        current_date_time
+    );
+    assert_eq!(
+        surface_world_date_time(&simulation, second_surface),
+        current_date_time
+    );
 }
 
 #[test]
@@ -357,6 +442,13 @@ fn npcs(
     surface: game_engine::simulation::SurfaceId,
 ) -> Vec<(CellCoord, String, u64, u32)> {
     simulation.with_surface_world(surface, query_npcs)
+}
+
+fn surface_world_date_time(
+    simulation: &GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> WorldDateTime {
+    simulation.with_surface_world(surface, |world| *world.resource::<WorldDateTime>())
 }
 
 fn resource_node_attachment_counts(world: &bevy_ecs::world::World) -> (usize, usize) {

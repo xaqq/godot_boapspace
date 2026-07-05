@@ -14,6 +14,7 @@ mod panel {
     mod resource_quantity;
     mod resource_quantity_progress;
     mod resource_tooltip;
+    mod simulation_header_bar;
     mod surface_selector;
     mod task_list_panel;
     mod tile_info_panel;

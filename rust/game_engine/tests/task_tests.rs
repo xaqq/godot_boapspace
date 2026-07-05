@@ -50,6 +50,25 @@ fn test_tick_creates_construction_task_for_blueprint() {
 }
 
 #[test]
+fn test_paused_tick_does_not_run_surface_schedule() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let blueprint = simulation
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
+        .expect("warehouse should place");
+
+    simulation.pause();
+    simulation.tick(1.0 / 60.0);
+
+    assert!(construction_tasks(&simulation, surface).is_empty());
+
+    simulation.play();
+    simulation.tick(1.0 / 60.0);
+
+    assert_eq!(construction_tasks(&simulation, surface), vec![blueprint]);
+}
+
+#[test]
 fn test_repeated_ticks_do_not_duplicate_construction_tasks() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));

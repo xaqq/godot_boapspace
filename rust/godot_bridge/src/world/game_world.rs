@@ -668,6 +668,16 @@ impl GameWorld {
         self.with_rendered_surface_world(query_task_table_rows)
     }
 
+    pub(crate) fn simulation_datetime_text_string(&self) -> String {
+        let date_time = self.game.world_date_time();
+        format!(
+            "Day {} {:02}:{:02}",
+            date_time.day(),
+            date_time.hour(),
+            date_time.minute()
+        )
+    }
+
     fn tile_entity_at(&self, coord: CellCoord) -> Option<Entity> {
         self.with_rendered_surface_world(|world| {
             let index = world.resource::<TileIndex>();
@@ -977,6 +987,22 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn surface_changed(index: i32);
+
+    #[func]
+    pub(crate) fn is_simulation_playing(&self) -> bool {
+        self.game.is_playing()
+    }
+
+    #[func]
+    pub(crate) fn toggle_simulation_playing(&mut self) {
+        self.game.toggle_playing();
+    }
+
+    #[func]
+    pub(crate) fn simulation_datetime_text(&self) -> GString {
+        let text = self.simulation_datetime_text_string();
+        GString::from(text.as_str())
+    }
 
     #[func]
     pub(crate) fn surface_count(&self) -> i32 {
