@@ -1,18 +1,22 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
+[ext_resource type="PackedScene" path="res://panel/resource_quantity_progress.tscn" id="2_resource_quantity_progress"]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "cost_label", "progress_label", "inventory_container", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
-cost_label = NodePath("MarginContainer/VBoxContainer/cost_label")
-progress_label = NodePath("MarginContainer/VBoxContainer/progress_label")
+construction_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer")
+wood_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/WoodConstructionProgress")
+stone_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/StoneConstructionProgress")
+food_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/FoodConstructionProgress")
+gold_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/GoldConstructionProgress")
 inventory_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer")
 wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
 stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
 food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
 gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
-custom_minimum_size = Vector2(200, 0)
+custom_minimum_size = Vector2(240, 0)
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -45,15 +49,34 @@ text = "Building: None"
 layout_mode = 2
 text = ""
 
-[node name="cost_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271515]
+[node name="ConstructionContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271515]
+visible = false
 layout_mode = 2
-autowrap_mode = 3
-text = ""
+theme_override_constants/separation = 4
 
-[node name="progress_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271516]
+[node name="ConstructionLabel" type="Label" parent="MarginContainer/VBoxContainer/ConstructionContainer" unique_id=1173271516]
 layout_mode = 2
-autowrap_mode = 3
-text = ""
+text = "Construction:"
+
+[node name="ConstructionRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/ConstructionContainer" unique_id=1173271524]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WoodConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271525 instance=ExtResource("2_resource_quantity_progress")]
+layout_mode = 2
+kind = 0
+
+[node name="StoneConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271526 instance=ExtResource("2_resource_quantity_progress")]
+layout_mode = 2
+kind = 1
+
+[node name="FoodConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271527 instance=ExtResource("2_resource_quantity_progress")]
+layout_mode = 2
+kind = 2
+
+[node name="GoldConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271528 instance=ExtResource("2_resource_quantity_progress")]
+layout_mode = 2
+kind = 3
 
 [node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
 visible = false

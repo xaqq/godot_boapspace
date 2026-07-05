@@ -1,0 +1,29 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
+
+[node name="ResourceQuantityProgress" type="ResourceQuantityProgress" unique_id=2101000201 node_paths=PackedStringArray("deposited_quantity", "required_quantity", "progress_bar")]
+kind = 0
+deposited_quantity = NodePath("DepositedQuantity")
+required_quantity = NodePath("RequiredQuantity")
+progress_bar = NodePath("ProgressBar")
+theme_override_constants/separation = 4
+
+[node name="DepositedQuantity" parent="." unique_id=2101000202 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 0
+
+[node name="SeparatorLabel" type="Label" parent="." unique_id=2101000203]
+layout_mode = 2
+text = "/"
+
+[node name="RequiredQuantity" parent="." unique_id=2101000204 instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 0
+
+[node name="ProgressBar" type="ProgressBar" parent="." unique_id=2101000205]
+custom_minimum_size = Vector2(48, 8)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
