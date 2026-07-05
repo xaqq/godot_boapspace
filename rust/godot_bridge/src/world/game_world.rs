@@ -10,7 +10,7 @@ use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::{GameSimulation, SurfaceId};
-use game_engine::tasks::{Task, TaskKind};
+use game_engine::tasks::{ProgressBuildingConstruction, ProgressBuildingConstructionTaskBundle};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
@@ -1085,17 +1085,16 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
 
 fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
     let mut rows = world
-        .try_query::<(Entity, &Task)>()
+        .try_query::<(Entity, &ProgressBuildingConstruction)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .filter_map(|(entity, task)| {
+                .filter_map(|(entity, construction)| {
                     let entity_id = encode_entity_id(entity)?;
-                    let kind = task.kind();
                     Some(TaskTableRow {
                         entity_id,
-                        task_type: kind.label().to_string(),
-                        details: format_task_details(world, kind),
+                        task_type: ProgressBuildingConstruction::label().to_string(),
+                        details: format_construction_task_details(world, construction.blueprint()),
                     })
                 })
                 .collect::<Vec<_>>()
@@ -1104,14 +1103,6 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
 
     rows.sort_by_key(|row| row.entity_id);
     rows
-}
-
-fn format_task_details(world: &World, kind: TaskKind) -> String {
-    match kind {
-        TaskKind::ProgressBuildingConstruction { blueprint } => {
-            format_construction_task_details(world, blueprint)
-        }
-    }
 }
 
 fn format_construction_task_details(world: &World, blueprint: Entity) -> String {
@@ -1222,7 +1213,7 @@ mod tests {
             ))
             .id();
         let task = world
-            .spawn(Task::progress_building_construction(blueprint))
+            .spawn(ProgressBuildingConstructionTaskBundle::new(blueprint))
             .id();
 
         let rows = query_task_table_rows(&world);

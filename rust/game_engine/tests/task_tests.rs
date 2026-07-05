@@ -6,7 +6,10 @@ use game_engine::buildings::{
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::resources::ResourceAmounts;
 use game_engine::simulation::{GameSimulation, SurfaceId};
-use game_engine::tasks::{maintain_construction_tasks, Task, TaskKind};
+use game_engine::tasks::{
+    maintain_construction_tasks, ProgressBuildingConstruction,
+    ProgressBuildingConstructionTaskBundle, Task,
+};
 
 #[test]
 fn test_blueprint_does_not_create_task_before_tick() {
@@ -40,6 +43,21 @@ fn test_tick_creates_construction_task_for_blueprint() {
 
     let tasks = construction_tasks(&simulation, surface);
     assert_eq!(tasks, vec![blueprint]);
+    simulation.with_surface_world(surface, |world| {
+        let mut query = world
+            .try_query::<(Entity, &ProgressBuildingConstruction)>()
+            .expect("construction task query should be valid");
+        let task_entities = query
+            .iter(world)
+            .map(|(entity, task)| {
+                assert_eq!(task.blueprint(), blueprint);
+                entity
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(task_entities.len(), 1);
+        assert!(world.get::<Task>(task_entities[0]).is_some());
+    });
 }
 
 #[test]
@@ -66,7 +84,7 @@ fn test_stale_construction_task_is_removed() {
     let mut world = World::new();
     let blueprint = spawn_blueprint(&mut world);
     let stale_task = world
-        .spawn(Task::progress_building_construction(blueprint))
+        .spawn(ProgressBuildingConstructionTaskBundle::new(blueprint))
         .id();
     world.despawn(blueprint);
 
@@ -75,6 +93,9 @@ fn test_stale_construction_task_is_removed() {
         .expect("task maintenance system should run");
 
     assert!(world.get::<Task>(stale_task).is_none());
+    assert!(world
+        .get::<ProgressBuildingConstruction>(stale_task)
+        .is_none());
 }
 
 #[test]
@@ -115,13 +136,11 @@ fn spawn_blueprint(world: &mut World) -> Entity {
 fn construction_tasks(simulation: &GameSimulation, surface: SurfaceId) -> Vec<Entity> {
     let mut tasks = simulation.with_surface_world(surface, |world| {
         world
-            .try_query::<&Task>()
+            .try_query::<&ProgressBuildingConstruction>()
             .map(|mut query| {
                 query
                     .iter(world)
-                    .map(|task| match task.kind() {
-                        TaskKind::ProgressBuildingConstruction { blueprint } => blueprint,
-                    })
+                    .map(|task| task.blueprint())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
