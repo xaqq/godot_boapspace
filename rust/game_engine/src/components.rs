@@ -47,6 +47,12 @@ impl From<TerrainKind> for TileDisplay {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TileDisplayEntry {
+    pub coord: CellCoord,
+    pub display: TileDisplay,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ResourceNode {
     pub kind: ResourceKind,

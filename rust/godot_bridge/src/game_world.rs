@@ -139,7 +139,10 @@ impl INode2D for GameWorld {
         tm.set_texture_filter(TextureFilter::NEAREST);
         tm.set_draw_behind_parent(true);
 
-        self.populate_tile_map(&mut tm, source_id);
+        if !self.populate_tile_map(&mut tm, source_id) {
+            self.disable_processing();
+            return;
+        }
 
         let Some(resource_tile_set) = self.build_resource_node_tile_set(ts) else {
             self.disable_processing();
@@ -326,20 +329,26 @@ impl GameWorld {
         )
     }
 
-    fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) {
+    fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>, source_id: i32) -> bool {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        for coord in self.grid_size().iter_coords() {
-            let atlas_x = match self.tile_display_at(coord).unwrap_or_default() {
+        let Some(entries) = self.game.tile_display_entries(self.rendered_surface) else {
+            godot_error!("GameWorld: rendered surface tile display entries unavailable");
+            return false;
+        };
+
+        for entry in entries {
+            let atlas_x = match entry.display {
                 TileDisplay::Empty => 0,
             };
             tile_map
-                .set_cell_ex(v2(coord.x(), coord.y()))
+                .set_cell_ex(v2(entry.coord.x(), entry.coord.y()))
                 .source_id(source_id)
                 .atlas_coords(v2(atlas_x, 0))
                 .done();
         }
         tile_map.update_internals();
+        true
     }
 
     fn configure_camera_for_surface(&self, camera: &mut Gd<Camera2D>) {
@@ -568,7 +577,10 @@ impl GameWorld {
             self.disable_processing();
             return;
         };
-        self.populate_tile_map(&mut tile_map, tile_source_id);
+        if !self.populate_tile_map(&mut tile_map, tile_source_id) {
+            self.disable_processing();
+            return;
+        }
 
         let Some(mut resource_map) = self.resource_node_map_node() else {
             godot_error!("GameWorld: resource_node_map reference not set");

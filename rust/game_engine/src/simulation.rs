@@ -1,9 +1,9 @@
-use crate::components::{Terrain, TerrainKind, Tile, TileDisplay, TilePosition};
+use crate::components::{Terrain, TerrainKind, Tile, TileDisplay, TileDisplayEntry};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::GameResources;
 use crate::systems::build_surface_schedule;
-use crate::tile::spawn_initial_tiles;
+use crate::tile::{spawn_initial_tiles, TileIndex};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use bevy_ecs::system::RunSystemOnce;
@@ -103,6 +103,10 @@ impl GameSimulation {
             .map(TileDisplay::from)
     }
 
+    pub fn tile_display_entries(&self, surface_id: SurfaceId) -> Option<Vec<TileDisplayEntry>> {
+        tile_display_entries(self.surface(surface_id)?)
+    }
+
     pub fn with_surface_world<R>(
         &self,
         surface_id: SurfaceId,
@@ -117,16 +121,28 @@ impl GameSimulation {
 }
 
 fn tile_terrain_at(surface: &SurfaceRuntime, coord: CellCoord) -> Option<TerrainKind> {
-    if !surface.grid().size().contains(coord) {
-        return None;
-    }
+    let index = surface.world.get_resource::<TileIndex>()?;
+    let entity = index.get(coord)?;
+    surface.world.get::<Tile>(entity)?;
 
-    let mut query = surface
-        .world
-        .try_query::<(&TilePosition, &Terrain, &Tile)>()?;
-    query
-        .iter(&surface.world)
-        .find_map(|(position, terrain, _)| (position.coord == coord).then_some(terrain.kind))
+    Some(surface.world.get::<Terrain>(entity)?.kind)
+}
+
+fn tile_display_entries(surface: &SurfaceRuntime) -> Option<Vec<TileDisplayEntry>> {
+    let index = surface.world.get_resource::<TileIndex>()?;
+    Some(
+        index
+            .iter()
+            .filter_map(|(coord, entity)| {
+                surface.world.get::<Tile>(entity)?;
+                let terrain = surface.world.get::<Terrain>(entity)?;
+                Some(TileDisplayEntry {
+                    coord,
+                    display: TileDisplay::from(terrain.kind),
+                })
+            })
+            .collect(),
+    )
 }
 
 impl Default for GameSimulation {

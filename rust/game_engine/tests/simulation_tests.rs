@@ -3,6 +3,7 @@ use game_engine::grid::{CellCoord, GridSize};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
+use game_engine::tile::TileIndex;
 use std::collections::HashSet;
 
 #[test]
@@ -112,6 +113,34 @@ fn test_surface_spawns_one_tile_entity_per_cell() {
 }
 
 #[test]
+fn test_tile_index_contains_one_entity_per_cell() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(4, 5));
+    let size = simulation.grid_size(surface).expect("surface should exist");
+    let (indexed_size, indexed_len, indexed_coords) = simulation
+        .with_surface_world(surface, |world| {
+            let index = world.resource::<TileIndex>();
+            (
+                index.size(),
+                index.len(),
+                index.iter().map(|(coord, _)| coord).collect::<Vec<_>>(),
+            )
+        })
+        .expect("surface should exist");
+    let unique_tiles = indexed_coords.iter().copied().collect::<HashSet<_>>();
+
+    assert_eq!(indexed_size, size);
+    assert_eq!(
+        indexed_len,
+        size.cell_count().expect("grid size should fit")
+    );
+    assert_eq!(indexed_coords.len(), unique_tiles.len());
+    for coord in indexed_coords {
+        assert!(size.contains(coord), "{coord:?} should be within {size:?}");
+    }
+}
+
+#[test]
 fn test_tile_entities_are_unique_within_bounds_and_grass() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(7, 9));
@@ -130,6 +159,34 @@ fn test_tile_entities_are_unique_within_bounds_and_grass() {
     for (coord, terrain) in tiles {
         assert!(size.contains(coord), "{coord:?} should be within {size:?}");
         assert_eq!(terrain, TerrainKind::Grass);
+    }
+}
+
+#[test]
+fn test_tile_display_entries_are_complete_unique_and_empty() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(7, 9));
+    let size = simulation.grid_size(surface).expect("surface should exist");
+    let entries = simulation
+        .tile_display_entries(surface)
+        .expect("surface should exist");
+    let unique_tiles = entries
+        .iter()
+        .map(|entry| entry.coord)
+        .collect::<HashSet<_>>();
+
+    assert_eq!(
+        entries.len(),
+        size.cell_count().expect("grid size should fit")
+    );
+    assert_eq!(entries.len(), unique_tiles.len());
+    for entry in entries {
+        assert!(
+            size.contains(entry.coord),
+            "{:?} should be within {size:?}",
+            entry.coord
+        );
+        assert_eq!(entry.display, TileDisplay::Empty);
     }
 }
 
