@@ -8,11 +8,11 @@ use game_engine::simulation::{GameSimulation, SurfaceId};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
-    canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
-    InputEventMouseButton, Node2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
+    canvas_item::TextureFilter, Camera2D, INode2D, Input, InputEvent, InputEventMouseButton,
+    Node2D, ResourceLoader, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
-use godot::obj::OnEditor;
+use godot::obj::{OnEditor, Singleton};
 use godot::prelude::*;
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
@@ -424,21 +424,12 @@ impl GameWorld {
     }
 
     fn build_terrain_tile_set(&self, tile_size: i32) -> Option<(Gd<TileSet>, i32)> {
-        let image = load_tile_image(TERRAIN_GRASS_PATH, tile_size)?;
-        let Some(texture) = ImageTexture::create_from_image(&image) else {
-            godot_error!("GameWorld: failed to create terrain tile texture");
-            return None;
-        };
-
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let mut source = TileSetAtlasSource::new_gd();
-        source.set_texture(&texture);
-        source.set_texture_region_size(v2(tile_size, tile_size));
-        source.create_tile_ex(v2(0, 0)).done();
-
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(tile_size, tile_size));
-        let source_ts = source.upcast::<TileSetSource>();
+
+        let texture = load_texture(TERRAIN_GRASS_PATH)?;
+        let source_ts = build_single_tile_atlas_source(texture, tile_size);
         let source_id = tile_set.add_source(&source_ts);
         if source_id < 0 {
             godot_error!("GameWorld: failed to add terrain tile atlas source");
@@ -449,45 +440,26 @@ impl GameWorld {
     }
 
     fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let atlas_w = tile_size * ResourceKind::ALL.len() as i32;
-        let atlas_h = tile_size;
-        let Some(mut image) = Image::create(atlas_w, atlas_h, false, image::Format::RGBA8) else {
-            godot_error!("GameWorld: failed to create resource node atlas image");
-            return None;
-        };
-        image.fill(Color::from_rgba8(0, 0, 0, 0));
-
-        for (index, kind) in ResourceKind::ALL.into_iter().enumerate() {
-            let path = resource_asset_path(kind);
-            let tile_image = load_tile_image(path, tile_size)?;
-            let src_rect = Rect2i::new(Vector2i::ZERO, Vector2i::new(tile_size, tile_size));
-            image.blit_rect(
-                &tile_image,
-                src_rect,
-                Vector2i::new(index as i32 * tile_size, 0),
-            );
-        }
-
-        let Some(texture) = ImageTexture::create_from_image(&image) else {
-            godot_error!("GameWorld: failed to create resource node atlas texture");
-            return None;
-        };
-
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let mut source = TileSetAtlasSource::new_gd();
-        source.set_texture(&texture);
-        source.set_texture_region_size(v2(tile_size, tile_size));
-        for index in 0..ResourceKind::ALL.len() {
-            source.create_tile_ex(v2(index as i32, 0)).done();
-        }
-
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(tile_size, tile_size));
-        let source_ts = source.upcast::<TileSetSource>();
-        let source_id = tile_set.add_source(&source_ts);
-        if source_id < 0 {
-            godot_error!("GameWorld: failed to add resource node atlas source");
-            return None;
+
+        for kind in ResourceKind::ALL {
+            let path = resource_asset_path(kind);
+            let texture = load_texture(path)?;
+            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let expected_source_id = kind as i32;
+            let source_id = tile_set
+                .add_source_ex(&source_ts)
+                .atlas_source_id_override(expected_source_id)
+                .done();
+            if source_id != expected_source_id {
+                godot_error!(
+                    "GameWorld: failed to add {} resource node tile source",
+                    kind.label()
+                );
+                return None;
+            }
         }
 
         Some(tile_set)
@@ -505,8 +477,8 @@ impl GameWorld {
         for (coord, kind) in nodes {
             resource_map
                 .set_cell_ex(v2(coord.x(), coord.y()))
-                .source_id(0)
-                .atlas_coords(v2(kind as i32, 0))
+                .source_id(kind as i32)
+                .atlas_coords(v2(0, 0))
                 .done();
         }
         resource_map.update_internals();
@@ -677,19 +649,33 @@ fn resource_asset_path(kind: ResourceKind) -> &'static str {
     }
 }
 
-fn load_tile_image(path: &str, tile_size: i32) -> Option<Gd<Image>> {
-    let Some(mut image) = Image::load_from_file(path) else {
-        godot_error!("GameWorld: failed to load image asset {path}");
+fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
+    let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    let mut source = TileSetAtlasSource::new_gd();
+    source.set_texture(&texture);
+    source.set_texture_region_size(v2(tile_size, tile_size));
+    source.create_tile_ex(v2(0, 0)).done();
+    source.upcast::<TileSetSource>()
+}
+
+fn load_texture(path: &str) -> Option<Gd<Texture2D>> {
+    let Some(resource) = ResourceLoader::singleton()
+        .load_ex(path)
+        .type_hint("Texture2D")
+        .done()
+    else {
+        godot_error!("GameWorld: failed to load texture asset {path}");
         return None;
     };
 
-    image.convert(image::Format::RGBA8);
-    if image.get_size() != Vector2i::new(tile_size, tile_size) {
-        image
-            .resize_ex(tile_size, tile_size)
-            .interpolation(image::Interpolation::NEAREST)
-            .done();
+    match resource.try_cast::<Texture2D>() {
+        Ok(texture) => Some(texture),
+        Err(resource) => {
+            godot_error!(
+                "GameWorld: loaded asset {path} as {}, expected Texture2D",
+                resource.get_class()
+            );
+            None
+        }
     }
-
-    Some(image)
 }
