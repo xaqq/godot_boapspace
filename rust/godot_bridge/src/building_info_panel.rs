@@ -77,10 +77,10 @@ impl IPanelContainer for BuildingInfoPanel {
 
                 selected_name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
                 selected_footprint_label.set_text(format_footprint(info.footprint).as_str());
-                selected_cost_label
-                    .set_text(format!("Cost: {}", format_amounts(info.cost, false)).as_str());
-                selected_progress_label
-                    .set_text(format_progress(info.progress, info.cost).as_str());
+                selected_cost_label.set_text(
+                    format!("Cost: {}", format_deposited_cost(info.progress, info.cost)).as_str(),
+                );
+                selected_progress_label.set_text("");
                 selected_inventory_label.set_text(
                     info.inventory
                         .map(|inventory| format!("Inventory: {}", format_amounts(inventory, true)))
@@ -147,7 +147,7 @@ fn format_footprint(footprint: BuildingFootprint) -> String {
     )
 }
 
-fn format_progress(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
+fn format_deposited_cost(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
     let parts = ResourceKind::ALL
         .into_iter()
         .filter_map(|kind| {
@@ -156,7 +156,11 @@ fn format_progress(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
         })
         .collect::<Vec<_>>();
 
-    format!("Deposited: {}", parts.join(", "))
+    if parts.is_empty() {
+        "None".to_string()
+    } else {
+        parts.join(", ")
+    }
 }
 
 fn format_amounts(amounts: ResourceAmounts, include_zero: bool) -> String {
@@ -187,4 +191,36 @@ fn clear_building_labels(
     cost_label.set_text("");
     progress_label.set_text("");
     inventory_label.set_text("");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_deposited_cost_shows_deposited_over_required() {
+        let progress = ResourceAmounts::new(5, 0, 0, 0);
+        let cost = ResourceAmounts::new(40, 20, 0, 0);
+
+        assert_eq!(
+            format_deposited_cost(progress, cost),
+            "Wood: 5/40, Stone: 0/20"
+        );
+    }
+
+    #[test]
+    fn format_deposited_cost_omits_zero_cost_resources() {
+        let progress = ResourceAmounts::new(10, 20, 30, 40);
+        let cost = ResourceAmounts::new(0, 0, 0, 20);
+
+        assert_eq!(format_deposited_cost(progress, cost), "Gold: 40/20");
+    }
+
+    #[test]
+    fn format_deposited_cost_reports_none_without_required_resources() {
+        assert_eq!(
+            format_deposited_cost(ResourceAmounts::zero(), ResourceAmounts::zero()),
+            "None"
+        );
+    }
 }
