@@ -1,4 +1,4 @@
-pub use crate::components::{BirthDate, Npc, NpcName, NpcPosition};
+pub use crate::components::{BirthDate, Npc, NpcInventory, NpcName, NpcPosition};
 
 use crate::grid::{CellCoord, Grid};
 use bevy_ecs::prelude::*;
@@ -57,6 +57,7 @@ pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
         NpcName::new(INITIAL_NPC_NAME),
         BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
         NpcPosition { coord },
+        NpcInventory::empty(),
     ));
 }
 

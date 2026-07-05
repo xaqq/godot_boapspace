@@ -1,5 +1,5 @@
 use crate::grid::CellCoord;
-use crate::resources::ResourceKind;
+use crate::resources::{ResourceAmounts, ResourceKind};
 use bevy_ecs::prelude::Component;
 use std::time::Duration;
 
@@ -74,4 +74,27 @@ impl BirthDate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct NpcPosition {
     pub coord: CellCoord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct NpcInventory {
+    contents: ResourceAmounts,
+}
+
+impl NpcInventory {
+    pub const fn empty() -> Self {
+        Self {
+            contents: ResourceAmounts::zero(),
+        }
+    }
+
+    pub const fn contents(self) -> ResourceAmounts {
+        self.contents
+    }
+}
+
+impl Default for NpcInventory {
+    fn default() -> Self {
+        Self::empty()
+    }
 }

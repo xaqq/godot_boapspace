@@ -1,8 +1,8 @@
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
-    BirthDate, Npc, NpcName, NpcPosition, WorldDateTime, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
-    SECONDS_PER_DAY,
+    BirthDate, Npc, NpcInventory, NpcName, NpcPosition, WorldDateTime, INITIAL_NPC_BIRTH_DAY,
+    INITIAL_NPC_NAME, SECONDS_PER_DAY,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
@@ -336,6 +336,26 @@ fn test_initial_npc_has_identity_birth_date_age_and_center_position() {
     assert_eq!(initial_npc.1, INITIAL_NPC_NAME);
     assert_eq!(initial_npc.2, INITIAL_NPC_BIRTH_DAY);
     assert_eq!(initial_npc.3, 32);
+}
+
+#[test]
+fn test_initial_npc_inventory_starts_empty() {
+    let simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    let inventory = simulation
+        .with_surface_world(surface, |world| {
+            let mut query = world.try_query::<(&NpcInventory, &Npc)>()?;
+            query
+                .iter(world)
+                .next()
+                .map(|(inventory, _)| inventory.contents())
+        })
+        .expect("default NPC should have inventory");
+
+    for kind in ResourceKind::ALL {
+        assert_eq!(inventory.get(kind), 0);
+    }
 }
 
 fn sorted_resource_nodes(
