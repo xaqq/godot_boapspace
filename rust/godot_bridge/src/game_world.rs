@@ -2,6 +2,7 @@ use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
+use game_engine::npcs::{BirthDate, Npc, NpcName, NpcPosition, WorldDay};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{GameSimulation, SurfaceId};
@@ -30,6 +31,7 @@ const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
 const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
 const RESOURCE_FOOD_PATH: &str = "res://assets/generated/resource_food.png";
 const RESOURCE_GOLD_PATH: &str = "res://assets/generated/resource_gold.png";
+const NPC_COLONIST_PATH: &str = "res://assets/generated/npc_colonist.png";
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -45,6 +47,19 @@ struct SelectedCell {
     entity: Entity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectedNpc {
+    coord: CellCoord,
+    entity: Entity,
+}
+
+struct NpcSelectionInfo {
+    coord: CellCoord,
+    name: String,
+    birth_day: i32,
+    age_years: u32,
+}
+
 #[derive(GodotClass)]
 #[class(base = Node2D)]
 pub(crate) struct GameWorld {
@@ -55,14 +70,19 @@ pub(crate) struct GameWorld {
     resource_node_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
+    npc_map: OnEditor<Gd<TileMapLayer>>,
+
+    #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
     game: GameSimulation,
     rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
+    selected_npc: Option<SelectedNpc>,
     tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
+    _npc_tile_set: Option<Gd<TileSet>>,
 
     base: Base<Node2D>,
 }
@@ -76,13 +96,16 @@ impl INode2D for GameWorld {
         Self {
             tile_map: OnEditor::default(),
             resource_node_map: OnEditor::default(),
+            npc_map: OnEditor::default(),
             camera: OnEditor::default(),
             game,
             rendered_surface,
             selected_cell: None,
+            selected_npc: None,
             tile_source_id: None,
             _tile_set: None,
             _resource_node_tile_set: None,
+            _npc_tile_set: None,
             base,
         }
     }
@@ -90,6 +113,7 @@ impl INode2D for GameWorld {
     fn ready(&mut self) {
         let mut tm = self.tile_map.clone();
         let mut resource_map = self.resource_node_map.clone();
+        let mut npc_map = self.npc_map.clone();
         let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
@@ -120,6 +144,17 @@ impl INode2D for GameWorld {
         resource_map.set_texture_filter(TextureFilter::NEAREST);
         resource_map.set_z_index(1);
         self.populate_resource_node_map(&mut resource_map);
+
+        let Some(npc_tile_set) = self.build_npc_tile_set(ts) else {
+            self.disable_processing();
+            return;
+        };
+        npc_map.set_tile_set(&npc_tile_set);
+        self._npc_tile_set = Some(npc_tile_set);
+        npc_map.set_navigation_enabled(false);
+        npc_map.set_texture_filter(TextureFilter::NEAREST);
+        npc_map.set_z_index(2);
+        self.populate_npc_map(&mut npc_map);
 
         cam.set_enabled(true);
         cam.make_current();
@@ -194,6 +229,7 @@ impl INode2D for GameWorld {
         };
         let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
         let selected_cell = self.selected_cell;
+        let selected_npc = self.selected_npc;
 
         let mut base = self.base_mut();
         for x in 0..=w {
@@ -220,6 +256,22 @@ impl INode2D for GameWorld {
             let highlight = Color::from_rgb(1.0, 0.84, 0.0);
             let mut fill = highlight;
             fill.a = 0.15;
+            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
+                .filled(true)
+                .done();
+            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), highlight)
+                .filled(false)
+                .width(4.0)
+                .done();
+        }
+
+        if let Some(selected) = selected_npc {
+            let coord = selected.coord;
+            let cell_pos = Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts);
+            let cell_size = Vector2::new(ts, ts);
+            let highlight = Color::from_rgb(0.1, 0.85, 1.0);
+            let mut fill = highlight;
+            fill.a = 0.12;
             base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
                 .filled(true)
                 .done();
@@ -312,27 +364,56 @@ impl GameWorld {
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         ) {
-            let Some(entity) = self.tile_entity_at(coord) else {
-                godot_error!("GameWorld: selected tile entity unavailable");
-                self.disable_processing();
+            if let Some(entity) = self.npc_entity_at(coord) {
+                self.select_npc(coord, entity);
                 return;
-            };
-
-            if self.selected_cell.map(|selected| selected.entity) == Some(entity) {
-                self.clear_selection();
-            } else {
-                let Some(tile_entity_id) = encode_entity_id(entity) else {
-                    godot_error!("GameWorld: selected tile entity id is too large for Godot");
-                    return;
-                };
-
-                self.selected_cell = Some(SelectedCell { coord, entity });
-                self.base_mut().queue_redraw();
-                self.signals().tile_selected().emit(tile_entity_id);
             }
+
+            self.select_tile(coord);
         } else {
-            self.clear_selection();
+            self.clear_tile_selection();
+            self.clear_npc_selection();
         }
+    }
+
+    fn select_tile(&mut self, coord: CellCoord) {
+        let Some(entity) = self.tile_entity_at(coord) else {
+            godot_error!("GameWorld: selected tile entity unavailable");
+            self.disable_processing();
+            return;
+        };
+
+        if self.selected_cell.map(|selected| selected.entity) == Some(entity) {
+            self.clear_tile_selection();
+            return;
+        }
+
+        let Some(tile_entity_id) = encode_entity_id(entity) else {
+            godot_error!("GameWorld: selected tile entity id is too large for Godot");
+            return;
+        };
+
+        self.clear_npc_selection();
+        self.selected_cell = Some(SelectedCell { coord, entity });
+        self.base_mut().queue_redraw();
+        self.signals().tile_selected().emit(tile_entity_id);
+    }
+
+    fn select_npc(&mut self, coord: CellCoord, entity: Entity) {
+        if self.selected_npc.map(|selected| selected.entity) == Some(entity) {
+            self.clear_npc_selection();
+            return;
+        }
+
+        let Some(npc_entity_id) = encode_entity_id(entity) else {
+            godot_error!("GameWorld: selected NPC entity id is too large for Godot");
+            return;
+        };
+
+        self.clear_tile_selection();
+        self.selected_npc = Some(SelectedNpc { coord, entity });
+        self.base_mut().queue_redraw();
+        self.signals().npc_selected().emit(npc_entity_id);
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
@@ -364,10 +445,18 @@ impl GameWorld {
         cam.set_position(world_under_cursor - cursor_offset / new_zoom);
     }
 
-    fn clear_selection(&mut self) {
-        self.selected_cell = None;
-        self.base_mut().queue_redraw();
-        self.signals().tile_deselected().emit();
+    fn clear_tile_selection(&mut self) {
+        if self.selected_cell.take().is_some() {
+            self.base_mut().queue_redraw();
+            self.signals().tile_deselected().emit();
+        }
+    }
+
+    fn clear_npc_selection(&mut self) {
+        if self.selected_npc.take().is_some() {
+            self.base_mut().queue_redraw();
+            self.signals().npc_deselected().emit();
+        }
     }
 
     fn grid_size(&self) -> game_engine::grid::GridSize {
@@ -386,6 +475,16 @@ impl GameWorld {
             let entity = index.get(coord)?;
             world.get::<Tile>(entity)?;
             Some(entity)
+        })
+        .flatten()
+    }
+
+    fn npc_entity_at(&self, coord: CellCoord) -> Option<Entity> {
+        self.with_rendered_surface_world(|world| {
+            let mut query = world.try_query::<(Entity, &NpcPosition, &Npc)>()?;
+            query
+                .iter(world)
+                .find_map(|(entity, position, _)| (position.coord == coord).then_some(entity))
         })
         .flatten()
     }
@@ -432,6 +531,22 @@ impl GameWorld {
         Some(tile_set)
     }
 
+    fn build_npc_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let mut tile_set = TileSet::new_gd();
+        tile_set.set_tile_size(v2(tile_size, tile_size));
+
+        let texture = load_texture(NPC_COLONIST_PATH)?;
+        let source_ts = build_single_tile_atlas_source(texture, tile_size);
+        let source_id = tile_set.add_source(&source_ts);
+        if source_id < 0 {
+            godot_error!("GameWorld: failed to add NPC tile atlas source");
+            return None;
+        }
+
+        Some(tile_set)
+    }
+
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
         resource_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
@@ -453,6 +568,29 @@ impl GameWorld {
 
     fn resource_nodes(&self) -> Option<Vec<(CellCoord, ResourceKind)>> {
         self.with_rendered_surface_world(query_resource_nodes)
+    }
+
+    fn populate_npc_map(&mut self, npc_map: &mut Gd<TileMapLayer>) {
+        npc_map.clear();
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let Some(npcs) = self.npc_positions() else {
+            godot_error!("GameWorld: rendered surface no longer exists");
+            self.disable_processing();
+            return;
+        };
+
+        for coord in npcs {
+            npc_map
+                .set_cell_ex(v2(coord.x(), coord.y()))
+                .source_id(0)
+                .atlas_coords(v2(0, 0))
+                .done();
+        }
+        npc_map.update_internals();
+    }
+
+    fn npc_positions(&self) -> Option<Vec<CellCoord>> {
+        self.with_rendered_surface_world(query_npc_positions)
     }
 
     pub(crate) fn tile_position_text(&self, tile_entity_id: i64) -> GString {
@@ -481,6 +619,38 @@ impl GameWorld {
         )
     }
 
+    pub(crate) fn npc_name_text(&self, npc_entity_id: i64) -> GString {
+        let Some(info) = self.npc_selection_info(npc_entity_id) else {
+            return GString::from("Name: None");
+        };
+
+        GString::from(format!("Name: {}", info.name).as_str())
+    }
+
+    pub(crate) fn npc_birth_day_text(&self, npc_entity_id: i64) -> GString {
+        let Some(info) = self.npc_selection_info(npc_entity_id) else {
+            return GString::new();
+        };
+
+        GString::from(format!("Birth Day: {}", info.birth_day).as_str())
+    }
+
+    pub(crate) fn npc_age_text(&self, npc_entity_id: i64) -> GString {
+        let Some(info) = self.npc_selection_info(npc_entity_id) else {
+            return GString::new();
+        };
+
+        GString::from(format!("Age: {}", info.age_years).as_str())
+    }
+
+    pub(crate) fn npc_position_text(&self, npc_entity_id: i64) -> GString {
+        let Some(info) = self.npc_selection_info(npc_entity_id) else {
+            return GString::from("Cell: None");
+        };
+
+        GString::from(format!("Cell: ({}, {})", info.coord.x(), info.coord.y()).as_str())
+    }
+
     fn tile_selection_info(
         &self,
         tile_entity_id: i64,
@@ -495,6 +665,25 @@ impl GameWorld {
         .flatten()
     }
 
+    fn npc_selection_info(&self, npc_entity_id: i64) -> Option<NpcSelectionInfo> {
+        let entity = decode_entity_id(npc_entity_id)?;
+        self.with_rendered_surface_world(|world| {
+            world.get::<Npc>(entity)?;
+            let position = world.get::<NpcPosition>(entity)?;
+            let name = world.get::<NpcName>(entity)?;
+            let birth_date = world.get::<BirthDate>(entity)?;
+            let world_day = *world.resource::<WorldDay>();
+
+            Some(NpcSelectionInfo {
+                coord: position.coord,
+                name: name.as_str().to_string(),
+                birth_day: birth_date.day(),
+                age_years: world_day.age_years_since(*birth_date),
+            })
+        })
+        .flatten()
+    }
+
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
         if self.rendered_surface == surface {
             return;
@@ -502,6 +691,7 @@ impl GameWorld {
 
         self.rendered_surface = surface;
         self.selected_cell = None;
+        self.selected_npc = None;
 
         let mut tile_map = self.tile_map.clone();
         let Some(tile_source_id) = self.tile_source_id else {
@@ -517,6 +707,9 @@ impl GameWorld {
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
 
+        let mut npc_map = self.npc_map.clone();
+        self.populate_npc_map(&mut npc_map);
+
         let mut camera = self.camera.clone();
         self.configure_camera_for_surface(&mut camera);
 
@@ -524,6 +717,7 @@ impl GameWorld {
 
         self.base_mut().queue_redraw();
         self.signals().tile_deselected().emit();
+        self.signals().npc_deselected().emit();
         self.signals().resources_changed().emit();
         self.signals().surface_changed().emit(active_surface_index);
     }
@@ -536,6 +730,12 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn tile_deselected();
+
+    #[signal]
+    pub(crate) fn npc_selected(npc_entity_id: i64);
+
+    #[signal]
+    pub(crate) fn npc_deselected();
 
     #[signal]
     pub(crate) fn resources_changed();
@@ -589,6 +789,18 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
             query
                 .iter(world)
                 .map(|(position, node, _)| (position.coord, node.kind))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn query_npc_positions(world: &World) -> Vec<CellCoord> {
+    world
+        .try_query::<(&NpcPosition, &Npc)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(position, _)| position.coord)
                 .collect()
         })
         .unwrap_or_default()

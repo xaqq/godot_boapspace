@@ -1,5 +1,8 @@
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
+use game_engine::npcs::{
+    BirthDate, Npc, NpcName, NpcPosition, WorldDay, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
+};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{GameResources, ResourceKind};
 use game_engine::simulation::{GameSimulation, DEFAULT_GRID_SIZE};
@@ -290,6 +293,44 @@ fn test_tick_does_not_duplicate_resource_nodes() {
     assert_eq!(sorted_resource_nodes(&mut simulation, surface), before);
 }
 
+#[test]
+fn test_default_surface_spawns_initial_npc() {
+    let simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+
+    assert_eq!(npcs(&simulation, surface).len(), 1);
+}
+
+#[test]
+fn test_created_surfaces_do_not_spawn_initial_npc() {
+    let mut simulation = GameSimulation::new();
+    let default_surface = simulation.default_surface_id();
+    let second_surface = simulation.create_surface(GridSize::new(10, 12));
+
+    assert_eq!(npcs(&simulation, default_surface).len(), 1);
+    assert!(npcs(&simulation, second_surface).is_empty());
+}
+
+#[test]
+fn test_initial_npc_has_identity_birth_date_age_and_center_position() {
+    let simulation = GameSimulation::new();
+    let surface = simulation.default_surface_id();
+    let initial_npc = npcs(&simulation, surface)
+        .into_iter()
+        .next()
+        .expect("default surface should have one NPC");
+    let expected_coord = CellCoord::from_usize(
+        DEFAULT_GRID_SIZE.width() / 2,
+        DEFAULT_GRID_SIZE.height() / 2,
+    )
+    .expect("default grid center should fit in CellCoord");
+
+    assert_eq!(initial_npc.0, expected_coord);
+    assert_eq!(initial_npc.1, INITIAL_NPC_NAME);
+    assert_eq!(initial_npc.2, INITIAL_NPC_BIRTH_DAY);
+    assert_eq!(initial_npc.3, 32);
+}
+
 fn sorted_resource_nodes(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
@@ -316,6 +357,15 @@ fn tiles(
 ) -> Vec<(CellCoord, TerrainKind)> {
     simulation
         .with_surface_world(surface, query_tiles)
+        .expect("surface should exist")
+}
+
+fn npcs(
+    simulation: &GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+) -> Vec<(CellCoord, String, i32, u32)> {
+    simulation
+        .with_surface_world(surface, query_npcs)
         .expect("surface should exist")
 }
 
@@ -360,6 +410,27 @@ fn query_tiles(world: &bevy_ecs::world::World) -> Vec<(CellCoord, TerrainKind)> 
             query
                 .iter(world)
                 .map(|(position, terrain, _)| (position.coord, terrain.kind))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, i32, u32)> {
+    let world_day = *world.resource::<WorldDay>();
+
+    world
+        .try_query::<(&NpcPosition, &NpcName, &BirthDate, &Npc)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(position, name, birth_date, _)| {
+                    (
+                        position.coord,
+                        name.as_str().to_string(),
+                        birth_date.day(),
+                        world_day.age_years_since(*birth_date),
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default()

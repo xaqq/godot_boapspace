@@ -32,3 +32,43 @@ pub struct ResourceNode {
     pub kind: ResourceKind,
     pub quantity: u32,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Npc;
+
+#[derive(Debug, Clone, PartialEq, Eq, Component)]
+pub struct NpcName {
+    value: String,
+}
+
+impl NpcName {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.value.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct BirthDate {
+    day: i32,
+}
+
+impl BirthDate {
+    pub const fn new(day: i32) -> Self {
+        Self { day }
+    }
+
+    pub const fn day(self) -> i32 {
+        self.day
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct NpcPosition {
+    pub coord: CellCoord,
+}

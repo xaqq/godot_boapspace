@@ -1,5 +1,6 @@
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::npcs::{spawn_initial_default_npc, WorldDay, DEFAULT_WORLD_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::GameResources;
 use crate::systems::build_surface_schedule;
@@ -25,16 +26,22 @@ struct SurfaceRuntime {
 }
 
 impl SurfaceRuntime {
-    fn new(size: GridSize) -> Self {
+    fn new(size: GridSize, spawn_default_npc: bool) -> Self {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(GameResources::starting());
+        world.insert_resource(WorldDay::new(DEFAULT_WORLD_DAY));
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
         world
             .run_system_once(spawn_initial_resource_nodes)
             .expect("initial resource node spawn system should run");
+        if spawn_default_npc {
+            world
+                .run_system_once(spawn_initial_default_npc)
+                .expect("initial NPC spawn system should run");
+        }
 
         Self {
             world,
@@ -58,7 +65,7 @@ pub struct GameSimulation {
 
 impl GameSimulation {
     pub fn new() -> Self {
-        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE);
+        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE, true);
 
         Self {
             surfaces: vec![default_surface],
@@ -68,7 +75,7 @@ impl GameSimulation {
 
     pub fn create_surface(&mut self, size: GridSize) -> SurfaceId {
         let surface_id = SurfaceId(self.surfaces.len());
-        self.surfaces.push(SurfaceRuntime::new(size));
+        self.surfaces.push(SurfaceRuntime::new(size, false));
         surface_id
     }
 

@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[node name="NpcInfoPanel" type="NpcInfoPanel" unique_id=963753130 node_paths=PackedStringArray("name_label", "age_label", "birth_day_label", "pos_label")]
+name_label = NodePath("MarginContainer/VBoxContainer/name_label")
+age_label = NodePath("MarginContainer/VBoxContainer/age_label")
+birth_day_label = NodePath("MarginContainer/VBoxContainer/birth_day_label")
+pos_label = NodePath("MarginContainer/VBoxContainer/pos_label")
+custom_minimum_size = Vector2(200, 0)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=1922920574]
+layout_mode = 0
+offset_right = 1152.0
+offset_bottom = 648.0
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1573781780]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1728009331]
+layout_mode = 2
+text = "Selected NPC"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676839]
+layout_mode = 2
+
+[node name="name_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1938474776]
+layout_mode = 2
+text = "Name: None"
+
+[node name="age_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271510]
+layout_mode = 2
+text = ""
+
+[node name="birth_day_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271511]
+layout_mode = 2
+text = ""
+
+[node name="pos_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271512]
+layout_mode = 2
+text = "Cell: None"
