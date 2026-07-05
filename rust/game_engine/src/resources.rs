@@ -1,6 +1,8 @@
 use bevy_ecs::prelude::Resource;
+use godot::prelude::{Export, GodotConvert, Var};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, GodotConvert, Var, Export)]
+#[godot(via = i64)]
 pub enum ResourceKind {
     Wood = 0,
     Stone = 1,
@@ -117,6 +119,7 @@ impl GameResources {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use godot::prelude::{FromGodot, ToGodot};
 
     #[test]
     fn test_default_zero() {
@@ -182,5 +185,16 @@ mod tests {
         assert_eq!(r.get(ResourceKind::Stone), 2);
         assert_eq!(r.get(ResourceKind::Food), 3);
         assert_eq!(r.get(ResourceKind::Gold), 4);
+    }
+
+    #[test]
+    fn resource_kind_round_trips_through_godot_value() {
+        for kind in ResourceKind::ALL {
+            let value: i64 = kind.to_godot();
+            let round_tripped =
+                ResourceKind::try_from_godot(value).expect("resource kind should round-trip");
+
+            assert_eq!(round_tripped, kind);
+        }
     }
 }

@@ -1,5 +1,7 @@
 use godot::prelude::*;
 
+mod assets;
+
 mod menu {
     mod ingame_menu;
     mod root_menu;
@@ -10,6 +12,7 @@ mod panel {
     mod building_palette;
     mod npc_info_panel;
     mod resource_header;
+    mod resource_quantity;
     mod surface_selector;
     mod tile_info_panel;
 }

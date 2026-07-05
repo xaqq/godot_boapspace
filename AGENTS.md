@@ -10,6 +10,9 @@ Godot 4.7 game with a Rust GDExtension (`godot = "0.5"`) and a Bevy ECS game eng
 - Tech stack: Godot 4.7 for UI and rendering, Rust for simulation.
 - Simulation is written in Rust using Bevy ECS; Godot stays responsible for UI,
   rendering, input, and engine integration.
+- The `game_engine` crate may depend on Godot only for trivial bridge /
+  serialization metadata, such as exported enum conversion. Durable game logic
+  must stay independent of Godot APIs.
 
 
 ## Key design

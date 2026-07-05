@@ -1,6 +1,7 @@
+use super::resource_quantity::ResourceQuantity;
 use crate::world::game_world::GameWorld;
 use game_engine::resources::{GameResources, ResourceKind};
-use godot::classes::{HBoxContainer, IHBoxContainer, Label};
+use godot::classes::{HBoxContainer, IHBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -8,16 +9,16 @@ use godot::prelude::*;
 #[class(base = HBoxContainer)]
 pub(crate) struct ResourceHeader {
     #[export]
-    wood_label: OnEditor<Gd<Label>>,
+    wood_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
-    stone_label: OnEditor<Gd<Label>>,
+    stone_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
-    food_label: OnEditor<Gd<Label>>,
+    food_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
-    gold_label: OnEditor<Gd<Label>>,
+    gold_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
@@ -29,10 +30,10 @@ pub(crate) struct ResourceHeader {
 impl IHBoxContainer for ResourceHeader {
     fn init(base: Base<HBoxContainer>) -> Self {
         Self {
-            wood_label: OnEditor::default(),
-            stone_label: OnEditor::default(),
-            food_label: OnEditor::default(),
-            gold_label: OnEditor::default(),
+            wood_quantity: OnEditor::default(),
+            stone_quantity: OnEditor::default(),
+            food_quantity: OnEditor::default(),
+            gold_quantity: OnEditor::default(),
             game_world: OnEditor::default(),
             base,
         }
@@ -44,47 +45,27 @@ impl IHBoxContainer for ResourceHeader {
 
     fn process(&mut self, _delta: f64) {
         let game_world = self.game_world.clone();
-        let mut wood_label = self.wood_label.clone();
-        let mut stone_label = self.stone_label.clone();
-        let mut food_label = self.food_label.clone();
-        let mut gold_label = self.gold_label.clone();
+        let wood_quantity = self.wood_quantity.clone();
+        let stone_quantity = self.stone_quantity.clone();
+        let food_quantity = self.food_quantity.clone();
+        let gold_quantity = self.gold_quantity.clone();
 
         let amounts = game_world.bind().with_rendered_surface_world(|world| {
             let resources = world.resource::<GameResources>();
             ResourceKind::ALL.map(|kind| resources.get(kind))
         });
 
-        self.update_label(
-            &mut wood_label,
-            ResourceKind::Wood,
-            amounts[resource_index(ResourceKind::Wood)],
-        );
-        self.update_label(
-            &mut stone_label,
-            ResourceKind::Stone,
-            amounts[resource_index(ResourceKind::Stone)],
-        );
-        self.update_label(
-            &mut food_label,
-            ResourceKind::Food,
-            amounts[resource_index(ResourceKind::Food)],
-        );
-        self.update_label(
-            &mut gold_label,
-            ResourceKind::Gold,
-            amounts[resource_index(ResourceKind::Gold)],
-        );
+        self.update_quantity(wood_quantity, amounts[resource_index(ResourceKind::Wood)]);
+        self.update_quantity(stone_quantity, amounts[resource_index(ResourceKind::Stone)]);
+        self.update_quantity(food_quantity, amounts[resource_index(ResourceKind::Food)]);
+        self.update_quantity(gold_quantity, amounts[resource_index(ResourceKind::Gold)]);
     }
 }
 
 impl ResourceHeader {
-    fn update_label(&self, label: &mut Gd<Label>, kind: ResourceKind, amount: u32) {
-        label.set_text(resource_text(kind, amount).as_str());
+    fn update_quantity(&self, mut quantity: Gd<ResourceQuantity>, amount: u32) {
+        quantity.bind_mut().set_amount(amount);
     }
-}
-
-fn resource_text(kind: ResourceKind, amount: u32) -> String {
-    format!("{}: {}", kind.label(), amount)
 }
 
 fn resource_index(kind: ResourceKind) -> usize {

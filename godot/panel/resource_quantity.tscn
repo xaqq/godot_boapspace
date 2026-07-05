@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://resourcequantity0001"]
+
+[node name="ResourceQuantity" type="ResourceQuantity" unique_id=2101000001 node_paths=PackedStringArray("icon_rect", "amount_label")]
+kind = 0
+icon_rect = NodePath("Icon")
+amount_label = NodePath("AmountLabel")
+theme_override_constants/separation = 4
+
+[node name="Icon" type="TextureRect" parent="." unique_id=2101000002]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+texture_filter = 1
+expand_mode = 1
+stretch_mode = 5
+
+[node name="AmountLabel" type="Label" parent="." unique_id=2101000003]
+layout_mode = 2
+text = "0"

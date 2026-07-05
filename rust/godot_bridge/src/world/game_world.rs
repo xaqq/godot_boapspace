@@ -1,3 +1,4 @@
+use crate::assets::{load_texture, resource_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
@@ -13,8 +14,7 @@ use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
     canvas_item::TextureFilter, Camera2D, INode2D, Input, InputEvent, InputEventMouseButton,
-    Node2D, ResourceLoader, Sprite2D, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource,
-    TileSetSource,
+    Node2D, Sprite2D, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
@@ -33,10 +33,6 @@ const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 const TERRAIN_GRASS_PATH: &str = "res://assets/generated/terrain_grass.png";
-const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
-const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
-const RESOURCE_FOOD_PATH: &str = "res://assets/generated/resource_food.png";
-const RESOURCE_GOLD_PATH: &str = "res://assets/generated/resource_gold.png";
 const NPC_COLONIST_PATH: &str = "res://assets/generated/npc_colonist.png";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
@@ -177,7 +173,7 @@ impl INode2D for GameWorld {
         resource_map.set_z_index(1);
         self.populate_resource_node_map(&mut resource_map);
 
-        let Some(npc_texture) = load_texture(NPC_COLONIST_PATH) else {
+        let Some(npc_texture) = load_texture(NPC_COLONIST_PATH, "GameWorld") else {
             self.disable_processing();
             return;
         };
@@ -817,7 +813,7 @@ impl GameWorld {
         let mut tile_set = TileSet::new_gd();
         tile_set.set_tile_size(v2(tile_size, tile_size));
 
-        let texture = load_texture(TERRAIN_GRASS_PATH)?;
+        let texture = load_texture(TERRAIN_GRASS_PATH, "GameWorld")?;
         let source_ts = build_single_tile_atlas_source(texture, tile_size);
         let source_id = tile_set.add_source(&source_ts);
         if source_id < 0 {
@@ -835,7 +831,7 @@ impl GameWorld {
 
         for kind in ResourceKind::ALL {
             let path = resource_asset_path(kind);
-            let texture = load_texture(path)?;
+            let texture = load_texture(path, "GameWorld")?;
             let source_ts = build_single_tile_atlas_source(texture, tile_size);
             let expected_source_id = kind as i32;
             let source_id = tile_set
@@ -859,7 +855,7 @@ impl GameWorld {
 
         for kind in BuildingBlueprintKind::ALL {
             let path = building_asset_path(kind);
-            let Some(texture) = load_texture(path) else {
+            let Some(texture) = load_texture(path, "GameWorld") else {
                 return false;
             };
             self.building_textures.insert(kind, texture);
@@ -1102,15 +1098,6 @@ fn building_sprite_modulate(is_blueprint: bool) -> Color {
     color
 }
 
-fn resource_asset_path(kind: ResourceKind) -> &'static str {
-    match kind {
-        ResourceKind::Wood => RESOURCE_WOOD_PATH,
-        ResourceKind::Stone => RESOURCE_STONE_PATH,
-        ResourceKind::Food => RESOURCE_FOOD_PATH,
-        ResourceKind::Gold => RESOURCE_GOLD_PATH,
-    }
-}
-
 fn building_asset_path(kind: BuildingBlueprintKind) -> &'static str {
     match kind {
         BuildingBlueprintKind::Warehouse => BUILDING_WAREHOUSE_PATH,
@@ -1125,26 +1112,4 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
     source.set_texture_region_size(v2(tile_size, tile_size));
     source.create_tile_ex(v2(0, 0)).done();
     source.upcast::<TileSetSource>()
-}
-
-fn load_texture(path: &str) -> Option<Gd<Texture2D>> {
-    let Some(resource) = ResourceLoader::singleton()
-        .load_ex(path)
-        .type_hint("Texture2D")
-        .done()
-    else {
-        godot_error!("GameWorld: failed to load texture asset {path}");
-        return None;
-    };
-
-    match resource.try_cast::<Texture2D>() {
-        Ok(texture) => Some(texture),
-        Err(resource) => {
-            godot_error!(
-                "GameWorld: loaded asset {path} as {}, expected Texture2D",
-                resource.get_class()
-            );
-            None
-        }
-    }
 }
