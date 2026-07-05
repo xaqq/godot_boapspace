@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://panel/npc_info_panel.tscn" id="5_npc_info_panel"]
 [ext_resource type="PackedScene" path="res://panel/building_palette.tscn" id="6_build_palette"]
 [ext_resource type="PackedScene" path="res://panel/building_info_panel.tscn" id="7_building_info_panel"]
+[ext_resource type="PackedScene" path="res://panel/task_list_panel.tscn" id="8_task_list_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -25,9 +26,18 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ResourceHeader" parent="VBoxContainer" unique_id=2110331916 node_paths=PackedStringArray("game_world") instance=ExtResource("2_resource_header")]
-game_world = NodePath("../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
+[node name="HeaderBar" type="HBoxContainer" parent="VBoxContainer"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ResourceHeader" parent="VBoxContainer/HeaderBar" unique_id=2110331916 node_paths=PackedStringArray("game_world") instance=ExtResource("2_resource_header")]
+game_world = NodePath("../../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TasksButton" type="Button" parent="VBoxContainer/HeaderBar"]
+layout_mode = 2
+text = "Tasks"
 
 [node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=1435075728]
 layout_mode = 2
@@ -100,6 +110,21 @@ navigation_enabled = false
 
 [node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
 navigation_enabled = false
+
+[node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
+visible = false
+game_world = NodePath("../SubViewport/GameWorld")
+toggle_button = NodePath("../../../HeaderBar/TasksButton")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
 
 [node name="IngameMenu" parent="." unique_id=513882939 instance=ExtResource("1_ingame_menu")]
 visible = false

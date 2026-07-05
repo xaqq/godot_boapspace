@@ -2,14 +2,15 @@ use crate::assets::{load_texture, resource_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint,
+    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint, ConstructionProgress,
 };
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
-use game_engine::resources::ResourceKind;
+use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::{GameSimulation, SurfaceId};
+use game_engine::tasks::{Task, TaskKind};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
@@ -75,6 +76,13 @@ struct BuildingRenderInfo {
     kind: BuildingBlueprintKind,
     footprint: BuildingFootprint,
     is_blueprint: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskTableRow {
+    pub(crate) entity_id: i64,
+    pub(crate) task_type: String,
+    pub(crate) details: String,
 }
 
 #[derive(GodotClass)]
@@ -657,6 +665,10 @@ impl GameWorld {
         self.game.with_surface_world(self.rendered_surface, f)
     }
 
+    pub(crate) fn task_table_rows(&self) -> Vec<TaskTableRow> {
+        self.with_rendered_surface_world(query_task_table_rows)
+    }
+
     fn tile_entity_at(&self, coord: CellCoord) -> Option<Entity> {
         self.with_rendered_surface_world(|world| {
             let index = world.resource::<TileIndex>();
@@ -1071,6 +1083,82 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
         .unwrap_or_default()
 }
 
+fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
+    let mut rows = world
+        .try_query::<(Entity, &Task)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .filter_map(|(entity, task)| {
+                    let entity_id = encode_entity_id(entity)?;
+                    let kind = task.kind();
+                    Some(TaskTableRow {
+                        entity_id,
+                        task_type: kind.label().to_string(),
+                        details: format_task_details(world, kind),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    rows.sort_by_key(|row| row.entity_id);
+    rows
+}
+
+fn format_task_details(world: &World, kind: TaskKind) -> String {
+    match kind {
+        TaskKind::ProgressBuildingConstruction { blueprint } => {
+            format_construction_task_details(world, blueprint)
+        }
+    }
+}
+
+fn format_construction_task_details(world: &World, blueprint: Entity) -> String {
+    let blueprint_id = encode_entity_id(blueprint)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let Some(building) = world.get::<Building>(blueprint) else {
+        return format!("Blueprint {blueprint_id}: unavailable");
+    };
+    let Some(footprint) = world.get::<BuildingFootprint>(blueprint) else {
+        return format!("Blueprint {blueprint_id}: unavailable");
+    };
+    let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
+        return format!("Blueprint {blueprint_id}: unavailable");
+    };
+
+    let origin = footprint.origin();
+    format!(
+        "Blueprint {}: {} at ({}, {}), progress {}",
+        blueprint_id,
+        building.kind.label(),
+        origin.x(),
+        origin.y(),
+        format_deposited_over_required(
+            progress.deposited(),
+            building.kind.definition().construction_cost()
+        )
+    )
+}
+
+fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
+    let parts = ResourceKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let required = cost.get(kind);
+            (required > 0).then(|| format!("{}: {}/{}", kind.label(), progress.get(kind), required))
+        })
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        "None".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
 fn cell_top_left(coord: CellCoord) -> Vector2 {
     Vector2::new(
         coord.x() as f32 * grid::TILE_SIZE,
@@ -1112,4 +1200,43 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
     source.set_texture_region_size(v2(tile_size, tile_size));
     source.create_tile_ex(v2(0, 0)).done();
     source.upcast::<TileSetSource>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
+
+    #[test]
+    fn task_table_rows_format_construction_tasks() {
+        let mut world = World::new();
+        let blueprint = world
+            .spawn((
+                Building {
+                    kind: BuildingBlueprintKind::Warehouse,
+                },
+                BuildingBlueprint,
+                BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+                ConstructionProgress::new(ResourceAmounts::zero()),
+                WarehouseInventory::empty(),
+            ))
+            .id();
+        let task = world
+            .spawn(Task::progress_building_construction(blueprint))
+            .id();
+
+        let rows = query_task_table_rows(&world);
+
+        assert_eq!(
+            rows,
+            vec![TaskTableRow {
+                entity_id: encode_entity_id(task).expect("task entity id should encode"),
+                task_type: "ProgressBuildingConstruction".to_string(),
+                details: format!(
+                    "Blueprint {}: Warehouse at (4, 7), progress Wood: 0/40, Stone: 0/20",
+                    encode_entity_id(blueprint).expect("blueprint entity id should encode")
+                ),
+            }]
+        );
+    }
 }

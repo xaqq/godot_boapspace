@@ -15,6 +15,7 @@ mod panel {
     mod resource_quantity;
     mod resource_tooltip;
     mod surface_selector;
+    mod task_list_panel;
     mod tile_info_panel;
 }
 
