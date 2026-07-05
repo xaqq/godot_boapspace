@@ -21,6 +21,31 @@ impl ResourceKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResourceAmounts {
+    amounts: [u32; ResourceKind::ALL.len()],
+}
+
+impl ResourceAmounts {
+    pub const fn new(wood: u32, stone: u32, food: u32, gold: u32) -> Self {
+        Self {
+            amounts: [wood, stone, food, gold],
+        }
+    }
+
+    pub const fn zero() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
+
+    pub const fn get(self, kind: ResourceKind) -> u32 {
+        self.amounts[kind as usize]
+    }
+
+    pub fn set(&mut self, kind: ResourceKind, amount: u32) {
+        self.amounts[kind as usize] = amount;
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Resource)]
 pub struct GameResources {
     wood: u32,

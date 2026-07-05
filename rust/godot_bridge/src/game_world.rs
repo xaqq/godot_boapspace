@@ -1,5 +1,6 @@
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
+use game_engine::buildings::{Building, BuildingBlueprintKind, BuildingFootprint};
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
@@ -28,12 +29,15 @@ const ACTION_CAMERA_PAN_UP: &str = "camera_pan_up";
 const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
+const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 const TERRAIN_GRASS_PATH: &str = "res://assets/generated/terrain_grass.png";
 const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
 const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
 const RESOURCE_FOOD_PATH: &str = "res://assets/generated/resource_food.png";
 const RESOURCE_GOLD_PATH: &str = "res://assets/generated/resource_gold.png";
 const NPC_COLONIST_PATH: &str = "res://assets/generated/npc_colonist.png";
+const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
+const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -56,9 +60,22 @@ struct SelectedNpc {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectedBuilding {
+    footprint: BuildingFootprint,
+    entity: Entity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NpcRenderInfo {
     entity: Entity,
     coord: CellCoord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BuildingRenderInfo {
+    entity: Entity,
+    kind: BuildingBlueprintKind,
+    footprint: BuildingFootprint,
 }
 
 #[derive(GodotClass)]
@@ -77,11 +94,15 @@ pub(crate) struct GameWorld {
     rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
     selected_npc: Option<SelectedNpc>,
+    selected_building: Option<SelectedBuilding>,
+    build_mode: Option<BuildingBlueprintKind>,
     tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
     npc_texture: Option<Gd<Texture2D>>,
     npc_sprites: HashMap<Entity, Gd<Sprite2D>>,
+    building_textures: HashMap<BuildingBlueprintKind, Gd<Texture2D>>,
+    building_sprites: HashMap<Entity, Gd<Sprite2D>>,
 
     base: Base<Node2D>,
 }
@@ -100,11 +121,15 @@ impl INode2D for GameWorld {
             rendered_surface,
             selected_cell: None,
             selected_npc: None,
+            selected_building: None,
+            build_mode: None,
             tile_source_id: None,
             _tile_set: None,
             _resource_node_tile_set: None,
             npc_texture: None,
             npc_sprites: HashMap::new(),
+            building_textures: HashMap::new(),
+            building_sprites: HashMap::new(),
             base,
         }
     }
@@ -131,6 +156,12 @@ impl INode2D for GameWorld {
             self.disable_processing();
             return;
         }
+
+        if !self.load_building_textures() {
+            self.disable_processing();
+            return;
+        }
+        self.sync_building_sprites();
 
         let Some(resource_tile_set) = self.build_resource_node_tile_set(ts) else {
             self.disable_processing();
@@ -208,6 +239,9 @@ impl INode2D for GameWorld {
 
         self.game.tick(delta as f32);
         self.sync_npc_sprites();
+        if self.build_mode.is_some() {
+            self.base_mut().queue_redraw();
+        }
     }
 
     fn draw(&mut self) {
@@ -225,6 +259,8 @@ impl INode2D for GameWorld {
         let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
         let selected_cell = self.selected_cell;
         let selected_npc = self.selected_npc;
+        let selected_building = self.selected_building;
+        let build_preview = self.build_preview();
 
         let mut base = self.base_mut();
         for x in 0..=w {
@@ -275,9 +311,43 @@ impl INode2D for GameWorld {
                 .width(4.0)
                 .done();
         }
+
+        if let Some(selected) = selected_building {
+            let highlight = Color::from_rgb(1.0, 0.55, 0.12);
+            let mut fill = highlight;
+            fill.a = 0.10;
+            let rect = footprint_rect(selected.footprint);
+            base.draw_rect_ex(rect, fill).filled(true).done();
+            base.draw_rect_ex(rect, highlight)
+                .filled(false)
+                .width(4.0)
+                .done();
+        }
+
+        if let Some((footprint, valid)) = build_preview {
+            let color = if valid {
+                Color::from_rgb(0.1, 0.9, 0.45)
+            } else {
+                Color::from_rgb(1.0, 0.1, 0.1)
+            };
+            let mut fill = color;
+            fill.a = 0.18;
+            let rect = footprint_rect(footprint);
+            base.draw_rect_ex(rect, fill).filled(true).done();
+            base.draw_rect_ex(rect, color)
+                .filled(false)
+                .width(4.0)
+                .done();
+        }
     }
 
     fn input(&mut self, event: Gd<InputEvent>) {
+        if event.is_action_pressed(ACTION_MENU_TOGGLE) && self.build_mode.is_some() {
+            self.cancel_build_mode();
+            self.mark_input_handled();
+            return;
+        }
+
         let Ok(mouse) = event.clone().try_cast::<InputEventMouseButton>() else {
             return;
         };
@@ -287,7 +357,13 @@ impl INode2D for GameWorld {
 
         match mouse.get_button_index() {
             MouseButton::LEFT => {
-                self.handle_tile_click();
+                self.handle_primary_click();
+            }
+            MouseButton::RIGHT => {
+                if self.build_mode.is_some() {
+                    self.cancel_build_mode();
+                    self.mark_input_handled();
+                }
             }
             MouseButton::WHEEL_UP => {
                 self.handle_mouse_wheel(ZOOM_FACTOR);
@@ -352,6 +428,34 @@ impl GameWorld {
         camera.set_position_smoothing_enabled(false);
     }
 
+    fn handle_primary_click(&mut self) {
+        if let Some(kind) = self.build_mode {
+            self.handle_build_click(kind);
+            return;
+        }
+
+        self.handle_tile_click();
+    }
+
+    fn handle_build_click(&mut self, kind: BuildingBlueprintKind) {
+        let Some(origin) = self.placement_origin_under_mouse() else {
+            return;
+        };
+
+        match self
+            .game
+            .place_building_blueprint(self.rendered_surface, kind, origin)
+        {
+            Ok(_) => {
+                self.sync_building_sprites();
+                self.base_mut().queue_redraw();
+            }
+            Err(error) => {
+                godot_warn!("GameWorld: building placement rejected: {error:?}");
+            }
+        }
+    }
+
     fn handle_tile_click(&mut self) {
         let mouse_pos = self.base().get_local_mouse_position();
 
@@ -359,6 +463,11 @@ impl GameWorld {
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         ) {
+            if let Some(entity) = self.building_entity_at(coord) {
+                self.select_building(entity);
+                return;
+            }
+
             if let Some(entity) = self.npc_entity_at(coord) {
                 self.select_npc(coord, entity);
                 return;
@@ -368,6 +477,7 @@ impl GameWorld {
         } else {
             self.clear_tile_selection();
             self.clear_npc_selection();
+            self.clear_building_selection();
         }
     }
 
@@ -389,9 +499,32 @@ impl GameWorld {
         };
 
         self.clear_npc_selection();
+        self.clear_building_selection();
         self.selected_cell = Some(SelectedCell { coord, entity });
         self.base_mut().queue_redraw();
         self.signals().tile_selected().emit(tile_entity_id);
+    }
+
+    fn select_building(&mut self, entity: Entity) {
+        if self.selected_building.map(|selected| selected.entity) == Some(entity) {
+            self.clear_building_selection();
+            return;
+        }
+
+        let Some(footprint) = self.building_footprint(entity) else {
+            godot_error!("GameWorld: selected building entity unavailable");
+            return;
+        };
+        let Some(building_entity_id) = encode_entity_id(entity) else {
+            godot_error!("GameWorld: selected building entity id is too large for Godot");
+            return;
+        };
+
+        self.clear_tile_selection();
+        self.clear_npc_selection();
+        self.selected_building = Some(SelectedBuilding { footprint, entity });
+        self.base_mut().queue_redraw();
+        self.signals().building_selected().emit(building_entity_id);
     }
 
     fn select_npc(&mut self, coord: CellCoord, entity: Entity) {
@@ -406,6 +539,7 @@ impl GameWorld {
         };
 
         self.clear_tile_selection();
+        self.clear_building_selection();
         self.selected_npc = Some(SelectedNpc { coord, entity });
         self.base_mut().queue_redraw();
         self.signals().npc_selected().emit(npc_entity_id);
@@ -454,6 +588,54 @@ impl GameWorld {
         }
     }
 
+    fn clear_building_selection(&mut self) {
+        if self.selected_building.take().is_some() {
+            self.base_mut().queue_redraw();
+            self.signals().building_deselected().emit();
+        }
+    }
+
+    fn start_build_mode(&mut self, kind: BuildingBlueprintKind) {
+        self.build_mode = Some(kind);
+        self.clear_tile_selection();
+        self.clear_npc_selection();
+        self.clear_building_selection();
+        self.base_mut().queue_redraw();
+    }
+
+    fn cancel_build_mode(&mut self) {
+        if self.build_mode.take().is_some() {
+            self.base_mut().queue_redraw();
+        }
+    }
+
+    fn mark_input_handled(&self) {
+        if let Some(mut viewport) = self.base().get_viewport() {
+            viewport.set_input_as_handled();
+        }
+    }
+
+    fn placement_origin_under_mouse(&self) -> Option<CellCoord> {
+        let mouse_pos = self.base().get_local_mouse_position();
+        Grid::world_to_cell(
+            WorldPosition::new(mouse_pos.x, mouse_pos.y),
+            self.grid_size(),
+        )
+    }
+
+    fn build_preview(&self) -> Option<(BuildingFootprint, bool)> {
+        let kind = self.build_mode?;
+        let origin = self.placement_origin_under_mouse()?;
+        let definition = kind.definition();
+        let footprint = BuildingFootprint::new(origin, definition.width(), definition.height());
+        let valid = self
+            .game
+            .validate_building_blueprint_placement(self.rendered_surface, kind, origin)
+            .is_ok();
+
+        Some((footprint, valid))
+    }
+
     fn grid_size(&self) -> game_engine::grid::GridSize {
         self.game
             .grid_size(self.rendered_surface)
@@ -482,6 +664,82 @@ impl GameWorld {
                 .find_map(|(entity, position, _)| (position.coord == coord).then_some(entity))
         })
         .flatten()
+    }
+
+    fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
+        self.with_rendered_surface_world(|world| {
+            let mut query = world.try_query::<(Entity, &BuildingFootprint, &Building)>()?;
+            query
+                .iter(world)
+                .find_map(|(entity, footprint, _)| footprint.contains(coord).then_some(entity))
+        })
+        .flatten()
+    }
+
+    fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
+        self.with_rendered_surface_world(|world| {
+            world.get::<Building>(entity)?;
+            world.get::<BuildingFootprint>(entity).copied()
+        })
+        .flatten()
+    }
+
+    fn sync_building_sprites(&mut self) {
+        let Some(buildings) = self.building_render_infos() else {
+            godot_error!("GameWorld: rendered surface no longer exists");
+            self.disable_processing();
+            return;
+        };
+
+        let active_entities: HashSet<Entity> =
+            buildings.iter().map(|building| building.entity).collect();
+        let stale_entities: Vec<Entity> = self
+            .building_sprites
+            .keys()
+            .copied()
+            .filter(|entity| !active_entities.contains(entity))
+            .collect();
+        for entity in stale_entities {
+            if let Some(mut sprite) = self.building_sprites.remove(&entity) {
+                sprite.queue_free();
+            }
+        }
+
+        for building in buildings {
+            let Some(texture) = self.building_texture(building.kind) else {
+                godot_error!(
+                    "GameWorld: building texture missing for {:?}",
+                    building.kind
+                );
+                self.disable_processing();
+                return;
+            };
+
+            let position = cell_top_left(building.footprint.origin());
+            if !self.building_sprites.contains_key(&building.entity) {
+                let mut sprite = Sprite2D::new_alloc();
+                sprite.set_texture(&texture);
+                sprite.set_centered(false);
+                sprite.set_texture_filter(TextureFilter::NEAREST);
+                sprite.set_z_index(2);
+                sprite.set_position(position);
+                self.base_mut().add_child(&sprite);
+                self.building_sprites.insert(building.entity, sprite);
+                continue;
+            }
+
+            if let Some(sprite) = self.building_sprites.get_mut(&building.entity) {
+                sprite.set_texture(&texture);
+                sprite.set_position(position);
+            }
+        }
+
+        if let Some(selected) = self.selected_building {
+            let selected_still_exists = active_entities.contains(&selected.entity);
+            if !selected_still_exists {
+                self.clear_building_selection();
+            }
+        }
     }
 
     fn sync_npc_sprites(&mut self) {
@@ -522,7 +780,7 @@ impl GameWorld {
                 sprite.set_texture(&texture);
                 sprite.set_centered(false);
                 sprite.set_texture_filter(TextureFilter::NEAREST);
-                sprite.set_z_index(2);
+                sprite.set_z_index(3);
                 sprite.set_position(position);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(npc.entity, sprite);
@@ -591,6 +849,24 @@ impl GameWorld {
         Some(tile_set)
     }
 
+    fn load_building_textures(&mut self) -> bool {
+        self.building_textures.clear();
+
+        for kind in BuildingBlueprintKind::ALL {
+            let path = building_asset_path(kind);
+            let Some(texture) = load_texture(path) else {
+                return false;
+            };
+            self.building_textures.insert(kind, texture);
+        }
+
+        true
+    }
+
+    fn building_texture(&self, kind: BuildingBlueprintKind) -> Option<Gd<Texture2D>> {
+        self.building_textures.get(&kind).cloned()
+    }
+
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
         resource_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
@@ -614,6 +890,10 @@ impl GameWorld {
         self.with_rendered_surface_world(query_resource_nodes)
     }
 
+    fn building_render_infos(&self) -> Option<Vec<BuildingRenderInfo>> {
+        self.with_rendered_surface_world(query_building_render_infos)
+    }
+
     fn npc_render_infos(&self) -> Option<Vec<NpcRenderInfo>> {
         self.with_rendered_surface_world(query_npc_render_infos)
     }
@@ -626,6 +906,8 @@ impl GameWorld {
         self.rendered_surface = surface;
         self.selected_cell = None;
         self.selected_npc = None;
+        self.selected_building = None;
+        self.build_mode = None;
 
         let mut tile_map = self.tile_map.clone();
         let Some(tile_source_id) = self.tile_source_id else {
@@ -641,6 +923,7 @@ impl GameWorld {
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
 
+        self.sync_building_sprites();
         self.sync_npc_sprites();
 
         let mut camera = self.camera.clone();
@@ -651,6 +934,7 @@ impl GameWorld {
         self.base_mut().queue_redraw();
         self.signals().tile_deselected().emit();
         self.signals().npc_deselected().emit();
+        self.signals().building_deselected().emit();
         self.signals().resources_changed().emit();
         self.signals().surface_changed().emit(active_surface_index);
     }
@@ -669,6 +953,12 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn npc_deselected();
+
+    #[signal]
+    pub(crate) fn building_selected(building_entity_id: i64);
+
+    #[signal]
+    pub(crate) fn building_deselected();
 
     #[signal]
     pub(crate) fn resources_changed();
@@ -700,6 +990,21 @@ impl GameWorld {
         self.switch_rendered_surface(surface);
         true
     }
+
+    #[func]
+    pub(crate) fn start_warehouse_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingBlueprintKind::Warehouse);
+    }
+
+    #[func]
+    pub(crate) fn start_town_hall_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingBlueprintKind::TownHall);
+    }
+
+    #[func]
+    pub(crate) fn cancel_building_blueprint_placement(&mut self) {
+        self.cancel_build_mode();
+    }
 }
 
 fn surface_index_i32(surface: SurfaceId) -> i32 {
@@ -727,6 +1032,22 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
         .unwrap_or_default()
 }
 
+fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
+    world
+        .try_query::<(Entity, &Building, &BuildingFootprint)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(entity, building, footprint)| BuildingRenderInfo {
+                    entity,
+                    kind: building.kind,
+                    footprint: *footprint,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
         .try_query::<(Entity, &NpcPosition, &Npc)>()
@@ -749,12 +1070,29 @@ fn cell_top_left(coord: CellCoord) -> Vector2 {
     )
 }
 
+fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {
+    Rect2::new(
+        cell_top_left(footprint.origin()),
+        Vector2::new(
+            footprint.width() as f32 * grid::TILE_SIZE,
+            footprint.height() as f32 * grid::TILE_SIZE,
+        ),
+    )
+}
+
 fn resource_asset_path(kind: ResourceKind) -> &'static str {
     match kind {
         ResourceKind::Wood => RESOURCE_WOOD_PATH,
         ResourceKind::Stone => RESOURCE_STONE_PATH,
         ResourceKind::Food => RESOURCE_FOOD_PATH,
         ResourceKind::Gold => RESOURCE_GOLD_PATH,
+    }
+}
+
+fn building_asset_path(kind: BuildingBlueprintKind) -> &'static str {
+    match kind {
+        BuildingBlueprintKind::Warehouse => BUILDING_WAREHOUSE_PATH,
+        BuildingBlueprintKind::TownHall => BUILDING_TOWNHALL_PATH,
     }
 }
 

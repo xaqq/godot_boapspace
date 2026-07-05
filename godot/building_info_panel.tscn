@@ -1,0 +1,57 @@
+[gd_scene format=3]
+
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "cost_label", "progress_label", "inventory_label")]
+name_label = NodePath("MarginContainer/VBoxContainer/name_label")
+footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
+cost_label = NodePath("MarginContainer/VBoxContainer/cost_label")
+progress_label = NodePath("MarginContainer/VBoxContainer/progress_label")
+inventory_label = NodePath("MarginContainer/VBoxContainer/inventory_label")
+custom_minimum_size = Vector2(200, 0)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=1922920576]
+layout_mode = 0
+offset_right = 1152.0
+offset_bottom = 648.0
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1573781782]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1728009333]
+layout_mode = 2
+text = "Selected Building"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676841]
+layout_mode = 2
+
+[node name="name_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1938474778]
+layout_mode = 2
+text = "Building: None"
+
+[node name="footprint_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271514]
+layout_mode = 2
+text = ""
+
+[node name="cost_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271515]
+layout_mode = 2
+autowrap_mode = 3
+text = ""
+
+[node name="progress_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271516]
+layout_mode = 2
+autowrap_mode = 3
+text = ""
+
+[node name="inventory_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
+layout_mode = 2
+autowrap_mode = 3
+text = ""

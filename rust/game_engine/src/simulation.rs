@@ -1,3 +1,7 @@
+use crate::buildings::{
+    place_building_blueprint, validate_building_blueprint_placement, BuildingBlueprintKind,
+    BuildingFootprint, BuildingPlacementError,
+};
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npc, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
@@ -117,8 +121,38 @@ impl GameSimulation {
         Some(f(&self.surface(surface_id)?.world))
     }
 
+    pub fn place_building_blueprint(
+        &mut self,
+        surface_id: SurfaceId,
+        kind: BuildingBlueprintKind,
+        origin: CellCoord,
+    ) -> Result<Entity, BuildingPlacementError> {
+        let Some(surface) = self.surface_mut(surface_id) else {
+            return Err(BuildingPlacementError::UnknownSurface);
+        };
+
+        place_building_blueprint(&mut surface.world, kind, origin)
+    }
+
+    pub fn validate_building_blueprint_placement(
+        &self,
+        surface_id: SurfaceId,
+        kind: BuildingBlueprintKind,
+        origin: CellCoord,
+    ) -> Result<BuildingFootprint, BuildingPlacementError> {
+        let Some(surface) = self.surface(surface_id) else {
+            return Err(BuildingPlacementError::UnknownSurface);
+        };
+
+        validate_building_blueprint_placement(&surface.world, kind, origin)
+    }
+
     fn surface(&self, surface_id: SurfaceId) -> Option<&SurfaceRuntime> {
         self.surfaces.get(surface_id.index())
+    }
+
+    fn surface_mut(&mut self, surface_id: SurfaceId) -> Option<&mut SurfaceRuntime> {
+        self.surfaces.get_mut(surface_id.index())
     }
 }
 

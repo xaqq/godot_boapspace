@@ -1,0 +1,39 @@
+[gd_scene format=3]
+
+[node name="BuildingPalette" type="BuildingPalette" unique_id=963753131 node_paths=PackedStringArray("warehouse_button", "town_hall_button")]
+warehouse_button = NodePath("MarginContainer/VBoxContainer/WarehouseButton")
+town_hall_button = NodePath("MarginContainer/VBoxContainer/TownHallButton")
+custom_minimum_size = Vector2(200, 0)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=1922920575]
+layout_mode = 0
+offset_right = 1152.0
+offset_bottom = 648.0
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1573781781]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1728009332]
+layout_mode = 2
+text = "Build"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676840]
+layout_mode = 2
+
+[node name="WarehouseButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1938474777]
+layout_mode = 2
+text = "Warehouse"
+
+[node name="TownHallButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1173271513]
+layout_mode = 2
+text = "TownHall"

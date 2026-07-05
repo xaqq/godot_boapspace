@@ -1,5 +1,7 @@
 use godot::prelude::*;
 
+mod building_info_panel;
+mod building_palette;
 mod game_world;
 mod ingame_menu;
 mod npc_info_panel;

@@ -5,6 +5,8 @@
 [ext_resource type="PackedScene" uid="uid://tileinfop001" path="res://tile_info_panel.tscn" id="3_tile_info_panel"]
 [ext_resource type="PackedScene" uid="uid://vf07p3yy72o7" path="res://surface_selector.tscn" id="4_surface_selector"]
 [ext_resource type="PackedScene" path="res://npc_info_panel.tscn" id="5_npc_info_panel"]
+[ext_resource type="PackedScene" path="res://build_palette.tscn" id="6_build_palette"]
+[ext_resource type="PackedScene" path="res://building_info_panel.tscn" id="7_building_info_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -39,6 +41,13 @@ theme_override_constants/separation = 8
 game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
+[node name="HSeparatorBuild" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709327]
+layout_mode = 2
+
+[node name="BuildingPalette" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1719837743 node_paths=PackedStringArray("game_world") instance=ExtResource("6_build_palette")]
+game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+layout_mode = 2
+
 [node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709325]
 layout_mode = 2
 
@@ -50,6 +59,13 @@ layout_mode = 2
 layout_mode = 2
 
 [node name="NpcInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1842781407 node_paths=PackedStringArray("game_world") instance=ExtResource("5_npc_info_panel")]
+game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+layout_mode = 2
+
+[node name="HSeparator3" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709328]
+layout_mode = 2
+
+[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1842781408 node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
 game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
