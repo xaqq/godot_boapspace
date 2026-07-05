@@ -1,8 +1,8 @@
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint, BuildingPlacementError,
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
     ConstructionProgress, WarehouseInventory,
 };
-use game_engine::grid::{CellCoord, GridSize};
+use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
@@ -10,8 +10,8 @@ use game_engine::simulation::GameSimulation;
 
 #[test]
 fn test_building_definitions_include_dimensions_and_costs() {
-    let warehouse = BuildingBlueprintKind::Warehouse.definition();
-    assert_eq!(warehouse.kind(), BuildingBlueprintKind::Warehouse);
+    let warehouse = BuildingKind::Warehouse.definition();
+    assert_eq!(warehouse.kind(), BuildingKind::Warehouse);
     assert_eq!(warehouse.width(), 2);
     assert_eq!(warehouse.height(), 2);
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Wood), 40);
@@ -19,8 +19,8 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Gold), 0);
 
-    let town_hall = BuildingBlueprintKind::TownHall.definition();
-    assert_eq!(town_hall.kind(), BuildingBlueprintKind::TownHall);
+    let town_hall = BuildingKind::TownHall.definition();
+    assert_eq!(town_hall.kind(), BuildingKind::TownHall);
     assert_eq!(town_hall.width(), 3);
     assert_eq!(town_hall.height(), 3);
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Wood), 80);
@@ -35,26 +35,25 @@ fn test_place_building_blueprint_inside_bounds() {
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     let entity = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(1, 1),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(1, 1))
         .expect("warehouse should place inside bounds");
 
     let info = simulation
         .with_surface_world(surface, |world| {
-            let building = world.get::<Building>(entity)?;
-            let footprint = world.get::<BuildingFootprint>(entity)?;
-            world.get::<BuildingBlueprint>(entity)?;
-            Some((building.kind, *footprint))
+            let blueprint = world.get::<BuildingBlueprint>(entity)?;
+            Some((
+                blueprint.kind,
+                blueprint.footprint,
+                world.get::<Building>(entity).is_some(),
+            ))
         })
         .expect("placed building should be queryable");
 
-    assert_eq!(info.0, BuildingBlueprintKind::Warehouse);
+    assert_eq!(info.0, BuildingKind::Warehouse);
     assert_eq!(info.1.origin(), CellCoord::new(1, 1));
     assert_eq!(info.1.width(), 2);
     assert_eq!(info.1.height(), 2);
+    assert!(!info.2);
 }
 
 #[test]
@@ -62,11 +61,8 @@ fn test_place_building_blueprint_rejects_out_of_bounds() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
-    let result = simulation.place_building_blueprint(
-        surface,
-        BuildingBlueprintKind::TownHall,
-        CellCoord::new(2, 2),
-    );
+    let result =
+        simulation.place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(2, 2));
 
     assert_eq!(result, Err(BuildingPlacementError::OutOfBounds));
 }
@@ -77,15 +73,26 @@ fn test_place_building_blueprint_rejects_building_overlap() {
     let surface = simulation.create_surface(GridSize::new(8, 8));
 
     simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(2, 2),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(2, 2))
         .expect("first building should place");
-    let result = simulation.place_building_blueprint(
-        surface,
-        BuildingBlueprintKind::TownHall,
+    let result =
+        simulation.place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(3, 3));
+
+    assert_eq!(result, Err(BuildingPlacementError::OverlapsBuilding));
+}
+
+#[test]
+fn test_place_building_blueprint_rejects_constructed_building_overlap() {
+    let mut world = bevy_ecs::world::World::new();
+    world.insert_resource(Grid::new(8, 8));
+    world.spawn(Building {
+        kind: BuildingKind::Warehouse,
+        footprint: BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+    });
+
+    let result = game_engine::buildings::place_building_blueprint(
+        &mut world,
+        BuildingKind::TownHall,
         CellCoord::new(3, 3),
     );
 
@@ -100,8 +107,7 @@ fn test_blueprint_can_overlap_npc() {
         .with_surface_world(surface, first_npc_coord)
         .expect("default surface should have an NPC");
 
-    let result =
-        simulation.place_building_blueprint(surface, BuildingBlueprintKind::Warehouse, npc_coord);
+    let result = simulation.place_building_blueprint(surface, BuildingKind::Warehouse, npc_coord);
 
     assert!(result.is_ok());
 }
@@ -118,8 +124,7 @@ fn test_blueprint_can_overlap_resource_node() {
     let footprint = BuildingFootprint::new(origin, 2, 2);
 
     assert!(footprint.contains(resource_coord));
-    let result =
-        simulation.place_building_blueprint(surface, BuildingBlueprintKind::Warehouse, origin);
+    let result = simulation.place_building_blueprint(surface, BuildingKind::Warehouse, origin);
 
     assert!(result.is_ok());
 }
@@ -129,11 +134,7 @@ fn test_construction_progress_starts_empty() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let entity = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::TownHall,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(0, 0))
         .expect("town hall should place");
 
     let deposited = simulation
@@ -154,11 +155,7 @@ fn test_warehouse_blueprint_does_not_have_inventory() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let entity = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
     let has_inventory = simulation.with_surface_world(surface, |world| {
@@ -173,11 +170,7 @@ fn test_town_hall_does_not_have_warehouse_inventory() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let entity = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::TownHall,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(0, 0))
         .expect("town hall should place");
 
     let has_inventory = simulation.with_surface_world(surface, |world| {
@@ -196,7 +189,7 @@ fn test_building_blueprints_are_scoped_per_surface() {
     simulation
         .place_building_blueprint(
             second_surface,
-            BuildingBlueprintKind::Warehouse,
+            BuildingKind::Warehouse,
             CellCoord::new(0, 0),
         )
         .expect("warehouse should place");
@@ -233,7 +226,7 @@ fn building_count(
 ) -> usize {
     simulation.with_surface_world(surface, |world| {
         world
-            .try_query::<(&Building, &BuildingFootprint)>()
+            .try_query::<&BuildingBlueprint>()
             .map(|mut query| query.iter(world).count())
             .unwrap_or_default()
     })

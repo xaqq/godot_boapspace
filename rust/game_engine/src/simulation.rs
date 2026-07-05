@@ -1,6 +1,6 @@
 use crate::buildings::{
-    place_building_blueprint, validate_building_blueprint_placement, BuildingBlueprintKind,
-    BuildingFootprint, BuildingPlacementError,
+    place_building_blueprint, validate_building_blueprint_placement, BuildingFootprint,
+    BuildingKind, BuildingPlacementError,
 };
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
@@ -130,7 +130,7 @@ impl GameSimulation {
     pub fn place_building_blueprint(
         &mut self,
         surface_id: SurfaceId,
-        kind: BuildingBlueprintKind,
+        kind: BuildingKind,
         origin: CellCoord,
     ) -> Result<Entity, BuildingPlacementError> {
         let surface = self.surface_mut(surface_id);
@@ -140,7 +140,7 @@ impl GameSimulation {
     pub fn validate_building_blueprint_placement(
         &self,
         surface_id: SurfaceId,
-        kind: BuildingBlueprintKind,
+        kind: BuildingKind,
         origin: CellCoord,
     ) -> Result<BuildingFootprint, BuildingPlacementError> {
         let surface = self.surface(surface_id);

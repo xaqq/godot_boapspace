@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint, ConstructionProgress,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::resources::ResourceAmounts;
@@ -17,11 +17,7 @@ fn test_blueprint_does_not_create_task_before_tick() {
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
     assert_eq!(construction_tasks(&simulation, surface).len(), 0);
@@ -32,11 +28,7 @@ fn test_tick_creates_construction_task_for_blueprint() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
     simulation.tick(1.0 / 60.0);
@@ -65,11 +57,7 @@ fn test_repeated_ticks_do_not_duplicate_construction_tasks() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(
-            surface,
-            BuildingBlueprintKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
     simulation.tick(1.0 / 60.0);
@@ -106,7 +94,7 @@ fn test_construction_tasks_are_scoped_per_surface() {
     let blueprint = simulation
         .place_building_blueprint(
             second_surface,
-            BuildingBlueprintKind::Warehouse,
+            BuildingKind::Warehouse,
             CellCoord::new(0, 0),
         )
         .expect("warehouse should place");
@@ -123,11 +111,10 @@ fn test_construction_tasks_are_scoped_per_surface() {
 fn spawn_blueprint(world: &mut World) -> Entity {
     world
         .spawn((
-            Building {
-                kind: BuildingBlueprintKind::Warehouse,
+            BuildingBlueprint {
+                kind: BuildingKind::Warehouse,
+                footprint: BuildingFootprint::new(CellCoord::new(0, 0), 2, 2),
             },
-            BuildingBlueprint,
-            BuildingFootprint::new(CellCoord::new(0, 0), 2, 2),
             ConstructionProgress::new(ResourceAmounts::zero()),
         ))
         .id()

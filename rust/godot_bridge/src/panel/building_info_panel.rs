@@ -2,7 +2,7 @@ use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::buildings::{
-    Building, BuildingBlueprintKind, BuildingFootprint, ConstructionProgress, WarehouseInventory,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress, WarehouseInventory,
 };
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
@@ -155,7 +155,7 @@ impl IPanelContainer for BuildingInfoPanel {
 }
 
 struct BuildingInfo {
-    kind: BuildingBlueprintKind,
+    kind: BuildingKind,
     footprint: BuildingFootprint,
     cost: ResourceAmounts,
     progress: ResourceAmounts,
@@ -165,17 +165,16 @@ struct BuildingInfo {
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
     game_world.with_rendered_surface_world(|world| {
-        let building = world.get::<Building>(entity)?;
-        let footprint = world.get::<BuildingFootprint>(entity)?;
+        let blueprint = world.get::<BuildingBlueprint>(entity)?;
         let progress = world.get::<ConstructionProgress>(entity)?;
         let inventory = world
             .get::<WarehouseInventory>(entity)
             .map(|inventory| inventory.contents());
 
         Some(BuildingInfo {
-            kind: building.kind,
-            footprint: *footprint,
-            cost: building.kind.definition().construction_cost(),
+            kind: blueprint.kind,
+            footprint: blueprint.footprint,
+            cost: blueprint.kind.definition().construction_cost(),
             progress: progress.deposited(),
             inventory,
         })

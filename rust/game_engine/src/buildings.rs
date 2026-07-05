@@ -3,12 +3,12 @@ use crate::resources::ResourceAmounts;
 use bevy_ecs::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuildingBlueprintKind {
+pub enum BuildingKind {
     Warehouse,
     TownHall,
 }
 
-impl BuildingBlueprintKind {
+impl BuildingKind {
     pub const ALL: [Self; 2] = [Self::Warehouse, Self::TownHall];
 
     pub const fn label(self) -> &'static str {
@@ -38,14 +38,14 @@ impl BuildingBlueprintKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildingDefinition {
-    kind: BuildingBlueprintKind,
+    kind: BuildingKind,
     width: usize,
     height: usize,
     construction_cost: ResourceAmounts,
 }
 
 impl BuildingDefinition {
-    pub const fn kind(self) -> BuildingBlueprintKind {
+    pub const fn kind(self) -> BuildingKind {
         self.kind
     }
 
@@ -64,13 +64,17 @@ impl BuildingDefinition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct Building {
-    pub kind: BuildingBlueprintKind,
+    pub kind: BuildingKind,
+    pub footprint: BuildingFootprint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct BuildingBlueprint;
+pub struct BuildingBlueprint {
+    pub kind: BuildingKind,
+    pub footprint: BuildingFootprint,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildingFootprint {
     origin: CellCoord,
     width: usize,
@@ -191,15 +195,13 @@ pub enum BuildingPlacementError {
 
 pub fn place_building_blueprint(
     world: &mut World,
-    kind: BuildingBlueprintKind,
+    kind: BuildingKind,
     origin: CellCoord,
 ) -> Result<Entity, BuildingPlacementError> {
     let footprint = validate_building_blueprint_placement(world, kind, origin)?;
 
     let entity = world.spawn((
-        Building { kind },
-        BuildingBlueprint,
-        footprint,
+        BuildingBlueprint { kind, footprint },
         ConstructionProgress::new(ResourceAmounts::zero()),
     ));
 
@@ -208,7 +210,7 @@ pub fn place_building_blueprint(
 
 pub fn validate_building_blueprint_placement(
     world: &World,
-    kind: BuildingBlueprintKind,
+    kind: BuildingKind,
     origin: CellCoord,
 ) -> Result<BuildingFootprint, BuildingPlacementError> {
     let definition = kind.definition();
@@ -226,12 +228,22 @@ pub fn validate_building_blueprint_placement(
 }
 
 fn overlaps_existing_building(world: &World, footprint: BuildingFootprint) -> bool {
-    world
-        .try_query::<(&BuildingFootprint, &Building)>()
+    let overlaps_building = world
+        .try_query::<&Building>()
         .map(|mut query| {
             query
                 .iter(world)
-                .any(|(existing_footprint, _)| footprint.overlaps(*existing_footprint))
+                .any(|building| footprint.overlaps(building.footprint))
         })
-        .unwrap_or(false)
+        .unwrap_or(false);
+    let overlaps_blueprint = world
+        .try_query::<&BuildingBlueprint>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .any(|blueprint| footprint.overlaps(blueprint.footprint))
+        })
+        .unwrap_or(false);
+
+    overlaps_building || overlaps_blueprint
 }

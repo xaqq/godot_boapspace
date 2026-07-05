@@ -2,7 +2,7 @@ use crate::assets::{load_texture, resource_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingBlueprintKind, BuildingFootprint, ConstructionProgress,
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{Tile, TilePosition};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
@@ -73,7 +73,7 @@ struct NpcRenderInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BuildingRenderInfo {
     entity: Entity,
-    kind: BuildingBlueprintKind,
+    kind: BuildingKind,
     footprint: BuildingFootprint,
     is_blueprint: bool,
 }
@@ -102,13 +102,13 @@ pub(crate) struct GameWorld {
     selected_cell: Option<SelectedCell>,
     selected_npc: Option<SelectedNpc>,
     selected_building: Option<SelectedBuilding>,
-    build_mode: Option<BuildingBlueprintKind>,
+    build_mode: Option<BuildingKind>,
     tile_source_id: Option<i32>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
     npc_texture: Option<Gd<Texture2D>>,
     npc_sprites: HashMap<Entity, Gd<Sprite2D>>,
-    building_textures: HashMap<BuildingBlueprintKind, Gd<Texture2D>>,
+    building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
 
     base: Base<Node2D>,
@@ -458,7 +458,7 @@ impl GameWorld {
         self.handle_tile_click();
     }
 
-    fn handle_build_click(&mut self, kind: BuildingBlueprintKind) {
+    fn handle_build_click(&mut self, kind: BuildingKind) {
         let Some(origin) = self.placement_origin_under_mouse() else {
             return;
         };
@@ -616,7 +616,7 @@ impl GameWorld {
         }
     }
 
-    fn start_build_mode(&mut self, kind: BuildingBlueprintKind) {
+    fn start_build_mode(&mut self, kind: BuildingKind) {
         self.build_mode = Some(kind);
         self.clear_tile_selection();
         self.clear_npc_selection();
@@ -689,17 +689,35 @@ impl GameWorld {
 
     fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
         self.with_rendered_surface_world(|world| {
-            let mut query = world.try_query::<(Entity, &BuildingFootprint, &Building)>()?;
-            query
-                .iter(world)
-                .find_map(|(entity, footprint, _)| footprint.contains(coord).then_some(entity))
+            let building_entity = world
+                .try_query::<(Entity, &Building)>()
+                .and_then(|mut query| {
+                    query.iter(world).find_map(|(entity, building)| {
+                        building.footprint.contains(coord).then_some(entity)
+                    })
+                });
+            building_entity.or_else(|| {
+                world
+                    .try_query::<(Entity, &BuildingBlueprint)>()
+                    .and_then(|mut query| {
+                        query.iter(world).find_map(|(entity, blueprint)| {
+                            blueprint.footprint.contains(coord).then_some(entity)
+                        })
+                    })
+            })
         })
     }
 
     fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
         self.with_rendered_surface_world(|world| {
-            world.get::<Building>(entity)?;
-            world.get::<BuildingFootprint>(entity).copied()
+            world
+                .get::<Building>(entity)
+                .map(|building| building.footprint)
+                .or_else(|| {
+                    world
+                        .get::<BuildingBlueprint>(entity)
+                        .map(|blueprint| blueprint.footprint)
+                })
         })
     }
 
@@ -865,7 +883,7 @@ impl GameWorld {
     fn load_building_textures(&mut self) -> bool {
         self.building_textures.clear();
 
-        for kind in BuildingBlueprintKind::ALL {
+        for kind in BuildingKind::ALL {
             let path = building_asset_path(kind);
             let Some(texture) = load_texture(path, "GameWorld") else {
                 return false;
@@ -876,7 +894,7 @@ impl GameWorld {
         true
     }
 
-    fn building_texture(&self, kind: BuildingBlueprintKind) -> Option<Gd<Texture2D>> {
+    fn building_texture(&self, kind: BuildingKind) -> Option<Gd<Texture2D>> {
         self.building_textures.get(&kind).cloned()
     }
 
@@ -1005,12 +1023,12 @@ impl GameWorld {
 
     #[func]
     pub(crate) fn start_warehouse_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingBlueprintKind::Warehouse);
+        self.start_build_mode(BuildingKind::Warehouse);
     }
 
     #[func]
     pub(crate) fn start_town_hall_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingBlueprintKind::TownHall);
+        self.start_build_mode(BuildingKind::TownHall);
     }
 
     #[func]
@@ -1045,27 +1063,37 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
 }
 
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
-    world
-        .try_query::<(
-            Entity,
-            &Building,
-            &BuildingFootprint,
-            Option<&BuildingBlueprint>,
-        )>()
+    let mut buildings = world
+        .try_query::<(Entity, &Building)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(
-                    |(entity, building, footprint, blueprint)| BuildingRenderInfo {
-                        entity,
-                        kind: building.kind,
-                        footprint: *footprint,
-                        is_blueprint: blueprint.is_some(),
-                    },
-                )
-                .collect()
+                .map(|(entity, building)| BuildingRenderInfo {
+                    entity,
+                    kind: building.kind,
+                    footprint: building.footprint,
+                    is_blueprint: false,
+                })
+                .collect::<Vec<_>>()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    if let Some(mut query) = world.try_query::<(Entity, &BuildingBlueprint, Option<&Building>)>() {
+        buildings.extend(
+            query
+                .iter(world)
+                .filter_map(|(entity, blueprint, building)| {
+                    building.is_none().then_some(BuildingRenderInfo {
+                        entity,
+                        kind: blueprint.kind,
+                        footprint: blueprint.footprint,
+                        is_blueprint: true,
+                    })
+                }),
+        );
+    }
+
+    buildings
 }
 
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
@@ -1110,26 +1138,23 @@ fn format_construction_task_details(world: &World, blueprint: Entity) -> String 
         .map(|id| id.to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let Some(building) = world.get::<Building>(blueprint) else {
-        return format!("Blueprint {blueprint_id}: unavailable");
-    };
-    let Some(footprint) = world.get::<BuildingFootprint>(blueprint) else {
+    let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
         return format!("Blueprint {blueprint_id}: unavailable");
     };
     let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
         return format!("Blueprint {blueprint_id}: unavailable");
     };
 
-    let origin = footprint.origin();
+    let origin = blueprint_data.footprint.origin();
     format!(
         "Blueprint {}: {} at ({}, {}), progress {}",
         blueprint_id,
-        building.kind.label(),
+        blueprint_data.kind.label(),
         origin.x(),
         origin.y(),
         format_deposited_over_required(
             progress.deposited(),
-            building.kind.definition().construction_cost()
+            blueprint_data.kind.definition().construction_cost()
         )
     )
 }
@@ -1177,10 +1202,10 @@ fn building_sprite_modulate(is_blueprint: bool) -> Color {
     color
 }
 
-fn building_asset_path(kind: BuildingBlueprintKind) -> &'static str {
+fn building_asset_path(kind: BuildingKind) -> &'static str {
     match kind {
-        BuildingBlueprintKind::Warehouse => BUILDING_WAREHOUSE_PATH,
-        BuildingBlueprintKind::TownHall => BUILDING_TOWNHALL_PATH,
+        BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
+        BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
     }
 }
 
@@ -1196,7 +1221,7 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
+    use game_engine::buildings::{BuildingBlueprint, ConstructionProgress};
     use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
 
     #[test]
@@ -1204,13 +1229,11 @@ mod tests {
         let mut world = World::new();
         let blueprint = world
             .spawn((
-                Building {
-                    kind: BuildingBlueprintKind::Warehouse,
+                BuildingBlueprint {
+                    kind: BuildingKind::Warehouse,
+                    footprint: BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
                 },
-                BuildingBlueprint,
-                BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
                 ConstructionProgress::new(ResourceAmounts::zero()),
-                WarehouseInventory::empty(),
             ))
             .id();
         let task = world
