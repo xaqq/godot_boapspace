@@ -11,7 +11,7 @@ use godot::classes::{
     canvas_item::TextureFilter, image, Camera2D, INode2D, Image, ImageTexture, Input, InputEvent,
     InputEventMouseButton, Node2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
-use godot::global::{Key, MouseButton};
+use godot::global::MouseButton;
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -21,6 +21,10 @@ const ZOOM_MAX: f32 = 4.0;
 const ZOOM_FACTOR: f32 = 1.1;
 const PAN_SPEED: f32 = 600.0;
 const CAMERA_LIMIT_PADDING_FACTOR: f32 = 1.0;
+const ACTION_CAMERA_PAN_UP: &str = "camera_pan_up";
+const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
+const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
+const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const TERRAIN_GRASS_PATH: &str = "res://assets/generated/terrain_grass.png";
 const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
 const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
@@ -166,16 +170,16 @@ impl INode2D for GameWorld {
         }
 
         let mut dir = Vector2::ZERO;
-        if input.is_key_pressed(Key::W) {
+        if input.is_action_pressed(ACTION_CAMERA_PAN_UP) {
             dir.y -= 1.0;
         }
-        if input.is_key_pressed(Key::S) {
+        if input.is_action_pressed(ACTION_CAMERA_PAN_DOWN) {
             dir.y += 1.0;
         }
-        if input.is_key_pressed(Key::A) {
+        if input.is_action_pressed(ACTION_CAMERA_PAN_LEFT) {
             dir.x -= 1.0;
         }
-        if input.is_key_pressed(Key::D) {
+        if input.is_action_pressed(ACTION_CAMERA_PAN_RIGHT) {
             dir.x += 1.0;
         }
 

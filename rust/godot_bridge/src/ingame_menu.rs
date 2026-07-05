@@ -1,9 +1,10 @@
-use godot::classes::{Button, Control, IControl, InputEvent, InputEventKey, SceneTree};
-use godot::global::{Error, Key};
+use godot::classes::{Button, Control, IControl, InputEvent, SceneTree};
+use godot::global::Error;
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
 const MAIN_MENU_SCENE: &str = "res://main_ui.tscn";
+const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 
 #[derive(GodotClass)]
 #[class(base = Control)]
@@ -59,11 +60,7 @@ impl IControl for IngameMenu {
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
-        let Ok(key_event) = event.try_cast::<InputEventKey>() else {
-            return;
-        };
-        if key_event.get_keycode() == Key::ESCAPE && key_event.is_pressed() && !key_event.is_echo()
-        {
+        if event.is_action_pressed(ACTION_MENU_TOGGLE) {
             if self.base().is_visible() {
                 self.base_mut().hide();
             } else {
