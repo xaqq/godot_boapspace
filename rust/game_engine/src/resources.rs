@@ -30,6 +30,8 @@ pub struct GameResources {
 }
 
 impl GameResources {
+    pub const STARTING_AMOUNT: u32 = 100;
+
     pub const fn new(wood: u32, stone: u32, food: u32, gold: u32) -> Self {
         Self {
             wood,
@@ -37,6 +39,15 @@ impl GameResources {
             food,
             gold,
         }
+    }
+
+    pub const fn starting() -> Self {
+        Self::new(
+            Self::STARTING_AMOUNT,
+            Self::STARTING_AMOUNT,
+            Self::STARTING_AMOUNT,
+            Self::STARTING_AMOUNT,
+        )
     }
 
     pub fn get(&self, kind: ResourceKind) -> u32 {
@@ -89,6 +100,14 @@ mod tests {
         assert_eq!(r.get(ResourceKind::Stone), 0);
         assert_eq!(r.get(ResourceKind::Food), 0);
         assert_eq!(r.get(ResourceKind::Gold), 0);
+    }
+
+    #[test]
+    fn test_starting_resources() {
+        let r = GameResources::starting();
+        for kind in ResourceKind::ALL {
+            assert_eq!(r.get(kind), GameResources::STARTING_AMOUNT);
+        }
     }
 
     #[test]

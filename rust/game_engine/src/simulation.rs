@@ -28,7 +28,7 @@ impl SurfaceRuntime {
     fn new(size: GridSize) -> Self {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
-        world.insert_resource(GameResources::default());
+        world.insert_resource(GameResources::starting());
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");

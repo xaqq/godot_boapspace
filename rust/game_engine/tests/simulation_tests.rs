@@ -56,8 +56,9 @@ fn test_resources_are_available_per_surface() {
     let default_amounts = simulation.with_surface_world(default_surface, resource_amounts);
     let second_amounts = simulation.with_surface_world(second_surface, resource_amounts);
 
-    assert_eq!(default_amounts, Some([0, 0, 0, 0]));
-    assert_eq!(second_amounts, Some([0, 0, 0, 0]));
+    let starting_amounts = [GameResources::STARTING_AMOUNT; ResourceKind::ALL.len()];
+    assert_eq!(default_amounts, Some(starting_amounts));
+    assert_eq!(second_amounts, Some(starting_amounts));
 }
 
 #[test]
@@ -73,8 +74,8 @@ fn test_surface_world_read_closure_can_read_resources() {
         world.resource::<GameResources>().get(ResourceKind::Gold)
     });
 
-    assert_eq!(default_food, Some(0));
-    assert_eq!(second_gold, Some(0));
+    assert_eq!(default_food, Some(GameResources::STARTING_AMOUNT));
+    assert_eq!(second_gold, Some(GameResources::STARTING_AMOUNT));
 }
 
 #[test]
