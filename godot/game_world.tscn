@@ -33,40 +33,46 @@ layout_mode = 2
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="LeftMenu" type="VBoxContainer" parent="VBoxContainer/HBoxContainer" unique_id=1354880580]
+[node name="LeftMenuScroll" type="ScrollContainer" parent="VBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(220, 0)
 layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LeftMenu" type="VBoxContainer" parent="VBoxContainer/HBoxContainer/LeftMenuScroll" unique_id=1354880580]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="SurfaceSelector" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1719837742 node_paths=PackedStringArray("game_world") instance=ExtResource("4_surface_selector")]
-game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+[node name="SurfaceSelector" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1719837742 node_paths=PackedStringArray("game_world") instance=ExtResource("4_surface_selector")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparatorBuild" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709327]
+[node name="HSeparatorBuild" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709327]
 layout_mode = 2
 
-[node name="BuildingPalette" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1719837743 node_paths=PackedStringArray("game_world") instance=ExtResource("6_build_palette")]
-game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+[node name="BuildingPalette" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1719837743 node_paths=PackedStringArray("game_world") instance=ExtResource("6_build_palette")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709325]
+[node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709325]
 layout_mode = 2
 
-[node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1842781406 node_paths=PackedStringArray("game_world") instance=ExtResource("3_tile_info_panel")]
-game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+[node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781406 node_paths=PackedStringArray("game_world") instance=ExtResource("3_tile_info_panel")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparator2" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709326]
+[node name="HSeparator2" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709326]
 layout_mode = 2
 
-[node name="NpcInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1842781407 node_paths=PackedStringArray("game_world") instance=ExtResource("5_npc_info_panel")]
-game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+[node name="NpcInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781407 node_paths=PackedStringArray("game_world") instance=ExtResource("5_npc_info_panel")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparator3" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=2139709328]
+[node name="HSeparator3" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709328]
 layout_mode = 2
 
-[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenu" unique_id=1842781408 node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
-game_world = NodePath("../../SubViewportContainer/SubViewport/GameWorld")
+[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781408 node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
