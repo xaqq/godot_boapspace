@@ -94,7 +94,8 @@ pub fn spawn_initial_tiles(mut commands: Commands, grid: Res<Grid>) {
         let entity = commands
             .spawn(TileBundle::new_with_terrain(coord, terrain))
             .id();
-        debug_assert!(tile_index.set(coord, entity));
+        let inserted = tile_index.set(coord, entity);
+        debug_assert!(inserted);
     }
 
     commands.insert_resource(tile_index);

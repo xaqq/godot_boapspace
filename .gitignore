@@ -2,3 +2,4 @@ rust/target/
 godot/.godot/
 worktrees/
 .idea/
+export/
