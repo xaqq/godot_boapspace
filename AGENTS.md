@@ -30,6 +30,32 @@ cargo test --manifest-path rust/Cargo.toml            # Run all tests
 ~/.local/bin/godot4 godot/project.godot --editor      # Open editor
 ```
 
+## Git push
+
+This is a solo-developer repo. It is fine to publish local `master` directly to
+`origin/master` when asked to push.
+
+The `origin` remote may be configured as SSH and can resolve to a read-only
+deploy key. First try the normal push:
+
+```bash
+git push -u origin master
+```
+
+If GitHub rejects that with `Permission ... denied to deploy key`, use the
+authenticated GitHub CLI token as a one-off HTTPS credential helper without
+persistently changing the remote:
+
+```bash
+gh auth status
+git fetch origin master
+git log --oneline origin/master..master
+git -c credential.helper= \
+  -c credential.helper='!gh auth git-credential' \
+  -c remote.origin.pushurl=https://github.com/xaqq/godot_boapspace.git \
+  push -u origin master
+```
+
 
 ## Godot Key facts
 
