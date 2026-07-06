@@ -4,20 +4,16 @@ use crate::buildings::{
 };
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::grid::{CellCoord, Grid, GridSize};
-use crate::npcs::{
-    spawn_initial_default_npc, SimulationTickDuration, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY,
-};
+use crate::npcs::{spawn_initial_default_npc, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
+use crate::time::SIMULATION_TICK_DURATION;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
 use bevy_ecs::system::RunSystemOnce;
-use std::time::Duration;
 
 pub const DEFAULT_GRID_SIZE: GridSize = GridSize::new(256, 256);
-pub const SIMULATION_TICK_SECONDS: u64 = 60;
-const SIMULATION_TICK_DURATION: Duration = Duration::from_secs(SIMULATION_TICK_SECONDS);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimulationSpeed {
@@ -75,7 +71,6 @@ impl SurfaceRuntime {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(world_date_time);
-        world.insert_resource(SimulationTickDuration::new(SIMULATION_TICK_DURATION));
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
@@ -187,7 +182,7 @@ impl GameSimulation {
         self.simulation_speed = simulation_speed;
     }
 
-    pub fn tick(&mut self, _delta: f32) {
+    pub fn tick(&mut self) {
         if !self.playing {
             return;
         }

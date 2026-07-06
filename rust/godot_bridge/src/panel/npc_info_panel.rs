@@ -3,9 +3,9 @@ use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::grid::CellCoord;
 use game_engine::npcs::{
     BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
-    SECONDS_PER_DAY,
 };
 use game_engine::resources::{ResourceAmounts, ResourceKind};
+use game_engine::time::SECONDS_PER_DAY;
 use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;

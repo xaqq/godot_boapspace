@@ -28,7 +28,7 @@ fn test_tick_creates_construction_task_for_blueprint() {
         .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     let tasks = construction_tasks(&simulation, surface);
     assert_eq!(tasks, vec![blueprint]);
@@ -58,12 +58,12 @@ fn test_paused_tick_does_not_run_surface_schedule() {
         .expect("warehouse should place");
 
     simulation.pause();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert!(construction_tasks(&simulation, surface).is_empty());
 
     simulation.play();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(construction_tasks(&simulation, surface), vec![blueprint]);
 }
@@ -76,8 +76,8 @@ fn test_repeated_ticks_do_not_duplicate_construction_tasks() {
         .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
         .expect("warehouse should place");
 
-    simulation.tick(1.0 / 60.0);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
+    simulation.tick();
 
     let tasks = construction_tasks(&simulation, surface);
     assert_eq!(tasks, vec![blueprint]);
@@ -115,7 +115,7 @@ fn test_construction_tasks_are_scoped_per_surface() {
         )
         .expect("warehouse should place");
 
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(construction_tasks(&simulation, default_surface).len(), 0);
     assert_eq!(

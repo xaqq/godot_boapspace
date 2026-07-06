@@ -2,14 +2,15 @@ use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
     BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
-    INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, SECONDS_PER_DAY,
+    INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{
-    GameSimulation, SimulationSpeed, SurfaceLookupError, DEFAULT_GRID_SIZE, SIMULATION_TICK_SECONDS,
+    GameSimulation, SimulationSpeed, SurfaceLookupError, DEFAULT_GRID_SIZE,
 };
 use game_engine::tile::TileIndex;
+use game_engine::time::{SECONDS_PER_DAY, SIMULATION_TICK_SECONDS};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -94,7 +95,7 @@ fn test_tick_runs_across_multiple_surfaces() {
     let mut simulation = GameSimulation::new();
     simulation.create_surface(GridSize::new(6, 6));
 
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(simulation.surface_count(), 2);
 }
@@ -118,7 +119,7 @@ fn test_tick_advances_world_date_time_by_fixed_duration() {
     let mut simulation = GameSimulation::new();
     let before = simulation.world_date_time();
 
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(
         simulation.world_date_time().elapsed_since_world_epoch(),
@@ -132,7 +133,7 @@ fn test_two_x_speed_runs_two_fixed_ticks() {
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::TwoX);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(
         simulation.world_date_time().elapsed_since_world_epoch(),
@@ -146,7 +147,7 @@ fn test_four_x_speed_runs_four_fixed_ticks() {
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::FourX);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(
         simulation.world_date_time().elapsed_since_world_epoch(),
@@ -160,7 +161,7 @@ fn test_fifty_x_speed_runs_fifty_fixed_ticks() {
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::FiftyX);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(
         simulation.world_date_time().elapsed_since_world_epoch(),
@@ -174,7 +175,7 @@ fn test_hundred_x_speed_runs_one_hundred_fixed_ticks() {
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::HundredX);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert_eq!(
         simulation.world_date_time().elapsed_since_world_epoch(),
@@ -189,7 +190,7 @@ fn test_paused_tick_does_not_advance_world_date_time() {
 
     simulation.set_simulation_speed(SimulationSpeed::FourX);
     simulation.pause();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert!(!simulation.is_playing());
     assert_eq!(simulation.world_date_time(), before);
@@ -200,10 +201,10 @@ fn test_resume_allows_world_date_time_to_advance_again() {
     let mut simulation = GameSimulation::new();
 
     simulation.pause();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
     let paused_date_time = simulation.world_date_time();
     simulation.play();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
 
     assert!(simulation.is_playing());
     assert_eq!(
@@ -215,7 +216,7 @@ fn test_resume_allows_world_date_time_to_advance_again() {
 #[test]
 fn test_created_surface_inherits_current_world_date_time() {
     let mut simulation = GameSimulation::new();
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
     let current_date_time = simulation.world_date_time();
 
     let surface = simulation.create_surface(GridSize::new(4, 4));
@@ -232,7 +233,7 @@ fn test_tick_syncs_world_date_time_across_surfaces() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
 
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
     let current_date_time = simulation.world_date_time();
 
     assert_eq!(
@@ -252,7 +253,7 @@ fn test_four_x_tick_syncs_world_date_time_across_surfaces() {
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
 
     simulation.set_simulation_speed(SimulationSpeed::FourX);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
     let current_date_time = simulation.world_date_time();
 
     assert_eq!(
@@ -449,8 +450,8 @@ fn test_tick_does_not_duplicate_resource_nodes() {
     let surface = simulation.default_surface_id();
     let before = sorted_resource_nodes(&mut simulation, surface);
 
-    simulation.tick(1.0 / 60.0);
-    simulation.tick(1.0 / 60.0);
+    simulation.tick();
+    simulation.tick();
 
     assert_eq!(sorted_resource_nodes(&mut simulation, surface), before);
 }
@@ -610,7 +611,7 @@ fn npc_hunger_state(
 fn tick_days(simulation: &mut GameSimulation, days: u64) {
     let ticks_per_day = SECONDS_PER_DAY / SIMULATION_TICK_SECONDS;
     for _ in 0..(days * ticks_per_day) {
-        simulation.tick(1.0 / 60.0);
+        simulation.tick();
     }
 }
 

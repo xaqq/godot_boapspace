@@ -1,13 +1,14 @@
 use crate::grid::CellCoord;
 use crate::resources::{ResourceAmounts, ResourceKind};
+use crate::time::SIMULATION_TICKS_PER_DAY;
 use bevy_ecs::prelude::Component;
 use std::time::Duration;
 
 pub const SUBTILE_UNITS_PER_TILE: i32 = 1024;
 pub const HALF_SUBTILE_UNITS_PER_TILE: i32 = SUBTILE_UNITS_PER_TILE / 2;
 pub const DEFAULT_MAX_VELOCITY_UNITS_PER_TICK: u32 = 16;
-pub const NPC_HUNGER_FULL_SATIATION: Duration = Duration::from_secs(86_400);
-pub const NPC_HUNGER_STARVING_THRESHOLD: Duration = Duration::from_secs(86_400);
+pub const NPC_HUNGER_HUNGRY_THRESHOLD: u32 = SIMULATION_TICKS_PER_DAY;
+pub const NPC_HUNGER_FULL_SATIATION: u32 = 2 * SIMULATION_TICKS_PER_DAY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct TilePosition {
@@ -249,69 +250,50 @@ impl Default for MovementFacing {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct NpcHunger {
-    satiation_remaining: Duration,
-    hunger_duration: Duration,
+    satiation_level: u32,
 }
 
 impl NpcHunger {
     pub const fn fed() -> Self {
         Self {
-            satiation_remaining: NPC_HUNGER_FULL_SATIATION,
-            hunger_duration: Duration::ZERO,
+            satiation_level: NPC_HUNGER_FULL_SATIATION,
         }
     }
 
-    pub const fn new(satiation_remaining: Duration, hunger_duration: Duration) -> Self {
-        Self {
-            satiation_remaining,
-            hunger_duration,
-        }
+    pub const fn new(satiation_level: u32) -> Self {
+        Self { satiation_level }
     }
 
-    pub const fn satiation_remaining(self) -> Duration {
-        self.satiation_remaining
-    }
-
-    pub const fn hunger_duration(self) -> Duration {
-        self.hunger_duration
+    pub const fn satiation_level(self) -> u32 {
+        self.satiation_level
     }
 
     pub fn state(self) -> HungerState {
-        if !self.satiation_remaining.is_zero() {
-            HungerState::Fed
-        } else if self.hunger_duration >= NPC_HUNGER_STARVING_THRESHOLD {
+        if self.satiation_level == 0 {
             HungerState::Starving
-        } else {
+        } else if self.satiation_level <= NPC_HUNGER_HUNGRY_THRESHOLD {
             HungerState::Hungry
+        } else {
+            HungerState::Fed
         }
     }
 
-    pub fn advance_by(&mut self, delta: Duration, inventory: &mut NpcInventory) {
-        if delta.is_zero() {
-            return;
+    pub fn advance_tick(&mut self, inventory: &mut NpcInventory) {
+        let was_fed = self.state() == HungerState::Fed;
+
+        if self.satiation_level > 0 {
+            self.satiation_level -= 1;
         }
 
-        let mut unfed_delta = delta;
-        if !self.satiation_remaining.is_zero() {
-            if self.satiation_remaining > delta {
-                self.satiation_remaining -= delta;
-                return;
-            }
-
-            unfed_delta = delta.saturating_sub(self.satiation_remaining);
-            self.satiation_remaining = Duration::ZERO;
+        if self.satiation_level <= NPC_HUNGER_HUNGRY_THRESHOLD
+            && inventory.consume(ResourceKind::Food, 1)
+        {
+            self.satiation_level = if was_fed {
+                NPC_HUNGER_FULL_SATIATION
+            } else {
+                NPC_HUNGER_FULL_SATIATION.saturating_sub(1)
+            };
         }
-
-        if inventory.consume(ResourceKind::Food, 1) {
-            self.satiation_remaining = NPC_HUNGER_FULL_SATIATION.saturating_sub(unfed_delta);
-            self.hunger_duration = Duration::ZERO;
-            return;
-        }
-
-        self.hunger_duration = self
-            .hunger_duration
-            .checked_add(unfed_delta)
-            .unwrap_or(Duration::MAX);
     }
 }
 

@@ -280,7 +280,7 @@ impl INode2D for GameWorld {
             cam.set_position(pos + dir * speed * delta as f32);
         }
 
-        self.game.tick(delta as f32);
+        self.game.tick();
         self.sync_npc_sprites();
         if self.build_mode.is_some() {
             self.base_mut().queue_redraw();

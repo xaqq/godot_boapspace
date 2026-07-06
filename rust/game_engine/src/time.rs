@@ -1,0 +1,6 @@
+use std::time::Duration;
+
+pub const SECONDS_PER_DAY: u64 = 86_400;
+pub const SIMULATION_TICK_SECONDS: u64 = 60;
+pub const SIMULATION_TICK_DURATION: Duration = Duration::from_secs(SIMULATION_TICK_SECONDS);
+pub const SIMULATION_TICKS_PER_DAY: u32 = (SECONDS_PER_DAY / SIMULATION_TICK_SECONDS) as u32;
