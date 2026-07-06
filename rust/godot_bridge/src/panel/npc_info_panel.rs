@@ -1,12 +1,11 @@
-use super::resource_quantity::ResourceQuantity;
-use crate::world::game_world::{decode_entity_id, GameWorld};
-use game_engine::grid::CellCoord;
-use game_engine::npcs::{
-    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
+use super::npc_details::{
+    configure_satiation_progress_bar, details_button_enabled, npc_details, update_inventory,
+    update_satiation, NpcDetails,
 };
-use game_engine::resources::ResourceKind;
-use game_engine::time::SECONDS_PER_DAY;
-use godot::classes::{IPanelContainer, Label, PanelContainer, ProgressBar, VBoxContainer};
+use super::resource_quantity::ResourceQuantity;
+use crate::world::game_world::GameWorld;
+use game_engine::npcs::NpcHunger;
+use godot::classes::{Button, IPanelContainer, Label, PanelContainer, ProgressBar, VBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -53,6 +52,9 @@ pub(crate) struct NpcInfoPanel {
     gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
+    details_button: OnEditor<Gd<Button>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     selected_npc_entity_id: Option<i64>,
@@ -76,6 +78,7 @@ impl IPanelContainer for NpcInfoPanel {
             stone_inventory_quantity: OnEditor::default(),
             food_inventory_quantity: OnEditor::default(),
             gold_inventory_quantity: OnEditor::default(),
+            details_button: OnEditor::default(),
             game_world: OnEditor::default(),
             selected_npc_entity_id: None,
             base,
@@ -100,6 +103,7 @@ impl IPanelContainer for NpcInfoPanel {
             &mut satiation_progress_bar,
             NpcHunger::MAX_SATIATION_LEVEL,
         );
+        self.set_details_button_enabled(false);
 
         self.base_mut().set_process(true);
     }
@@ -126,7 +130,7 @@ impl NpcInfoPanel {
         };
         let info = {
             let game_world = self.game_world.bind();
-            npc_info(&game_world, npc_entity_id)
+            npc_details(&game_world, npc_entity_id)
         };
 
         let Some(info) = info else {
@@ -136,9 +140,10 @@ impl NpcInfoPanel {
         };
 
         self.update_npc_labels(info);
+        self.set_details_button_enabled(true);
     }
 
-    fn update_npc_labels(&mut self, info: NpcInfo) {
+    fn update_npc_labels(&mut self, info: NpcDetails) {
         let mut name_label = self.name_label.clone();
         let mut age_label = self.age_label.clone();
         let mut birth_day_label = self.birth_day_label.clone();
@@ -201,141 +206,16 @@ impl NpcInfoPanel {
         satiation_container.hide();
         inventory_label.set_text("Inventory:");
         inventory_container.hide();
-    }
-}
-
-struct NpcInfo {
-    coord: CellCoord,
-    name: String,
-    birth_day: u64,
-    age_years: u32,
-    hunger_state: HungerState,
-    satiation_level: u32,
-    max_satiation_level: u32,
-    inventory: NpcInventory,
-}
-
-fn npc_info(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcInfo> {
-    let entity = decode_entity_id(npc_entity_id)?;
-    game_world.with_rendered_surface_world(|world| {
-        world.get::<Npc>(entity)?;
-        let position = world.get::<NpcPosition>(entity)?;
-        let name = world.get::<NpcName>(entity)?;
-        let birth_date = world.get::<BirthDate>(entity)?;
-        let hunger = world.get::<NpcHunger>(entity)?;
-        let inventory = world.get::<NpcInventory>(entity)?;
-        let world_date_time = *world.resource::<WorldDateTime>();
-
-        Some(NpcInfo {
-            coord: position.coord,
-            name: name.as_str().to_string(),
-            birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
-            age_years: world_date_time.age_years_since(*birth_date),
-            hunger_state: hunger.state(),
-            satiation_level: hunger.satiation_level(),
-            max_satiation_level: NpcHunger::MAX_SATIATION_LEVEL,
-            inventory: *inventory,
-        })
-    })
-}
-
-fn update_satiation(
-    hunger_label: &mut Gd<Label>,
-    satiation_container: &mut Gd<VBoxContainer>,
-    satiation_progress_bar: &mut Gd<ProgressBar>,
-    hunger_state: HungerState,
-    satiation_level: u32,
-    max_satiation_level: u32,
-) {
-    let text = hunger_text(hunger_state, satiation_level, max_satiation_level);
-    hunger_label.set_text(text.as_str());
-
-    configure_satiation_progress_bar(satiation_progress_bar, max_satiation_level);
-    satiation_progress_bar.set_value(satiation_progress_value(
-        satiation_level,
-        max_satiation_level,
-    ));
-    satiation_progress_bar.set_tooltip_text(text.as_str());
-    satiation_container.show();
-}
-
-fn configure_satiation_progress_bar(
-    satiation_progress_bar: &mut Gd<ProgressBar>,
-    max_satiation_level: u32,
-) {
-    satiation_progress_bar.set_min(f64::from(NpcHunger::MIN_SATIATION_LEVEL));
-    satiation_progress_bar.set_max(f64::from(max_satiation_level));
-    satiation_progress_bar.set_show_percentage(false);
-}
-
-fn hunger_text(
-    hunger_state: HungerState,
-    satiation_level: u32,
-    max_satiation_level: u32,
-) -> String {
-    format!(
-        "Hunger: {} ({}/{})",
-        hunger_state.label(),
-        satiation_level,
-        max_satiation_level
-    )
-}
-
-fn satiation_progress_value(satiation_level: u32, max_satiation_level: u32) -> f64 {
-    f64::from(satiation_level.min(max_satiation_level))
-}
-
-fn update_inventory(
-    inventory_container: &mut Gd<VBoxContainer>,
-    inventory_label: &mut Gd<Label>,
-    wood_quantity: &mut Gd<ResourceQuantity>,
-    stone_quantity: &mut Gd<ResourceQuantity>,
-    food_quantity: &mut Gd<ResourceQuantity>,
-    gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: NpcInventory,
-) {
-    let contents = inventory.contents();
-    inventory_label
-        .set_text(inventory_header_text(inventory.used_size(), inventory.max_size()).as_str());
-    wood_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Wood));
-    stone_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Stone));
-    food_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Food));
-    gold_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Gold));
-    inventory_container.show();
-}
-
-fn inventory_header_text(used_size: u32, max_size: u32) -> String {
-    format!("Inventory: {used_size}/{max_size}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hunger_text_includes_status_and_satiation_range() {
-        assert_eq!(
-            hunger_text(HungerState::Hungry, 12, 48),
-            "Hunger: Hungry (12/48)"
-        );
+        self.set_details_button_enabled(false);
     }
 
-    #[test]
-    fn satiation_progress_value_uses_component_range() {
-        assert_eq!(satiation_progress_value(12, 48), 12.0);
-        assert_eq!(satiation_progress_value(80, 48), 48.0);
-    }
-
-    #[test]
-    fn inventory_header_text_shows_used_over_max() {
-        assert_eq!(inventory_header_text(20, 100), "Inventory: 20/100");
+    fn set_details_button_enabled(&mut self, enabled: bool) {
+        let mut details_button = self.details_button.clone();
+        let selected = if enabled {
+            self.selected_npc_entity_id
+        } else {
+            None
+        };
+        details_button.set_disabled(!details_button_enabled(selected));
     }
 }

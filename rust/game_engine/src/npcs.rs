@@ -2,6 +2,7 @@ pub use crate::components::{
     AiIdleRoam, AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
     MovementTarget, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
 };
+pub use crate::skills::{skill_percent, NpcSkills, SkillKind, SkillRank, MAX_SKILL_VALUE};
 
 use crate::ai::{DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INVENTORY_TARGET};
 use crate::grid::{CellCoord, Grid};
@@ -80,6 +81,7 @@ pub struct InitialNpcBundle {
     movement_facing: MovementFacing,
     hunger: NpcHunger,
     inventory: NpcInventory,
+    skills: NpcSkills,
     keep_food_in_inventory: AiKeepEnoughFoodInInventory,
 }
 
@@ -95,6 +97,7 @@ impl InitialNpcBundle {
             movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
             inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
+            skills: NpcSkills::default(),
             keep_food_in_inventory: AiKeepEnoughFoodInInventory::new(
                 DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD,
                 DEFAULT_NPC_FOOD_INVENTORY_TARGET,
@@ -180,5 +183,20 @@ mod tests {
 
         assert_eq!(world_date_time.hour(), 9);
         assert_eq!(world_date_time.minute(), 5);
+    }
+
+    #[test]
+    fn initial_npc_bundle_includes_zeroed_skills() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(0, 0)))
+            .id();
+        let skills = world
+            .get::<NpcSkills>(npc)
+            .expect("initial NPC bundle should include skills");
+
+        for kind in SkillKind::ALL {
+            assert_eq!(skills.value(kind), 0);
+        }
     }
 }

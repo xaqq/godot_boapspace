@@ -7,6 +7,7 @@ pub mod npcs;
 pub mod resource_nodes;
 pub mod resources;
 pub mod simulation;
+pub mod skills;
 pub mod systems;
 pub mod tasks;
 pub mod tile;

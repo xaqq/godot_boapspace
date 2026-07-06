@@ -9,14 +9,15 @@ use game_engine::ai::{
     DEFAULT_NPC_IDLE_DWELL_TICKS, DEFAULT_NPC_IDLE_ROAM_RADIUS, RESOURCE_GATHER_TICKS_PER_UNIT,
 };
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+    system_complete_building_construction, Building, BuildingBlueprint, BuildingFootprint,
+    BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
     MaxVelocity, MovementFacing, MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition,
     Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, Grid};
-use game_engine::npcs::{Npc, NpcPosition};
+use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
 use game_engine::systems::build_surface_schedule;
@@ -579,7 +580,51 @@ fn test_gather_resource_completes_after_sixty_valid_ticks() {
     run_gather_resource(&mut world);
 
     assert_eq!(npc_food(&world, npc), 1);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 1);
     assert!(world.get::<AiGatherResource>(npc).is_none());
+    assert_eq!(resource_quantity(&world, resource), Some(1));
+}
+
+#[test]
+fn test_successful_gathers_increment_only_matching_skill() {
+    let cases = [
+        (ResourceKind::Wood, SkillKind::Lumberjack),
+        (ResourceKind::Stone, SkillKind::Quarryman),
+        (ResourceKind::Food, SkillKind::Forager),
+        (ResourceKind::Gold, SkillKind::Prospector),
+    ];
+
+    for (resource_kind, expected_skill) in cases {
+        let mut world = World::new();
+        let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), resource_kind, 1);
+        let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+
+        for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
+            run_gather_resource(&mut world);
+        }
+
+        for skill in SkillKind::ALL {
+            let expected_value = u32::from(skill == expected_skill);
+            assert_eq!(
+                npc_skill(&world, npc, skill),
+                expected_value,
+                "{resource_kind:?} should only increment {expected_skill:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_partial_gather_progress_awards_no_skill_xp() {
+    let mut world = World::new();
+    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Wood, 1);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+
+    for _ in 0..(RESOURCE_GATHER_TICKS_PER_UNIT - 1) {
+        run_gather_resource(&mut world);
+    }
+
+    assert_eq!(npc_skill(&world, npc, SkillKind::Lumberjack), 0);
     assert_eq!(resource_quantity(&world, resource), Some(1));
 }
 
@@ -660,6 +705,7 @@ fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full(
                 0,
                 0,
             )),
+            NpcSkills::default(),
             AiGatherResource::new(resource),
         ))
         .id();
@@ -669,6 +715,7 @@ fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full(
     }
 
     assert_eq!(npc_food(&world, npc), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 0);
     assert_eq!(resource_quantity(&world, resource), Some(2));
     assert!(world.get::<AiGatherResource>(npc).is_none());
 }
@@ -685,6 +732,8 @@ fn test_gather_resource_collects_target_node_kind() {
 
     assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 1);
     assert_eq!(npc_resource(&world, npc, ResourceKind::Food), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Lumberjack), 1);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 0);
     assert!(world.get::<ResourceNode>(resource).is_none());
 }
 
@@ -697,6 +746,7 @@ fn test_gather_resource_removes_invalid_target_without_awarding_food() {
     run_gather_resource(&mut world);
 
     assert_eq!(npc_food(&world, npc), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 0);
     assert!(world.get::<AiGatherResource>(npc).is_none());
 }
 
@@ -709,8 +759,21 @@ fn test_gather_resource_removes_moved_away_gather_without_awarding_food() {
     run_gather_resource(&mut world);
 
     assert_eq!(npc_food(&world, npc), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 0);
     assert!(world.get::<AiGatherResource>(npc).is_none());
     assert_eq!(resource_quantity(&world, resource), Some(1));
+}
+
+#[test]
+fn test_gather_resource_removes_depleted_target_without_skill_xp() {
+    let mut world = World::new();
+    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Stone, 0);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+
+    run_gather_resource(&mut world);
+
+    assert_eq!(npc_skill(&world, npc, SkillKind::Quarryman), 0);
+    assert!(world.get::<AiGatherResource>(npc).is_none());
 }
 
 #[test]
@@ -856,6 +919,7 @@ fn test_deposit_construction_resources_clamps_to_batch_size() {
             Npc,
             NpcPosition::new(CellCoord::new(0, 0)),
             NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
         .id();
@@ -867,6 +931,8 @@ fn test_deposit_construction_resources_clamps_to_batch_size() {
         CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE
     );
     assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 10);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
 
 #[test]
@@ -882,6 +948,7 @@ fn test_deposit_construction_resources_clamps_to_remaining_cost() {
             Npc,
             NpcPosition::new(CellCoord::new(0, 0)),
             NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
         .id();
@@ -893,6 +960,8 @@ fn test_deposit_construction_resources_clamps_to_remaining_cost() {
         40
     );
     assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 15);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
 
 #[test]
@@ -904,6 +973,7 @@ fn test_deposit_construction_resources_deposits_multiple_needed_kinds() {
             Npc,
             NpcPosition::new(CellCoord::new(0, 0)),
             NpcInventory::new(ResourceAmounts::new(10, 10, 0, 0)),
+            NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
         .id();
@@ -915,6 +985,27 @@ fn test_deposit_construction_resources_deposits_multiple_needed_kinds() {
     assert_eq!(progress.get(ResourceKind::Stone), 10);
     assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 0);
     assert_eq!(npc_resource(&world, npc, ResourceKind::Stone), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
+}
+
+#[test]
+fn test_building_completion_does_not_award_builder_or_farmer_xp() {
+    let mut world = World::new();
+    let npc = world.spawn((Npc, NpcSkills::default())).id();
+    let blueprint = spawn_construction_blueprint_with_progress(
+        &mut world,
+        CellCoord::new(0, 0),
+        ResourceAmounts::new(40, 20, 0, 0),
+    );
+
+    world
+        .run_system_once(system_complete_building_construction)
+        .expect("building completion system should run");
+
+    assert!(world.get::<Building>(blueprint).is_some());
+    assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
 
 #[test]
@@ -923,14 +1014,17 @@ fn test_npc_gathers_and_completes_warehouse_construction() {
     let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(0, 0));
     spawn_resource_node(&mut world, CellCoord::new(2, 0), ResourceKind::Wood, 40);
     spawn_resource_node(&mut world, CellCoord::new(0, 2), ResourceKind::Stone, 20);
-    world.spawn((
-        Npc,
-        NpcPosition::new(CellCoord::new(0, 0)),
-        Velocity::ZERO,
-        MaxVelocity::default(),
-        MovementFacing::default(),
-        NpcInventory::empty(),
-    ));
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            Velocity::ZERO,
+            MaxVelocity::default(),
+            MovementFacing::default(),
+            NpcInventory::empty(),
+            NpcSkills::default(),
+        ))
+        .id();
     let mut schedule = build_surface_schedule();
 
     for _ in 0..12_000 {
@@ -946,6 +1040,8 @@ fn test_npc_gathers_and_completes_warehouse_construction() {
     assert_eq!(building.kind, BuildingKind::Warehouse);
     assert!(world.get::<BuildingBlueprint>(blueprint).is_none());
     assert!(world.get::<ConstructionProgress>(blueprint).is_none());
+    assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
+    assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
 
 fn spawn_searching_npc(world: &mut World, coord: CellCoord) -> Entity {
@@ -966,6 +1062,7 @@ fn spawn_gathering_npc(world: &mut World, coord: CellCoord, target: Entity) -> E
             Npc,
             NpcPosition::new(coord),
             NpcInventory::empty(),
+            NpcSkills::default(),
             AiGatherResource::new(target),
         ))
         .id()
@@ -1082,6 +1179,13 @@ fn npc_resource(world: &World, npc: Entity, kind: ResourceKind) -> u32 {
         .expect("NPC should have inventory")
         .contents()
         .get(kind)
+}
+
+fn npc_skill(world: &World, npc: Entity, kind: SkillKind) -> u32 {
+    world
+        .get::<NpcSkills>(npc)
+        .expect("NPC should have skills")
+        .value(kind)
 }
 
 fn resource_quantity(world: &World, entity: Entity) -> Option<u32> {

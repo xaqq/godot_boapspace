@@ -8,6 +8,7 @@ use crate::components::{
 };
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::{ResourceAmounts, ResourceKind};
+use crate::skills::{NpcSkills, SkillKind};
 use crate::tasks::ProgressBuildingConstruction;
 use bevy_ecs::prelude::*;
 
@@ -458,6 +459,7 @@ pub fn system_gather_resource(
             &NpcPosition,
             &mut NpcInventory,
             &mut AiGatherResource,
+            Option<&mut NpcSkills>,
             Option<&AiSearchForFood>,
             Option<&AiKeepEnoughFoodInInventory>,
         ),
@@ -465,7 +467,7 @@ pub fn system_gather_resource(
     >,
     mut resource_nodes: Query<(&TilePosition, &mut ResourceNode)>,
 ) {
-    for (entity, position, mut inventory, mut gather, search, keep_food) in &mut npcs {
+    for (entity, position, mut inventory, mut gather, skills, search, keep_food) in &mut npcs {
         let target = gather.target();
         let Ok((target_position, mut resource_node)) = resource_nodes.get_mut(target) else {
             commands.entity(entity).remove::<AiGatherResource>();
@@ -486,6 +488,9 @@ pub fn system_gather_resource(
         if !inventory.add(kind, 1) {
             commands.entity(entity).remove::<AiGatherResource>();
             continue;
+        }
+        if let Some(mut skills) = skills {
+            skills.add_xp(SkillKind::for_gathered_resource(kind), 1);
         }
 
         resource_node.quantity = resource_node.quantity.saturating_sub(1);

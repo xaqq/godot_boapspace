@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://panel/building_info_panel.tscn" id="7_building_info_panel"]
 [ext_resource type="PackedScene" path="res://panel/task_list_panel.tscn" id="8_task_list_panel"]
 [ext_resource type="PackedScene" path="res://panel/map_entity_tooltip_panel.tscn" id="9_map_entity_tooltip_panel"]
+[ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -161,6 +162,21 @@ game_world = NodePath("../SubViewport/GameWorld")
 visible = false
 game_world = NodePath("../SubViewport/GameWorld")
 toggle_button = NodePath("../../../HeaderBar/TasksButton")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="NpcDetailsPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "open_button") instance=ExtResource("10_npc_details_panel")]
+visible = false
+game_world = NodePath("../SubViewport/GameWorld")
+open_button = NodePath("../../LeftMenuScroll/LeftMenu/NpcInfoPanel/MarginContainer/VBoxContainer/DetailsButton")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0

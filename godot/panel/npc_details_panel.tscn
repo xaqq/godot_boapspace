@@ -1,0 +1,141 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
+
+[node name="NpcDetailsPanel" type="NpcDetailsPanel" node_paths=PackedStringArray("close_button", "details_container", "empty_state_label", "name_label", "age_label", "birth_day_label", "pos_label", "hunger_label", "satiation_container", "satiation_progress_bar", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity", "skills_grid")]
+close_button = NodePath("MarginContainer/VBoxContainer/Header/CloseButton")
+details_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer")
+empty_state_label = NodePath("MarginContainer/VBoxContainer/EmptyStateLabel")
+name_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/name_label")
+age_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/age_label")
+birth_day_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/birth_day_label")
+pos_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/pos_label")
+hunger_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer/hunger_label")
+satiation_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer")
+satiation_progress_bar = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer/SatiationProgressBar")
+inventory_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer")
+inventory_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryLabel")
+wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
+stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
+food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
+gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
+skills_grid = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SkillsGrid")
+custom_minimum_size = Vector2(620, 420)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Header" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "NPC Details"
+
+[node name="CloseButton" type="Button" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+text = "Close"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="EmptyStateLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "No NPC selected"
+
+[node name="DetailsContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="name_label" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+text = "Name: None"
+
+[node name="age_label" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+text = ""
+
+[node name="birth_day_label" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+text = ""
+
+[node name="pos_label" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+text = "Cell: None"
+
+[node name="SatiationContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="hunger_label" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer"]
+layout_mode = 2
+text = ""
+
+[node name="SatiationProgressBar" type="ProgressBar" parent="MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer"]
+custom_minimum_size = Vector2(160, 8)
+layout_mode = 2
+size_flags_horizontal = 3
+show_percentage = false
+
+[node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="InventoryLabel" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer"]
+layout_mode = 2
+text = "Inventory:"
+
+[node name="InventoryGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer"]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 4
+
+[node name="WoodInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 0
+
+[node name="StoneInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 1
+
+[node name="FoodInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 2
+
+[node name="GoldInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
+layout_mode = 2
+kind = 3
+
+[node name="SkillsSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+
+[node name="SkillsLabel" type="Label" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+text = "Skills"
+
+[node name="SkillsGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/DetailsContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 4
+theme_override_constants/h_separation = 14
+theme_override_constants/v_separation = 6
