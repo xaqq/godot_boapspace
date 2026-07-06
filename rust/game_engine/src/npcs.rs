@@ -4,6 +4,7 @@ pub use crate::components::{
 };
 
 use crate::grid::{CellCoord, Grid};
+use crate::resources::ResourceAmounts;
 use bevy_ecs::prelude::*;
 use std::time::Duration;
 
@@ -106,7 +107,7 @@ impl InitialNpcBundle {
             max_velocity: MaxVelocity::default(),
             movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
-            inventory: NpcInventory::empty(),
+            inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
         }
     }
 }

@@ -494,7 +494,7 @@ fn test_initial_npc_has_identity_birth_date_age_and_center_position() {
 }
 
 #[test]
-fn test_initial_npc_inventory_starts_empty() {
+fn test_initial_npc_inventory_starts_with_food() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
@@ -509,7 +509,8 @@ fn test_initial_npc_inventory_starts_empty() {
         .expect("default NPC should have inventory");
 
     for kind in ResourceKind::ALL {
-        assert_eq!(inventory.get(kind), 0);
+        let expected = if kind == ResourceKind::Food { 20 } else { 0 };
+        assert_eq!(inventory.get(kind), expected);
     }
 }
 
@@ -539,11 +540,11 @@ fn test_paused_tick_does_not_advance_npc_hunger() {
 }
 
 #[test]
-fn test_npc_becomes_hungry_after_one_day_without_food() {
+fn test_npc_becomes_hungry_after_spawn_food_is_consumed() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    tick_days(&mut simulation, 1);
+    tick_days(&mut simulation, 21);
 
     let hunger_state =
         npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
@@ -552,11 +553,11 @@ fn test_npc_becomes_hungry_after_one_day_without_food() {
 }
 
 #[test]
-fn test_npc_becomes_starving_after_two_days_without_food() {
+fn test_npc_becomes_starving_after_spawn_food_is_consumed() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    tick_days(&mut simulation, 2);
+    tick_days(&mut simulation, 22);
 
     let hunger_state =
         npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
