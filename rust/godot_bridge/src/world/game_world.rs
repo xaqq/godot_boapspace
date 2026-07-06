@@ -67,6 +67,23 @@ struct SelectedBuilding {
     entity: Entity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ClickSelectionTargets {
+    tile: Option<SelectedCell>,
+    npc: Option<SelectedNpc>,
+    building: Option<SelectedBuilding>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionEvent {
+    TileSelected(Entity),
+    TileDeselected,
+    NpcSelected(Entity),
+    NpcDeselected,
+    BuildingSelected(Entity),
+    BuildingDeselected,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapEntityKind {
     Building,
@@ -533,86 +550,27 @@ impl GameWorld {
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         ) {
-            if let Some(entity) = self.building_entity_at(coord) {
-                self.select_building(entity);
+            let targets =
+                self.with_rendered_surface_world(|world| click_selection_targets_at(world, coord));
+            if targets.tile.is_none() {
+                godot_error!("GameWorld: selected tile entity unavailable");
+                self.disable_processing();
                 return;
             }
 
-            if let Some(entity) = self.npc_entity_at(coord) {
-                self.select_npc(coord, entity);
-                return;
-            }
-
-            self.select_tile(coord);
+            let events = apply_click_selection_targets(
+                &mut self.selected_cell,
+                &mut self.selected_npc,
+                &mut self.selected_building,
+                targets,
+            );
+            self.base_mut().queue_redraw();
+            self.emit_selection_events(events);
         } else {
             self.clear_tile_selection();
             self.clear_npc_selection();
             self.clear_building_selection();
         }
-    }
-
-    fn select_tile(&mut self, coord: CellCoord) {
-        let Some(entity) = self.tile_entity_at(coord) else {
-            godot_error!("GameWorld: selected tile entity unavailable");
-            self.disable_processing();
-            return;
-        };
-
-        if self.selected_cell.map(|selected| selected.entity) == Some(entity) {
-            self.clear_tile_selection();
-            return;
-        }
-
-        let Some(tile_entity_id) = encode_entity_id(entity) else {
-            godot_error!("GameWorld: selected tile entity id is too large for Godot");
-            return;
-        };
-
-        self.clear_npc_selection();
-        self.clear_building_selection();
-        self.selected_cell = Some(SelectedCell { coord, entity });
-        self.base_mut().queue_redraw();
-        self.signals().tile_selected().emit(tile_entity_id);
-    }
-
-    fn select_building(&mut self, entity: Entity) {
-        if self.selected_building.map(|selected| selected.entity) == Some(entity) {
-            self.clear_building_selection();
-            return;
-        }
-
-        let Some(footprint) = self.building_footprint(entity) else {
-            godot_error!("GameWorld: selected building entity unavailable");
-            return;
-        };
-        let Some(building_entity_id) = encode_entity_id(entity) else {
-            godot_error!("GameWorld: selected building entity id is too large for Godot");
-            return;
-        };
-
-        self.clear_tile_selection();
-        self.clear_npc_selection();
-        self.selected_building = Some(SelectedBuilding { footprint, entity });
-        self.base_mut().queue_redraw();
-        self.signals().building_selected().emit(building_entity_id);
-    }
-
-    fn select_npc(&mut self, coord: CellCoord, entity: Entity) {
-        if self.selected_npc.map(|selected| selected.entity) == Some(entity) {
-            self.clear_npc_selection();
-            return;
-        }
-
-        let Some(npc_entity_id) = encode_entity_id(entity) else {
-            godot_error!("GameWorld: selected NPC entity id is too large for Godot");
-            return;
-        };
-
-        self.clear_tile_selection();
-        self.clear_building_selection();
-        self.selected_npc = Some(SelectedNpc { coord, entity });
-        self.base_mut().queue_redraw();
-        self.signals().npc_selected().emit(npc_entity_id);
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
@@ -662,6 +620,45 @@ impl GameWorld {
         if self.selected_building.take().is_some() {
             self.base_mut().queue_redraw();
             self.signals().building_deselected().emit();
+        }
+    }
+
+    fn emit_selection_events(&mut self, events: Vec<SelectionEvent>) {
+        for event in events {
+            match event {
+                SelectionEvent::TileSelected(entity) => {
+                    let Some(tile_entity_id) = encode_entity_id(entity) else {
+                        godot_error!("GameWorld: selected tile entity id is too large for Godot");
+                        continue;
+                    };
+                    self.signals().tile_selected().emit(tile_entity_id);
+                }
+                SelectionEvent::TileDeselected => {
+                    self.signals().tile_deselected().emit();
+                }
+                SelectionEvent::NpcSelected(entity) => {
+                    let Some(npc_entity_id) = encode_entity_id(entity) else {
+                        godot_error!("GameWorld: selected NPC entity id is too large for Godot");
+                        continue;
+                    };
+                    self.signals().npc_selected().emit(npc_entity_id);
+                }
+                SelectionEvent::NpcDeselected => {
+                    self.signals().npc_deselected().emit();
+                }
+                SelectionEvent::BuildingSelected(entity) => {
+                    let Some(building_entity_id) = encode_entity_id(entity) else {
+                        godot_error!(
+                            "GameWorld: selected building entity id is too large for Godot"
+                        );
+                        continue;
+                    };
+                    self.signals().building_selected().emit(building_entity_id);
+                }
+                SelectionEvent::BuildingDeselected => {
+                    self.signals().building_deselected().emit();
+                }
+            }
         }
     }
 
@@ -784,31 +781,6 @@ impl GameWorld {
             date_time.hour(),
             date_time.minute()
         )
-    }
-
-    fn tile_entity_at(&self, coord: CellCoord) -> Option<Entity> {
-        self.with_rendered_surface_world(|world| {
-            let index = world.resource::<TileIndex>();
-            let entity = index.get(coord)?;
-            world.get::<Tile>(entity)?;
-            Some(entity)
-        })
-    }
-
-    fn npc_entity_at(&self, coord: CellCoord) -> Option<Entity> {
-        self.with_rendered_surface_world(|world| npc_entity_at(world, coord))
-    }
-
-    fn building_entity_at(&self, coord: CellCoord) -> Option<Entity> {
-        self.with_rendered_surface_world(|world| building_entity_at(world, coord))
-    }
-
-    fn building_footprint(&self, entity: Entity) -> Option<BuildingFootprint> {
-        self.with_rendered_surface_world(|world| {
-            world
-                .get::<BuildingBlueprint>(entity)
-                .map(|blueprint| blueprint.footprint)
-        })
     }
 
     fn sync_building_sprites(&mut self) {
@@ -1204,6 +1176,78 @@ pub(crate) fn decode_entity_id(entity_id: i64) -> Option<Entity> {
     Entity::try_from_bits(bits)
 }
 
+fn click_selection_targets_at(world: &World, coord: CellCoord) -> ClickSelectionTargets {
+    ClickSelectionTargets {
+        tile: selected_cell_at(world, coord),
+        npc: selected_npc_at(world, coord),
+        building: selected_building_at(world, coord),
+    }
+}
+
+fn selected_cell_at(world: &World, coord: CellCoord) -> Option<SelectedCell> {
+    let index = world.get_resource::<TileIndex>()?;
+    let entity = index.get(coord)?;
+    world.get::<Tile>(entity)?;
+    Some(SelectedCell { coord, entity })
+}
+
+fn selected_npc_at(world: &World, coord: CellCoord) -> Option<SelectedNpc> {
+    let mut query = world.try_query::<(Entity, &NpcPosition, &Npc)>()?;
+    query
+        .iter(world)
+        .filter_map(|(entity, position, _)| {
+            (position.coord == coord).then_some(SelectedNpc { coord, entity })
+        })
+        .min_by_key(|selected| selected.entity.to_bits())
+}
+
+fn selected_building_at(world: &World, coord: CellCoord) -> Option<SelectedBuilding> {
+    let mut query = world.try_query::<(Entity, &BuildingBlueprint)>()?;
+    query.iter(world).find_map(|(entity, blueprint)| {
+        blueprint
+            .footprint
+            .contains(coord)
+            .then_some(SelectedBuilding {
+                footprint: blueprint.footprint,
+                entity,
+            })
+    })
+}
+
+fn apply_click_selection_targets(
+    selected_cell: &mut Option<SelectedCell>,
+    selected_npc: &mut Option<SelectedNpc>,
+    selected_building: &mut Option<SelectedBuilding>,
+    targets: ClickSelectionTargets,
+) -> Vec<SelectionEvent> {
+    let mut events = Vec::new();
+
+    if targets.tile.is_none() && selected_cell.take().is_some() {
+        events.push(SelectionEvent::TileDeselected);
+    }
+    if targets.npc.is_none() && selected_npc.take().is_some() {
+        events.push(SelectionEvent::NpcDeselected);
+    }
+    if targets.building.is_none() && selected_building.take().is_some() {
+        events.push(SelectionEvent::BuildingDeselected);
+    }
+
+    if let Some(tile) = targets.tile {
+        *selected_cell = Some(tile);
+        events.push(SelectionEvent::TileSelected(tile.entity));
+    }
+    if let Some(npc) = targets.npc {
+        *selected_npc = Some(npc);
+        events.push(SelectionEvent::NpcSelected(npc.entity));
+    }
+    if let Some(building) = targets.building {
+        *selected_building = Some(building);
+        events.push(SelectionEvent::BuildingSelected(building.entity));
+    }
+
+    events
+}
+
 fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarget> {
     if let Some(entity) = building_entity_at(world, coord) {
         return Some(MapEntityTarget {
@@ -1226,13 +1270,7 @@ fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarg
 }
 
 fn building_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
-    world
-        .try_query::<(Entity, &BuildingBlueprint)>()
-        .and_then(|mut query| {
-            query.iter(world).find_map(|(entity, blueprint)| {
-                blueprint.footprint.contains(coord).then_some(entity)
-            })
-        })
+    selected_building_at(world, coord).map(|selected| selected.entity)
 }
 
 fn npc_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
@@ -1459,6 +1497,7 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 mod tests {
     use super::*;
     use game_engine::buildings::BuildingBlueprintBundle;
+    use game_engine::grid::GridSize;
     use game_engine::npcs::InitialNpcBundle;
     use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
     use game_engine::tile::TileBundle;
@@ -1532,6 +1571,258 @@ mod tests {
                     encode_entity_id(blueprint).expect("blueprint entity id should encode")
                 ),
             }]
+        );
+    }
+
+    #[test]
+    fn tile_only_click_selects_tile_and_clears_npc_and_building() {
+        let coord = CellCoord::new(2, 3);
+        let mut world = world_with_tiles(&[coord]);
+        let tile = indexed_tile_entity(&world, coord);
+        let previous_npc_coord = CellCoord::new(5, 5);
+        let previous_npc = world.spawn(InitialNpcBundle::new(previous_npc_coord)).id();
+        let previous_footprint = BuildingFootprint::new(CellCoord::new(6, 6), 2, 2);
+        let previous_building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                previous_footprint,
+            ))
+            .id();
+
+        let mut selected_cell = None;
+        let mut selected_npc = Some(SelectedNpc {
+            coord: previous_npc_coord,
+            entity: previous_npc,
+        });
+        let mut selected_building = Some(SelectedBuilding {
+            footprint: previous_footprint,
+            entity: previous_building,
+        });
+
+        let targets = click_selection_targets_at(&world, coord);
+        let events = apply_click_selection_targets(
+            &mut selected_cell,
+            &mut selected_npc,
+            &mut selected_building,
+            targets,
+        );
+
+        assert_eq!(
+            selected_cell,
+            Some(SelectedCell {
+                coord,
+                entity: tile
+            })
+        );
+        assert_eq!(selected_npc, None);
+        assert_eq!(selected_building, None);
+        assert_eq!(
+            events,
+            vec![
+                SelectionEvent::NpcDeselected,
+                SelectionEvent::BuildingDeselected,
+                SelectionEvent::TileSelected(tile),
+            ]
+        );
+    }
+
+    #[test]
+    fn populated_cell_click_selects_tile_npc_and_building() {
+        let coord = CellCoord::new(2, 2);
+        let mut world = world_with_tiles(&[coord]);
+        let tile = indexed_tile_entity(&world, coord);
+        let npc = world.spawn(InitialNpcBundle::new(coord)).id();
+        let footprint = BuildingFootprint::new(CellCoord::new(2, 2), 2, 2);
+        let building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                footprint,
+            ))
+            .id();
+
+        let mut selected_cell = None;
+        let mut selected_npc = None;
+        let mut selected_building = None;
+
+        let targets = click_selection_targets_at(&world, coord);
+        let events = apply_click_selection_targets(
+            &mut selected_cell,
+            &mut selected_npc,
+            &mut selected_building,
+            targets,
+        );
+
+        assert_eq!(
+            selected_cell,
+            Some(SelectedCell {
+                coord,
+                entity: tile
+            })
+        );
+        assert_eq!(selected_npc, Some(SelectedNpc { coord, entity: npc }));
+        assert_eq!(
+            selected_building,
+            Some(SelectedBuilding {
+                footprint,
+                entity: building,
+            })
+        );
+        assert_eq!(
+            events,
+            vec![
+                SelectionEvent::TileSelected(tile),
+                SelectionEvent::NpcSelected(npc),
+                SelectionEvent::BuildingSelected(building),
+            ]
+        );
+    }
+
+    #[test]
+    fn repeated_populated_cell_click_reemits_selected_events() {
+        let coord = CellCoord::new(2, 2);
+        let mut world = world_with_tiles(&[coord]);
+        let tile = indexed_tile_entity(&world, coord);
+        let npc = world.spawn(InitialNpcBundle::new(coord)).id();
+        let footprint = BuildingFootprint::new(CellCoord::new(2, 2), 2, 2);
+        let building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                footprint,
+            ))
+            .id();
+
+        let mut selected_cell = None;
+        let mut selected_npc = None;
+        let mut selected_building = None;
+        let targets = click_selection_targets_at(&world, coord);
+        apply_click_selection_targets(
+            &mut selected_cell,
+            &mut selected_npc,
+            &mut selected_building,
+            targets,
+        );
+
+        let events = apply_click_selection_targets(
+            &mut selected_cell,
+            &mut selected_npc,
+            &mut selected_building,
+            targets,
+        );
+
+        assert_eq!(
+            selected_cell,
+            Some(SelectedCell {
+                coord,
+                entity: tile
+            })
+        );
+        assert_eq!(selected_npc, Some(SelectedNpc { coord, entity: npc }));
+        assert_eq!(
+            selected_building,
+            Some(SelectedBuilding {
+                footprint,
+                entity: building,
+            })
+        );
+        assert_eq!(
+            events,
+            vec![
+                SelectionEvent::TileSelected(tile),
+                SelectionEvent::NpcSelected(npc),
+                SelectionEvent::BuildingSelected(building),
+            ]
+        );
+    }
+
+    #[test]
+    fn clicking_original_tile_after_selected_npc_moves_away_clears_npc_selection() {
+        let original_coord = CellCoord::new(2, 2);
+        let moved_coord = CellCoord::new(3, 2);
+        let mut world = world_with_tiles(&[original_coord, moved_coord]);
+        let tile = indexed_tile_entity(&world, original_coord);
+        let npc = world.spawn(InitialNpcBundle::new(original_coord)).id();
+        world
+            .get_mut::<NpcPosition>(npc)
+            .expect("spawned NPC should have a position")
+            .coord = moved_coord;
+
+        let mut selected_cell = Some(SelectedCell {
+            coord: original_coord,
+            entity: tile,
+        });
+        let mut selected_npc = Some(SelectedNpc {
+            coord: original_coord,
+            entity: npc,
+        });
+        let mut selected_building = None;
+
+        let targets = click_selection_targets_at(&world, original_coord);
+        let events = apply_click_selection_targets(
+            &mut selected_cell,
+            &mut selected_npc,
+            &mut selected_building,
+            targets,
+        );
+
+        assert_eq!(
+            selected_cell,
+            Some(SelectedCell {
+                coord: original_coord,
+                entity: tile,
+            })
+        );
+        assert_eq!(selected_npc, None);
+        assert_eq!(
+            events,
+            vec![
+                SelectionEvent::NpcDeselected,
+                SelectionEvent::TileSelected(tile),
+            ]
+        );
+    }
+
+    #[test]
+    fn multiple_npcs_on_cell_select_lowest_entity_bits() {
+        let coord = CellCoord::new(2, 2);
+        let mut world = world_with_tiles(&[coord]);
+        let first = world.spawn(InitialNpcBundle::new(coord)).id();
+        let second = world.spawn(InitialNpcBundle::new(coord)).id();
+        let expected = [first, second]
+            .into_iter()
+            .min_by_key(|entity| entity.to_bits())
+            .expect("at least one NPC should exist");
+
+        let targets = click_selection_targets_at(&world, coord);
+
+        assert_eq!(
+            targets.npc,
+            Some(SelectedNpc {
+                coord,
+                entity: expected,
+            })
+        );
+    }
+
+    #[test]
+    fn building_selection_resolves_from_non_origin_footprint_cell() {
+        let coord = CellCoord::new(3, 3);
+        let mut world = world_with_tiles(&[coord]);
+        let footprint = BuildingFootprint::new(CellCoord::new(2, 2), 2, 2);
+        let building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                footprint,
+            ))
+            .id();
+
+        let targets = click_selection_targets_at(&world, coord);
+
+        assert_eq!(
+            targets.building,
+            Some(SelectedBuilding {
+                footprint,
+                entity: building,
+            })
         );
     }
 
@@ -1620,5 +1911,23 @@ mod tests {
             quantity: 100,
         });
         entity
+    }
+
+    fn world_with_tiles(coords: &[CellCoord]) -> World {
+        let mut world = World::new();
+        let mut index = TileIndex::new(GridSize::new(8, 8));
+        for &coord in coords {
+            let entity = world.spawn(TileBundle::new(coord)).id();
+            assert!(index.set(coord, entity));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn indexed_tile_entity(world: &World, coord: CellCoord) -> Entity {
+        world
+            .resource::<TileIndex>()
+            .get(coord)
+            .expect("test tile should exist in index")
     }
 }
