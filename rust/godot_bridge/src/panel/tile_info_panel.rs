@@ -1,5 +1,7 @@
 use super::resource_quantity::ResourceQuantity;
 use crate::world::game_world::{decode_entity_id, GameWorld};
+use bevy_ecs::prelude::Entity;
+use bevy_ecs::world::World;
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::CellCoord;
 use game_engine::resource_nodes::ResourceNode;
@@ -22,6 +24,7 @@ pub(crate) struct TileInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
+    selected_tile_entity_id: Option<i64>,
     base: Base<PanelContainer>,
 }
 
@@ -33,53 +36,82 @@ impl IPanelContainer for TileInfoPanel {
             terrain_label: OnEditor::default(),
             resource_quantity: OnEditor::default(),
             game_world: OnEditor::default(),
+            selected_tile_entity_id: None,
             base,
         }
     }
 
     fn ready(&mut self) {
         let game_world = self.game_world.clone();
-        let pos_label = self.pos_label.clone();
-        let terrain_label = self.terrain_label.clone();
-        let resource_quantity = self.resource_quantity.clone();
-
-        let selected_game_world = game_world.clone();
-        let mut selected_pos_label = pos_label.clone();
-        let mut selected_terrain_label = terrain_label.clone();
-        let mut selected_resource_quantity = resource_quantity.clone();
         game_world
             .signals()
             .tile_selected()
-            .connect(move |tile_entity_id| {
-                let game_world = selected_game_world.bind();
-                let Some(info) = tile_info(&game_world, tile_entity_id) else {
-                    clear_tile_info(
-                        &mut selected_pos_label,
-                        &mut selected_terrain_label,
-                        &mut selected_resource_quantity,
-                    );
-                    return;
-                };
+            .connect_other(self, Self::select_tile);
 
-                let position_text = format!("Cell: ({}, {})", info.coord.x(), info.coord.y());
-                selected_pos_label.set_text(position_text.as_str());
-                selected_terrain_label.set_text(terrain_text(info.terrain).as_str());
-                update_resource_quantity(&mut selected_resource_quantity, info.resource);
-            });
+        let game_world = self.game_world.clone();
+        game_world
+            .signals()
+            .tile_deselected()
+            .connect_other(self, Self::deselect_tile);
 
-        let mut deselected_pos_label = pos_label;
-        let mut deselected_terrain_label = terrain_label;
-        let mut deselected_resource_quantity = resource_quantity;
-        game_world.signals().tile_deselected().connect(move || {
-            clear_tile_info(
-                &mut deselected_pos_label,
-                &mut deselected_terrain_label,
-                &mut deselected_resource_quantity,
-            );
-        });
+        self.base_mut().set_process(true);
+    }
+
+    fn process(&mut self, _delta: f64) {
+        self.refresh_selected_tile();
     }
 }
 
+impl TileInfoPanel {
+    fn select_tile(&mut self, tile_entity_id: i64) {
+        self.selected_tile_entity_id = Some(tile_entity_id);
+        self.refresh_selected_tile();
+    }
+
+    fn deselect_tile(&mut self) {
+        self.selected_tile_entity_id = None;
+        self.clear_tile_info();
+    }
+
+    fn refresh_selected_tile(&mut self) {
+        let Some(tile_entity_id) = self.selected_tile_entity_id else {
+            return;
+        };
+        let info = {
+            let game_world = self.game_world.bind();
+            tile_info(&game_world, tile_entity_id)
+        };
+
+        let Some(info) = info else {
+            self.selected_tile_entity_id = None;
+            self.clear_tile_info();
+            return;
+        };
+
+        self.update_tile_info(info);
+    }
+
+    fn update_tile_info(&mut self, info: TileInfo) {
+        let mut pos_label = self.pos_label.clone();
+        let mut terrain_label = self.terrain_label.clone();
+        let mut resource_quantity = self.resource_quantity.clone();
+
+        let position_text = format!("Cell: ({}, {})", info.coord.x(), info.coord.y());
+        pos_label.set_text(position_text.as_str());
+        terrain_label.set_text(terrain_text(info.terrain).as_str());
+        update_resource_quantity(&mut resource_quantity, info.resource);
+    }
+
+    fn clear_tile_info(&mut self) {
+        let mut pos_label = self.pos_label.clone();
+        let mut terrain_label = self.terrain_label.clone();
+        let mut resource_quantity = self.resource_quantity.clone();
+
+        clear_tile_info(&mut pos_label, &mut terrain_label, &mut resource_quantity);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TileInfo {
     coord: CellCoord,
     terrain: TerrainKind,
@@ -88,17 +120,19 @@ struct TileInfo {
 
 fn tile_info(game_world: &GameWorld, tile_entity_id: i64) -> Option<TileInfo> {
     let entity = decode_entity_id(tile_entity_id)?;
-    game_world.with_rendered_surface_world(|world| {
-        world.get::<Tile>(entity)?;
-        let position = world.get::<TilePosition>(entity)?;
-        let terrain = world.get::<Terrain>(entity)?;
-        let resource = world.get::<ResourceNode>(entity).copied();
+    game_world.with_rendered_surface_world(|world| tile_info_from_world(world, entity))
+}
 
-        Some(TileInfo {
-            coord: position.coord,
-            terrain: terrain.kind,
-            resource,
-        })
+fn tile_info_from_world(world: &World, entity: Entity) -> Option<TileInfo> {
+    world.get::<Tile>(entity)?;
+    let position = world.get::<TilePosition>(entity)?;
+    let terrain = world.get::<Terrain>(entity)?;
+    let resource = world.get::<ResourceNode>(entity).copied();
+
+    Some(TileInfo {
+        coord: position.coord,
+        terrain: terrain.kind,
+        resource,
     })
 }
 
@@ -133,6 +167,8 @@ fn clear_tile_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::resources::ResourceKind;
+    use game_engine::tile::TileBundle;
 
     #[test]
     fn terrain_text_shows_terrain_label() {
@@ -140,5 +176,68 @@ mod tests {
         assert_eq!(terrain_text(TerrainKind::Sand), "Terrain: Sand");
         assert_eq!(terrain_text(TerrainKind::Dirt), "Terrain: Dirt");
         assert_eq!(terrain_text(TerrainKind::Water), "Terrain: Water");
+    }
+
+    #[test]
+    fn tile_info_reads_current_resource_quantity() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        let tile = world
+            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Dirt))
+            .id();
+        world.entity_mut(tile).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 12,
+        });
+
+        assert_eq!(
+            tile_info_from_world(&world, tile).and_then(|info| info.resource),
+            Some(ResourceNode {
+                kind: ResourceKind::Wood,
+                quantity: 12,
+            })
+        );
+
+        world
+            .get_mut::<ResourceNode>(tile)
+            .expect("test tile should have a resource node")
+            .quantity = 11;
+
+        assert_eq!(
+            tile_info_from_world(&world, tile).and_then(|info| info.resource),
+            Some(ResourceNode {
+                kind: ResourceKind::Wood,
+                quantity: 11,
+            })
+        );
+    }
+
+    #[test]
+    fn tile_info_hides_resource_after_node_is_removed() {
+        let mut world = World::new();
+        let coord = CellCoord::new(4, 5);
+        let tile = world
+            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+            .id();
+        world.entity_mut(tile).insert(ResourceNode {
+            kind: ResourceKind::Food,
+            quantity: 1,
+        });
+
+        assert!(tile_info_from_world(&world, tile)
+            .expect("tile info should exist")
+            .resource
+            .is_some());
+
+        world.entity_mut(tile).remove::<ResourceNode>();
+
+        assert_eq!(
+            tile_info_from_world(&world, tile),
+            Some(TileInfo {
+                coord,
+                terrain: TerrainKind::Grass,
+                resource: None,
+            })
+        );
     }
 }
