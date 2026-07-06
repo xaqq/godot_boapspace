@@ -1,4 +1,4 @@
-use crate::assets::{load_texture, resource_asset_path, terrain_asset_path};
+use crate::assets::{load_packed_scene, load_texture, resource_asset_path, terrain_asset_path};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
@@ -14,8 +14,9 @@ use game_engine::tasks::ProgressBuildingConstruction;
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
-    canvas_item::TextureFilter, Camera2D, INode2D, Input, InputEvent, InputEventMouseButton,
-    Node2D, Sprite2D, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
+    canvas_item::TextureFilter, AnimatedSprite2D, Camera2D, INode2D, Input, InputEvent,
+    InputEventMouseButton, Node2D, PackedScene, Sprite2D, Texture2D, TileMapLayer, TileSet,
+    TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
@@ -33,7 +34,7 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
-const NPC_COLONIST_PATH: &str = "res://assets/generated/npc_colonist.png";
+const NPC_COLONIST_SCENE_PATH: &str = "res://world/npc_colonist.tscn";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
 
@@ -136,8 +137,8 @@ pub(crate) struct GameWorld {
     build_mode: Option<BuildingKind>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
-    npc_texture: Option<Gd<Texture2D>>,
-    npc_sprites: HashMap<Entity, Gd<Sprite2D>>,
+    npc_scene: Option<Gd<PackedScene>>,
+    npc_sprites: HashMap<Entity, Gd<AnimatedSprite2D>>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
 
@@ -163,7 +164,7 @@ impl INode2D for GameWorld {
             build_mode: None,
             _tile_set: None,
             _resource_node_tile_set: None,
-            npc_texture: None,
+            npc_scene: None,
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
             building_sprites: HashMap::new(),
@@ -210,11 +211,11 @@ impl INode2D for GameWorld {
         resource_map.set_z_index(1);
         self.populate_resource_node_map(&mut resource_map);
 
-        let Some(npc_texture) = load_texture(NPC_COLONIST_PATH, "GameWorld") else {
+        let Some(npc_scene) = load_packed_scene(NPC_COLONIST_SCENE_PATH, "GameWorld") else {
             self.disable_processing();
             return;
         };
-        self.npc_texture = Some(npc_texture);
+        self.npc_scene = Some(npc_scene);
         self.sync_npc_sprites();
 
         cam.set_enabled(true);
@@ -859,8 +860,8 @@ impl GameWorld {
 
     fn sync_npc_sprites(&mut self) {
         let npcs = self.npc_render_infos();
-        let Some(texture) = self.npc_texture.clone() else {
-            godot_error!("GameWorld: NPC texture not initialized");
+        let Some(npc_scene) = self.npc_scene.clone() else {
+            godot_error!("GameWorld: NPC scene not initialized");
             self.disable_processing();
             return;
         };
@@ -887,11 +888,24 @@ impl GameWorld {
 
             let position = cell_top_left(npc.coord);
             if !self.npc_sprites.contains_key(&npc.entity) {
-                let mut sprite = Sprite2D::new_alloc();
-                sprite.set_texture(&texture);
-                sprite.set_centered(false);
-                sprite.set_texture_filter(TextureFilter::NEAREST);
-                sprite.set_z_index(3);
+                let Some(node) = npc_scene.instantiate() else {
+                    godot_error!("GameWorld: failed to instantiate NPC scene");
+                    self.disable_processing();
+                    return;
+                };
+
+                let mut sprite = match node.try_cast::<AnimatedSprite2D>() {
+                    Ok(sprite) => sprite,
+                    Err(mut node) => {
+                        godot_error!(
+                            "GameWorld: NPC scene root is {}, expected AnimatedSprite2D",
+                            node.get_class()
+                        );
+                        node.queue_free();
+                        self.disable_processing();
+                        return;
+                    }
+                };
                 sprite.set_position(position);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(npc.entity, sprite);

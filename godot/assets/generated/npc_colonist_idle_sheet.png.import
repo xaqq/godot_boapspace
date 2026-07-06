@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dvsnhvy88ntts"
-path="res://.godot/imported/npc_colonist.png-de65e283c351428106728a0c372f9ae0.ctex"
+uid="uid://buq5uxvcxmjyw"
+path="res://.godot/imported/npc_colonist_idle_sheet.png-893bfc05da789da6bc00f5f74d413c2a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/generated/npc_colonist.png"
-dest_files=["res://.godot/imported/npc_colonist.png-de65e283c351428106728a0c372f9ae0.ctex"]
+source_file="res://assets/generated/npc_colonist_idle_sheet.png"
+dest_files=["res://.godot/imported/npc_colonist_idle_sheet.png-893bfc05da789da6bc00f5f74d413c2a.ctex"]
 
 [params]
 
