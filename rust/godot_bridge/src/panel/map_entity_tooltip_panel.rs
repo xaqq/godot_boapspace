@@ -1,7 +1,9 @@
 use crate::world::game_world::{decode_entity_id, GameWorld, MapEntityKind};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
-use game_engine::buildings::{BuildingBlueprint, BuildingFootprint, ConstructionProgress};
+use game_engine::buildings::{
+    Building, BuildingBlueprint, BuildingFootprint, ConstructionProgress,
+};
 use game_engine::components::{Tile, TilePosition};
 use game_engine::npcs::{BirthDate, Npc, NpcInventory, NpcName, NpcPosition, WorldDateTime};
 use game_engine::resource_nodes::ResourceNode;
@@ -120,14 +122,21 @@ fn map_entity_tooltip_text(
 }
 
 fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
-    let blueprint = world.get::<BuildingBlueprint>(entity)?;
-    let progress = world.get::<ConstructionProgress>(entity)?;
+    if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
+        let progress = world.get::<ConstructionProgress>(entity)?;
 
-    Some(format_building_tooltip(
-        blueprint.kind.label(),
-        blueprint.footprint,
-        progress.deposited(),
-        blueprint.kind.definition().construction_cost(),
+        return Some(format_building_blueprint_tooltip(
+            blueprint.kind.label(),
+            blueprint.footprint,
+            progress.deposited(),
+            blueprint.kind.definition().construction_cost(),
+        ));
+    }
+
+    let building = world.get::<Building>(entity)?;
+    Some(format_finished_building_tooltip(
+        building.kind.label(),
+        building.footprint,
     ))
 }
 
@@ -155,7 +164,7 @@ fn resource_node_tooltip_text(world: &World, entity: Entity) -> Option<String> {
     Some(format_resource_node_tooltip(*node))
 }
 
-fn format_building_tooltip(
+fn format_building_blueprint_tooltip(
     label: &str,
     footprint: BuildingFootprint,
     progress: ResourceAmounts,
@@ -170,6 +179,18 @@ fn format_building_tooltip(
         footprint.width(),
         footprint.height(),
         format_deposited_over_required(progress, cost)
+    )
+}
+
+fn format_finished_building_tooltip(label: &str, footprint: BuildingFootprint) -> String {
+    let origin = footprint.origin();
+    format!(
+        "[b]{}[/b]\nBuilding\nCell: ({}, {})\nFootprint: {}x{}",
+        label,
+        origin.x(),
+        origin.y(),
+        footprint.width(),
+        footprint.height()
     )
 }
 
@@ -239,7 +260,7 @@ mod tests {
 
     #[test]
     fn building_tooltip_formats_footprint_and_progress() {
-        let text = format_building_tooltip(
+        let text = format_building_blueprint_tooltip(
             "Warehouse",
             BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
             ResourceAmounts::new(5, 0, 0, 0),
@@ -249,6 +270,19 @@ mod tests {
         assert_eq!(
             text,
             "[b]Warehouse Blueprint[/b]\nCell: (4, 7)\nFootprint: 2x2\nConstruction: Wood: 5/40, Stone: 0/20"
+        );
+    }
+
+    #[test]
+    fn finished_building_tooltip_omits_construction_progress() {
+        let text = format_finished_building_tooltip(
+            "Warehouse",
+            BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+        );
+
+        assert_eq!(
+            text,
+            "[b]Warehouse[/b]\nBuilding\nCell: (4, 7)\nFootprint: 2x2"
         );
     }
 

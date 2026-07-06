@@ -228,6 +228,37 @@ impl AiKeepEnoughFoodInInventory {
 pub struct AiSearchForFood;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct AiConstructBuilding {
+    blueprint: Entity,
+    target_kind: Option<ResourceKind>,
+}
+
+impl AiConstructBuilding {
+    pub const fn new(blueprint: Entity) -> Self {
+        Self {
+            blueprint,
+            target_kind: None,
+        }
+    }
+
+    pub const fn blueprint(self) -> Entity {
+        self.blueprint
+    }
+
+    pub const fn target_kind(self) -> Option<ResourceKind> {
+        self.target_kind
+    }
+
+    pub const fn set_target_kind(&mut self, target_kind: ResourceKind) {
+        self.target_kind = Some(target_kind);
+    }
+
+    pub const fn clear_target_kind(&mut self) {
+        self.target_kind = None;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiIdleRoam {
     origin: CellCoord,
     dwell_ticks_remaining: u32,

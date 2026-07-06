@@ -1,18 +1,26 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use game_engine::ai::{
-    system_gather_resource, system_keep_enough_food_in_inventory, system_npc_idle,
-    system_search_for_food, AiGatherResource, AiIdleRoam, AiKeepEnoughFoodInInventory,
-    AiSearchForFood, DEFAULT_NPC_FOOD_INVENTORY_TARGET, DEFAULT_NPC_IDLE_DWELL_TICKS,
-    DEFAULT_NPC_IDLE_ROAM_RADIUS, RESOURCE_GATHER_TICKS_PER_UNIT,
+    system_assign_construction_work, system_deposit_construction_resources, system_gather_resource,
+    system_keep_enough_food_in_inventory, system_npc_idle, system_route_construction_work,
+    system_search_for_food, AiConstructBuilding, AiGatherResource, AiIdleRoam,
+    AiKeepEnoughFoodInInventory, AiSearchForFood, CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE,
+    DEFAULT_NPC_FOOD_INVENTORY_TARGET, DEFAULT_NPC_IDLE_DWELL_TICKS, DEFAULT_NPC_IDLE_ROAM_RADIUS,
+    RESOURCE_GATHER_TICKS_PER_UNIT,
+};
+use game_engine::buildings::{
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
-    MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+    MaxVelocity, MovementFacing, MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition,
+    Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, Grid};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
+use game_engine::systems::build_surface_schedule;
+use game_engine::tasks::maintain_construction_tasks;
 
 #[test]
 fn test_initial_npc_has_keep_food_goal() {
@@ -263,6 +271,32 @@ fn test_idle_roam_is_suppressed_by_search_and_gather() {
 }
 
 #[test]
+fn test_idle_roam_is_suppressed_by_construction_work() {
+    let mut world = idle_world(8, 8);
+    let blueprint = world.spawn_empty().id();
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(3, 3)),
+            AiIdleRoam::new(CellCoord::new(3, 3), 0),
+            MovementTarget::new(CellCoord::new(4, 3)),
+            AiConstructBuilding::new(blueprint),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    assert!(world.get::<AiIdleRoam>(npc).is_none());
+    assert_eq!(
+        world
+            .get::<MovementTarget>(npc)
+            .expect("construction movement should remain")
+            .coord,
+        CellCoord::new(4, 3)
+    );
+}
+
+#[test]
 fn test_idle_roam_yields_to_keep_food_goal_below_target() {
     let origin = CellCoord::new(3, 3);
     let mut world = idle_world(8, 8);
@@ -461,6 +495,21 @@ fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full(
 }
 
 #[test]
+fn test_gather_resource_collects_target_node_kind() {
+    let mut world = World::new();
+    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Wood, 1);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+
+    for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
+        run_gather_resource(&mut world);
+    }
+
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 1);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Food), 0);
+    assert!(world.get::<ResourceNode>(resource).is_none());
+}
+
+#[test]
 fn test_gather_resource_removes_invalid_target_without_awarding_food() {
     let mut world = World::new();
     let stale_target = world.spawn_empty().id();
@@ -483,6 +532,180 @@ fn test_gather_resource_removes_moved_away_gather_without_awarding_food() {
     assert_eq!(npc_food(&world, npc), 0);
     assert!(world.get::<AiGatherResource>(npc).is_none());
     assert_eq!(resource_quantity(&world, resource), Some(1));
+}
+
+#[test]
+fn test_assign_construction_work_targets_carried_resource_blueprint() {
+    let mut world = World::new();
+    let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
+    world
+        .run_system_once(maintain_construction_tasks)
+        .expect("task maintenance should run");
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+        ))
+        .id();
+
+    run_assign_construction(&mut world);
+
+    assert_eq!(
+        world
+            .get::<AiConstructBuilding>(npc)
+            .expect("NPC should take construction work")
+            .blueprint(),
+        blueprint
+    );
+}
+
+#[test]
+fn test_assign_construction_work_yields_to_food_need() {
+    let mut world = World::new();
+    spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
+    world
+        .run_system_once(maintain_construction_tasks)
+        .expect("task maintenance should run");
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            AiKeepEnoughFoodInInventory::new(DEFAULT_NPC_FOOD_INVENTORY_TARGET),
+        ))
+        .id();
+
+    run_assign_construction(&mut world);
+
+    assert!(world.get::<AiConstructBuilding>(npc).is_none());
+}
+
+#[test]
+fn test_route_construction_moves_to_blueprint_before_gathering_when_carrying_needed_resource() {
+    let mut world = construction_world();
+    let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
+    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Wood, 10);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            AiConstructBuilding::new(blueprint),
+        ))
+        .id();
+
+    run_route_construction(&mut world);
+
+    assert_eq!(
+        world
+            .get::<MovementTarget>(npc)
+            .expect("NPC should move to blueprint")
+            .coord,
+        CellCoord::new(4, 4)
+    );
+    assert!(world.get::<AiGatherResource>(npc).is_none());
+}
+
+#[test]
+fn test_deposit_construction_resources_clamps_to_batch_size() {
+    let mut world = World::new();
+    let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(0, 0));
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            AiConstructBuilding::new(blueprint),
+        ))
+        .id();
+
+    run_deposit_construction(&mut world);
+
+    assert_eq!(
+        construction_progress(&world, blueprint).get(ResourceKind::Wood),
+        CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE
+    );
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 10);
+}
+
+#[test]
+fn test_deposit_construction_resources_clamps_to_remaining_cost() {
+    let mut world = World::new();
+    let blueprint = spawn_construction_blueprint_with_progress(
+        &mut world,
+        CellCoord::new(0, 0),
+        ResourceAmounts::new(35, 0, 0, 0),
+    );
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            AiConstructBuilding::new(blueprint),
+        ))
+        .id();
+
+    run_deposit_construction(&mut world);
+
+    assert_eq!(
+        construction_progress(&world, blueprint).get(ResourceKind::Wood),
+        40
+    );
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 15);
+}
+
+#[test]
+fn test_deposit_construction_resources_deposits_multiple_needed_kinds() {
+    let mut world = World::new();
+    let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(0, 0));
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            NpcInventory::new(ResourceAmounts::new(10, 10, 0, 0)),
+            AiConstructBuilding::new(blueprint),
+        ))
+        .id();
+
+    run_deposit_construction(&mut world);
+
+    let progress = construction_progress(&world, blueprint);
+    assert_eq!(progress.get(ResourceKind::Wood), 10);
+    assert_eq!(progress.get(ResourceKind::Stone), 10);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 0);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Stone), 0);
+}
+
+#[test]
+fn test_npc_gathers_and_completes_warehouse_construction() {
+    let mut world = construction_world();
+    let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(0, 0));
+    spawn_resource_node(&mut world, CellCoord::new(2, 0), ResourceKind::Wood, 40);
+    spawn_resource_node(&mut world, CellCoord::new(0, 2), ResourceKind::Stone, 20);
+    world.spawn((
+        Npc,
+        NpcPosition::new(CellCoord::new(0, 0)),
+        Velocity::ZERO,
+        MaxVelocity::default(),
+        MovementFacing::default(),
+        NpcInventory::empty(),
+    ));
+    let mut schedule = build_surface_schedule();
+
+    for _ in 0..12_000 {
+        schedule.run(&mut world);
+        if world.get::<Building>(blueprint).is_some() {
+            break;
+        }
+    }
+
+    let building = world
+        .get::<Building>(blueprint)
+        .expect("warehouse should be completed");
+    assert_eq!(building.kind, BuildingKind::Warehouse);
+    assert!(world.get::<BuildingBlueprint>(blueprint).is_none());
+    assert!(world.get::<ConstructionProgress>(blueprint).is_none());
 }
 
 fn spawn_searching_npc(world: &mut World, coord: CellCoord) -> Entity {
@@ -527,6 +750,32 @@ fn spawn_resource_node(
         .id()
 }
 
+fn spawn_construction_blueprint(world: &mut World, origin: CellCoord) -> Entity {
+    spawn_construction_blueprint_with_progress(world, origin, ResourceAmounts::zero())
+}
+
+fn spawn_construction_blueprint_with_progress(
+    world: &mut World,
+    origin: CellCoord,
+    deposited: ResourceAmounts,
+) -> Entity {
+    world
+        .spawn((
+            BuildingBlueprint {
+                kind: BuildingKind::Warehouse,
+                footprint: BuildingFootprint::new(origin, 2, 2),
+            },
+            ConstructionProgress::new(deposited),
+        ))
+        .id()
+}
+
+fn construction_world() -> World {
+    let mut world = World::new();
+    world.insert_resource(Grid::new(8, 8));
+    world
+}
+
 fn run_keep_enough_food(world: &mut World) {
     world
         .run_system_once(system_keep_enough_food_in_inventory)
@@ -545,6 +794,24 @@ fn run_gather_resource(world: &mut World) {
         .expect("gather-resource system should run");
 }
 
+fn run_assign_construction(world: &mut World) {
+    world
+        .run_system_once(system_assign_construction_work)
+        .expect("assign-construction system should run");
+}
+
+fn run_route_construction(world: &mut World) {
+    world
+        .run_system_once(system_route_construction_work)
+        .expect("route-construction system should run");
+}
+
+fn run_deposit_construction(world: &mut World) {
+    world
+        .run_system_once(system_deposit_construction_resources)
+        .expect("deposit-construction system should run");
+}
+
 fn run_idle(world: &mut World) {
     world
         .run_system_once(system_npc_idle)
@@ -560,15 +827,26 @@ fn manhattan_distance(a: CellCoord, b: CellCoord) -> u32 {
 }
 
 fn npc_food(world: &World, npc: Entity) -> u32 {
+    npc_resource(world, npc, ResourceKind::Food)
+}
+
+fn npc_resource(world: &World, npc: Entity, kind: ResourceKind) -> u32 {
     world
         .get::<NpcInventory>(npc)
         .expect("NPC should have inventory")
         .contents()
-        .get(ResourceKind::Food)
+        .get(kind)
 }
 
 fn resource_quantity(world: &World, entity: Entity) -> Option<u32> {
     world
         .get::<ResourceNode>(entity)
         .map(|resource| resource.quantity)
+}
+
+fn construction_progress(world: &World, entity: Entity) -> ResourceAmounts {
+    world
+        .get::<ConstructionProgress>(entity)
+        .expect("blueprint should have construction progress")
+        .deposited()
 }

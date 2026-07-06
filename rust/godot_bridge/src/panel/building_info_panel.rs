@@ -2,7 +2,8 @@ use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use game_engine::buildings::{
-    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress, WarehouseInventory,
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+    WarehouseInventory,
 };
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
@@ -127,15 +128,26 @@ impl IPanelContainer for BuildingInfoPanel {
 
                 selected_name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
                 selected_footprint_label.set_text(format_footprint(info.footprint).as_str());
-                update_construction_progress(
-                    &mut selected_construction_container,
-                    &mut selected_wood_construction_progress,
-                    &mut selected_stone_construction_progress,
-                    &mut selected_food_construction_progress,
-                    &mut selected_gold_construction_progress,
-                    info.progress,
-                    info.cost,
-                );
+                match info.construction {
+                    Some(construction) => update_construction_progress(
+                        &mut selected_construction_container,
+                        &mut selected_wood_construction_progress,
+                        &mut selected_stone_construction_progress,
+                        &mut selected_food_construction_progress,
+                        &mut selected_gold_construction_progress,
+                        construction.progress,
+                        construction.cost,
+                    ),
+                    None => update_construction_progress(
+                        &mut selected_construction_container,
+                        &mut selected_wood_construction_progress,
+                        &mut selected_stone_construction_progress,
+                        &mut selected_food_construction_progress,
+                        &mut selected_gold_construction_progress,
+                        ResourceAmounts::zero(),
+                        ResourceAmounts::zero(),
+                    ),
+                };
                 update_inventory(
                     &mut selected_inventory_container,
                     &mut selected_inventory_label,
@@ -167,23 +179,38 @@ impl IPanelContainer for BuildingInfoPanel {
 struct BuildingInfo {
     kind: BuildingKind,
     footprint: BuildingFootprint,
+    construction: Option<BuildingConstructionInfo>,
+    inventory: Option<WarehouseInventory>,
+}
+
+struct BuildingConstructionInfo {
     cost: ResourceAmounts,
     progress: ResourceAmounts,
-    inventory: Option<WarehouseInventory>,
 }
 
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
     game_world.with_rendered_surface_world(|world| {
-        let blueprint = world.get::<BuildingBlueprint>(entity)?;
-        let progress = world.get::<ConstructionProgress>(entity)?;
         let inventory = world.get::<WarehouseInventory>(entity).copied();
 
+        if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
+            let progress = world.get::<ConstructionProgress>(entity)?;
+            return Some(BuildingInfo {
+                kind: blueprint.kind,
+                footprint: blueprint.footprint,
+                construction: Some(BuildingConstructionInfo {
+                    cost: blueprint.kind.definition().construction_cost(),
+                    progress: progress.deposited(),
+                }),
+                inventory,
+            });
+        }
+
+        let building = world.get::<Building>(entity)?;
         Some(BuildingInfo {
-            kind: blueprint.kind,
-            footprint: blueprint.footprint,
-            cost: blueprint.kind.definition().construction_cost(),
-            progress: progress.deposited(),
+            kind: building.kind,
+            footprint: building.footprint,
+            construction: None,
             inventory,
         })
     })

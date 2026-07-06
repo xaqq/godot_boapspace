@@ -70,6 +70,18 @@ pub struct BuildingBlueprint {
     pub footprint: BuildingFootprint,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Building {
+    pub kind: BuildingKind,
+    pub footprint: BuildingFootprint,
+}
+
+impl Building {
+    pub const fn new(kind: BuildingKind, footprint: BuildingFootprint) -> Self {
+        Self { kind, footprint }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildingFootprint {
     origin: CellCoord,
@@ -157,6 +169,32 @@ impl ConstructionProgress {
 
     pub const fn deposited(self) -> ResourceAmounts {
         self.deposited
+    }
+
+    pub fn remaining(self, cost: ResourceAmounts, kind: crate::resources::ResourceKind) -> u32 {
+        cost.get(kind).saturating_sub(self.deposited.get(kind))
+    }
+
+    pub fn deposit(
+        &mut self,
+        kind: crate::resources::ResourceKind,
+        amount: u32,
+        cost: ResourceAmounts,
+    ) -> u32 {
+        let deposited = amount.min(self.remaining(cost, kind));
+        if deposited == 0 {
+            return 0;
+        }
+
+        let current = self.deposited.get(kind);
+        self.deposited.set(kind, current.saturating_add(deposited));
+        deposited
+    }
+
+    pub fn is_complete(self, cost: ResourceAmounts) -> bool {
+        crate::resources::ResourceKind::ALL
+            .into_iter()
+            .all(|kind| self.remaining(cost, kind) == 0)
     }
 }
 
@@ -256,12 +294,45 @@ pub fn validate_building_blueprint_placement(
 }
 
 fn overlaps_existing_blueprint(world: &World, footprint: BuildingFootprint) -> bool {
-    world
+    let overlaps_blueprint = world
         .try_query::<&BuildingBlueprint>()
         .map(|mut query| {
             query
                 .iter(world)
                 .any(|blueprint| footprint.overlaps(blueprint.footprint))
         })
+        .unwrap_or(false);
+    if overlaps_blueprint {
+        return true;
+    }
+
+    world
+        .try_query::<&Building>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .any(|building| footprint.overlaps(building.footprint))
+        })
         .unwrap_or(false)
+}
+
+pub fn system_complete_building_construction(
+    mut commands: Commands,
+    blueprints: Query<(Entity, &BuildingBlueprint, &ConstructionProgress)>,
+) {
+    for (entity, blueprint, progress) in &blueprints {
+        let cost = blueprint.kind.definition().construction_cost();
+        if !progress.is_complete(cost) {
+            continue;
+        }
+
+        let mut entity_commands = commands.entity(entity);
+        entity_commands
+            .remove::<BuildingBlueprint>()
+            .remove::<ConstructionProgress>()
+            .insert(Building::new(blueprint.kind, blueprint.footprint));
+        if blueprint.kind == BuildingKind::Warehouse {
+            entity_commands.insert(WarehouseInventory::empty());
+        }
+    }
 }

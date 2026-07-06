@@ -2,7 +2,7 @@ use crate::assets::{load_packed_scene, load_texture, resource_asset_path, terrai
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
     AiGatherResource, MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
@@ -1202,16 +1202,36 @@ fn selected_npc_at(world: &World, coord: CellCoord) -> Option<SelectedNpc> {
 }
 
 fn selected_building_at(world: &World, coord: CellCoord) -> Option<SelectedBuilding> {
-    let mut query = world.try_query::<(Entity, &BuildingBlueprint)>()?;
-    query.iter(world).find_map(|(entity, blueprint)| {
-        blueprint
-            .footprint
-            .contains(coord)
-            .then_some(SelectedBuilding {
-                footprint: blueprint.footprint,
-                entity,
+    let blueprint = world
+        .try_query::<(Entity, &BuildingBlueprint)>()
+        .and_then(|mut query| {
+            query.iter(world).find_map(|(entity, blueprint)| {
+                blueprint
+                    .footprint
+                    .contains(coord)
+                    .then_some(SelectedBuilding {
+                        footprint: blueprint.footprint,
+                        entity,
+                    })
             })
-    })
+        });
+    if blueprint.is_some() {
+        return blueprint;
+    }
+
+    world
+        .try_query::<(Entity, &Building)>()
+        .and_then(|mut query| {
+            query.iter(world).find_map(|(entity, building)| {
+                building
+                    .footprint
+                    .contains(coord)
+                    .then_some(SelectedBuilding {
+                        footprint: building.footprint,
+                        entity,
+                    })
+            })
+        })
 }
 
 fn apply_click_selection_targets(
@@ -1300,7 +1320,7 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
 }
 
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
-    world
+    let mut buildings = world
         .try_query::<(Entity, &BuildingBlueprint)>()
         .map(|mut query| {
             query
@@ -1312,7 +1332,22 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    if let Some(mut query) = world.try_query::<(Entity, &Building)>() {
+        buildings.extend(
+            query
+                .iter(world)
+                .map(|(entity, building)| BuildingRenderInfo {
+                    entity,
+                    kind: building.kind,
+                    footprint: building.footprint,
+                }),
+        );
+    }
+
+    buildings.sort_by_key(|building| building.entity.to_bits());
+    buildings
 }
 
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
@@ -1876,6 +1911,48 @@ mod tests {
                 kind: MapEntityKind::Building,
                 entity: building,
             })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_prioritizes_finished_building_over_npc_and_resource_node() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        spawn_resource_node(&mut world, coord);
+        world.spawn(InitialNpcBundle::new(coord));
+        let building = world
+            .spawn(Building::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+            ))
+            .id();
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::Building,
+                entity: building,
+            })
+        );
+    }
+
+    #[test]
+    fn query_building_render_infos_includes_finished_buildings() {
+        let mut world = World::new();
+        let building = world
+            .spawn(Building::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+            ))
+            .id();
+
+        assert_eq!(
+            query_building_render_infos(&world),
+            vec![BuildingRenderInfo {
+                entity: building,
+                kind: BuildingKind::Warehouse,
+                footprint: BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+            }]
         );
     }
 

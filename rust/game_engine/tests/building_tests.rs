@@ -1,11 +1,14 @@
+use bevy_ecs::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
 use game_engine::buildings::{
-    BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
-    ConstructionProgress, WarehouseInventory, DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE,
+    place_building_blueprint, system_complete_building_construction, Building, BuildingBlueprint,
+    BuildingFootprint, BuildingKind, BuildingPlacementError, ConstructionProgress,
+    WarehouseInventory, DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE,
 };
-use game_engine::grid::{CellCoord, GridSize};
+use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
-use game_engine::resources::ResourceKind;
+use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
 
 #[test]
@@ -172,6 +175,59 @@ fn test_warehouse_inventory_defaults_to_requested_capacity() {
 }
 
 #[test]
+fn test_completed_warehouse_blueprint_becomes_finished_building_with_inventory() {
+    let mut world = World::new();
+    let blueprint = spawn_blueprint_with_progress(
+        &mut world,
+        BuildingKind::Warehouse,
+        ResourceAmounts::new(40, 20, 0, 0),
+    );
+
+    world
+        .run_system_once(system_complete_building_construction)
+        .expect("completion system should run");
+
+    let building = world
+        .get::<Building>(blueprint)
+        .expect("completed blueprint should become a building");
+    assert_eq!(building.kind, BuildingKind::Warehouse);
+    assert!(world.get::<BuildingBlueprint>(blueprint).is_none());
+    assert!(world.get::<ConstructionProgress>(blueprint).is_none());
+    assert!(world.get::<WarehouseInventory>(blueprint).is_some());
+}
+
+#[test]
+fn test_completed_town_hall_does_not_get_warehouse_inventory() {
+    let mut world = World::new();
+    let blueprint = spawn_blueprint_with_progress(
+        &mut world,
+        BuildingKind::TownHall,
+        ResourceAmounts::new(80, 60, 0, 20),
+    );
+
+    world
+        .run_system_once(system_complete_building_construction)
+        .expect("completion system should run");
+
+    assert!(world.get::<Building>(blueprint).is_some());
+    assert!(world.get::<WarehouseInventory>(blueprint).is_none());
+}
+
+#[test]
+fn test_building_blueprint_rejects_finished_building_overlap() {
+    let mut world = World::new();
+    world.insert_resource(Grid::new(8, 8));
+    world.spawn(Building::new(
+        BuildingKind::Warehouse,
+        BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+    ));
+
+    let result = place_building_blueprint(&mut world, BuildingKind::TownHall, CellCoord::new(3, 3));
+
+    assert_eq!(result, Err(BuildingPlacementError::OverlapsBuilding));
+}
+
+#[test]
 fn test_building_blueprints_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
@@ -221,4 +277,25 @@ fn building_count(
             .map(|mut query| query.iter(world).count())
             .unwrap_or_default()
     })
+}
+
+fn spawn_blueprint_with_progress(
+    world: &mut World,
+    kind: BuildingKind,
+    deposited: ResourceAmounts,
+) -> Entity {
+    let definition = kind.definition();
+    world
+        .spawn((
+            BuildingBlueprint {
+                kind,
+                footprint: BuildingFootprint::new(
+                    CellCoord::new(0, 0),
+                    definition.width(),
+                    definition.height(),
+                ),
+            },
+            ConstructionProgress::new(deposited),
+        ))
+        .id()
 }
