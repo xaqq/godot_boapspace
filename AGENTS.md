@@ -36,15 +36,10 @@ This is a solo-developer repo. It is fine to publish local `master` directly to
 `origin/master` when asked to push.
 
 The `origin` remote may be configured as SSH and can resolve to a read-only
-deploy key. First try the normal push:
-
-```bash
-git push -u origin master
-```
-
-If GitHub rejects that with `Permission ... denied to deploy key`, use the
-authenticated GitHub CLI token as a one-off HTTPS credential helper without
-persistently changing the remote:
+deploy key. In this environment, the normal SSH push also fails before
+authentication because of the system SSH config, so do not try
+`git push -u origin master` first. Use the authenticated GitHub CLI token as a
+one-off HTTPS credential helper without persistently changing the remote:
 
 ```bash
 gh auth status
