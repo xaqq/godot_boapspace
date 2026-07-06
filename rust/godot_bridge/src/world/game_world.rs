@@ -8,6 +8,10 @@ use game_engine::components::{
     AiGatherResource, MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
     SUBTILE_UNITS_PER_TILE,
 };
+use game_engine::farming::{
+    field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState,
+    FieldPlacementPreview, HarvestField, SeedField,
+};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
@@ -40,6 +44,12 @@ const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 const NPC_COLONIST_SCENE_PATH: &str = "res://world/npc_colonist.tscn";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
+const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
+const BUILDING_FIELD_PATH: &str = "res://assets/generated/building_field.png";
+const CROP_SEEDABLE_PATH: &str = "res://assets/generated/crop_seedable_plot.png";
+const CROP_GROWING_STEP1_PATH: &str = "res://assets/generated/crop_growing_step1.png";
+const CROP_GROWING_STEP2_PATH: &str = "res://assets/generated/crop_growing_step2.png";
+const CROP_GROWN_PATH: &str = "res://assets/generated/crop_grown.png";
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -135,9 +145,24 @@ struct BuildingRenderInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CropRenderInfo {
+    coord: CellCoord,
+    state: FieldCropState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuildingRenderState {
     Blueprint,
     Constructed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PlacementMode {
+    Building(BuildingKind),
+    Fields {
+        farm: Entity,
+        drag_cells: Vec<CellCoord>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +182,9 @@ pub(crate) struct GameWorld {
     resource_node_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
+    crop_map: OnEditor<Gd<TileMapLayer>>,
+
+    #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
     game: GameSimulation,
@@ -165,9 +193,10 @@ pub(crate) struct GameWorld {
     selected_npc: Option<SelectedNpc>,
     selected_building: Option<SelectedBuilding>,
     hovered_map_entity: Option<MapEntityTarget>,
-    build_mode: Option<BuildingKind>,
+    placement_mode: Option<PlacementMode>,
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
+    _crop_tile_set: Option<Gd<TileSet>>,
     npc_scene: Option<Gd<PackedScene>>,
     npc_sprites: HashMap<Entity, Gd<AnimatedSprite2D>>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
@@ -185,6 +214,7 @@ impl INode2D for GameWorld {
         Self {
             tile_map: OnEditor::default(),
             resource_node_map: OnEditor::default(),
+            crop_map: OnEditor::default(),
             camera: OnEditor::default(),
             game,
             rendered_surface,
@@ -192,9 +222,10 @@ impl INode2D for GameWorld {
             selected_npc: None,
             selected_building: None,
             hovered_map_entity: None,
-            build_mode: None,
+            placement_mode: None,
             _tile_set: None,
             _resource_node_tile_set: None,
+            _crop_tile_set: None,
             npc_scene: None,
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
@@ -206,6 +237,7 @@ impl INode2D for GameWorld {
     fn ready(&mut self) {
         let mut tm = self.tile_map.clone();
         let mut resource_map = self.resource_node_map.clone();
+        let mut crop_map = self.crop_map.clone();
         let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
@@ -241,6 +273,17 @@ impl INode2D for GameWorld {
         resource_map.set_texture_filter(TextureFilter::NEAREST);
         resource_map.set_z_index(1);
         self.populate_resource_node_map(&mut resource_map);
+
+        let Some(crop_tile_set) = self.build_crop_tile_set(ts) else {
+            self.disable_processing();
+            return;
+        };
+        crop_map.set_tile_set(&crop_tile_set);
+        self._crop_tile_set = Some(crop_tile_set);
+        crop_map.set_navigation_enabled(false);
+        crop_map.set_texture_filter(TextureFilter::NEAREST);
+        crop_map.set_z_index(3);
+        self.populate_crop_map(&mut crop_map);
 
         let Some(npc_scene) = load_packed_scene(NPC_COLONIST_SCENE_PATH, "GameWorld") else {
             self.disable_processing();
@@ -308,9 +351,12 @@ impl INode2D for GameWorld {
         self.game.tick();
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
+        let mut crop_map = self.crop_map.clone();
+        self.populate_crop_map(&mut crop_map);
         let buildings_changed = self.sync_building_sprites();
         self.sync_npc_sprites();
-        if self.build_mode.is_some() || buildings_changed {
+        self.update_field_drag_current();
+        if self.placement_mode.is_some() || buildings_changed {
             self.base_mut().queue_redraw();
         }
         self.update_hovered_map_entity();
@@ -332,7 +378,8 @@ impl INode2D for GameWorld {
         let selected_cell = self.selected_cell;
         let selected_npc = self.selected_npc;
         let selected_building = self.selected_building;
-        let build_preview = self.build_preview();
+        let building_preview = self.building_preview();
+        let field_previews = self.field_previews();
         let blueprint_footprints = self
             .building_render_infos()
             .into_iter()
@@ -414,7 +461,26 @@ impl INode2D for GameWorld {
                 .done();
         }
 
-        if let Some((footprint, valid)) = build_preview {
+        for preview in field_previews {
+            let color = if preview.result.is_ok() {
+                Color::from_rgb(0.1, 0.9, 0.45)
+            } else {
+                Color::from_rgb(1.0, 0.1, 0.1)
+            };
+            let mut fill = color;
+            fill.a = 0.18;
+            let rect = Rect2::new(
+                cell_top_left(preview.coord),
+                Vector2::new(grid::TILE_SIZE, grid::TILE_SIZE),
+            );
+            base.draw_rect_ex(rect, fill).filled(true).done();
+            base.draw_rect_ex(rect, color)
+                .filled(false)
+                .width(4.0)
+                .done();
+        }
+
+        if let Some((footprint, valid)) = building_preview {
             let color = if valid {
                 Color::from_rgb(0.1, 0.9, 0.45)
             } else {
@@ -432,8 +498,8 @@ impl INode2D for GameWorld {
     }
 
     fn input(&mut self, event: Gd<InputEvent>) {
-        if event.is_action_pressed(ACTION_MENU_TOGGLE) && self.build_mode.is_some() {
-            self.cancel_build_mode();
+        if event.is_action_pressed(ACTION_MENU_TOGGLE) && self.placement_mode.is_some() {
+            self.cancel_placement_mode();
             self.mark_input_handled();
             return;
         }
@@ -441,25 +507,30 @@ impl INode2D for GameWorld {
         let Ok(mouse) = event.clone().try_cast::<InputEventMouseButton>() else {
             return;
         };
-        if !mouse.is_pressed() {
-            return;
-        }
 
         match mouse.get_button_index() {
             MouseButton::LEFT => {
-                self.handle_primary_click();
+                if mouse.is_pressed() {
+                    self.handle_primary_press();
+                } else {
+                    self.handle_primary_release();
+                }
             }
             MouseButton::RIGHT => {
-                if self.build_mode.is_some() {
-                    self.cancel_build_mode();
+                if mouse.is_pressed() && self.placement_mode.is_some() {
+                    self.cancel_placement_mode();
                     self.mark_input_handled();
                 }
             }
             MouseButton::WHEEL_UP => {
-                self.handle_mouse_wheel(ZOOM_FACTOR);
+                if mouse.is_pressed() {
+                    self.handle_mouse_wheel(ZOOM_FACTOR);
+                }
             }
             MouseButton::WHEEL_DOWN => {
-                self.handle_mouse_wheel(1.0 / ZOOM_FACTOR);
+                if mouse.is_pressed() {
+                    self.handle_mouse_wheel(1.0 / ZOOM_FACTOR);
+                }
             }
             _ => {}
         }
@@ -524,13 +595,24 @@ impl GameWorld {
         camera.set_position_smoothing_enabled(false);
     }
 
-    fn handle_primary_click(&mut self) {
-        if let Some(kind) = self.build_mode {
-            self.handle_build_click(kind);
-            return;
+    fn handle_primary_press(&mut self) {
+        match self.placement_mode.as_ref() {
+            Some(PlacementMode::Building(kind)) => {
+                self.handle_build_click(*kind);
+            }
+            Some(PlacementMode::Fields { .. }) => {
+                self.begin_field_drag();
+            }
+            None => {
+                self.handle_tile_click();
+            }
         }
+    }
 
-        self.handle_tile_click();
+    fn handle_primary_release(&mut self) {
+        if matches!(self.placement_mode, Some(PlacementMode::Fields { .. })) {
+            self.finish_field_drag();
+        }
     }
 
     fn handle_build_click(&mut self, kind: BuildingKind) {
@@ -704,7 +786,7 @@ impl GameWorld {
     }
 
     fn start_build_mode(&mut self, kind: BuildingKind) {
-        self.build_mode = Some(kind);
+        self.placement_mode = Some(PlacementMode::Building(kind));
         self.clear_tile_selection();
         self.clear_npc_selection();
         self.clear_building_selection();
@@ -712,8 +794,19 @@ impl GameWorld {
         self.base_mut().queue_redraw();
     }
 
-    fn cancel_build_mode(&mut self) {
-        if self.build_mode.take().is_some() {
+    fn start_field_placement_mode(&mut self, farm: Entity) {
+        self.placement_mode = Some(PlacementMode::Fields {
+            farm,
+            drag_cells: Vec::new(),
+        });
+        self.clear_tile_selection();
+        self.clear_npc_selection();
+        self.clear_hovered_map_entity();
+        self.base_mut().queue_redraw();
+    }
+
+    fn cancel_placement_mode(&mut self) {
+        if self.placement_mode.take().is_some() {
             self.base_mut().queue_redraw();
         }
     }
@@ -732,21 +825,102 @@ impl GameWorld {
         )
     }
 
-    fn build_preview(&self) -> Option<(BuildingFootprint, bool)> {
-        let kind = self.build_mode?;
+    fn building_preview(&self) -> Option<(BuildingFootprint, bool)> {
+        let Some(PlacementMode::Building(kind)) = self.placement_mode.as_ref() else {
+            return None;
+        };
         let origin = self.placement_origin_under_mouse()?;
         let definition = kind.definition();
         let footprint = BuildingFootprint::new(origin, definition.width(), definition.height());
         let valid = self
             .game
-            .validate_building_blueprint_placement(self.rendered_surface, kind, origin)
+            .validate_building_blueprint_placement(self.rendered_surface, *kind, origin)
             .is_ok();
 
         Some((footprint, valid))
     }
 
+    fn field_previews(&self) -> Vec<FieldPlacementPreview> {
+        let Some(PlacementMode::Fields { farm, drag_cells }) = self.placement_mode.as_ref() else {
+            return Vec::new();
+        };
+
+        let coords = if drag_cells.is_empty() {
+            self.placement_origin_under_mouse()
+                .map(|coord| vec![coord])
+                .unwrap_or_default()
+        } else {
+            drag_cells.clone()
+        };
+
+        self.game
+            .validate_field_blueprint_placement_batch(self.rendered_surface, *farm, coords)
+    }
+
+    fn begin_field_drag(&mut self) {
+        let Some(coord) = self.placement_origin_under_mouse() else {
+            return;
+        };
+        if let Some(PlacementMode::Fields { drag_cells, .. }) = &mut self.placement_mode {
+            drag_cells.clear();
+            append_field_drag_cell(drag_cells, Some(coord));
+            self.base_mut().queue_redraw();
+        }
+    }
+
+    fn update_field_drag_current(&mut self) {
+        let coord = self.placement_origin_under_mouse();
+        if let Some(PlacementMode::Fields { drag_cells, .. }) = &mut self.placement_mode {
+            if !drag_cells.is_empty() {
+                let before_len = drag_cells.len();
+                append_field_drag_cell(drag_cells, coord);
+                if drag_cells.len() != before_len {
+                    self.base_mut().queue_redraw();
+                }
+            }
+        }
+    }
+
+    fn finish_field_drag(&mut self) {
+        let Some(PlacementMode::Fields { farm, drag_cells }) = self.placement_mode.clone() else {
+            return;
+        };
+
+        if drag_cells.is_empty() {
+            self.placement_mode = Some(PlacementMode::Fields {
+                farm,
+                drag_cells: Vec::new(),
+            });
+            self.base_mut().queue_redraw();
+            return;
+        }
+
+        let result = self
+            .game
+            .place_field_blueprints(self.rendered_surface, farm, drag_cells);
+        if !result.rejected.is_empty() {
+            for rejected in &result.rejected {
+                godot_warn!(
+                    "GameWorld: field placement rejected at ({}, {}): {:?}",
+                    rejected.coord.x(),
+                    rejected.coord.y(),
+                    rejected.error
+                );
+            }
+        }
+
+        if !result.placed.is_empty() {
+            self.sync_building_sprites();
+        }
+        self.placement_mode = Some(PlacementMode::Fields {
+            farm,
+            drag_cells: Vec::new(),
+        });
+        self.base_mut().queue_redraw();
+    }
+
     fn map_entity_target_under_mouse(&self) -> Option<MapEntityTarget> {
-        if self.build_mode.is_some() {
+        if self.placement_mode.is_some() {
             return None;
         }
 
@@ -986,6 +1160,31 @@ impl GameWorld {
         Some(tile_set)
     }
 
+    fn build_crop_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let mut tile_set = TileSet::new_gd();
+        tile_set.set_tile_size(v2(tile_size, tile_size));
+
+        for (state, path) in crop_tile_asset_paths() {
+            let texture = load_texture(path, "GameWorld")?;
+            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let expected_source_id = crop_source_id(state);
+            let source_id = tile_set
+                .add_source_ex(&source_ts)
+                .atlas_source_id_override(expected_source_id)
+                .done();
+            if source_id != expected_source_id {
+                godot_error!(
+                    "GameWorld: failed to add {} crop tile source",
+                    state.label()
+                );
+                return None;
+            }
+        }
+
+        Some(tile_set)
+    }
+
     fn load_building_textures(&mut self) -> bool {
         self.building_textures.clear();
 
@@ -1019,12 +1218,34 @@ impl GameWorld {
         resource_map.update_internals();
     }
 
+    fn populate_crop_map(&mut self, crop_map: &mut Gd<TileMapLayer>) {
+        crop_map.clear();
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let crops = self.crop_render_infos();
+
+        for crop in crops {
+            let Some(source_id) = crop_render_source_id(crop.state) else {
+                continue;
+            };
+            crop_map
+                .set_cell_ex(v2(crop.coord.x(), crop.coord.y()))
+                .source_id(source_id)
+                .atlas_coords(v2(0, 0))
+                .done();
+        }
+        crop_map.update_internals();
+    }
+
     fn resource_nodes(&self) -> Vec<(CellCoord, ResourceKind)> {
         self.with_rendered_surface_world(query_resource_nodes)
     }
 
     fn building_render_infos(&self) -> Vec<BuildingRenderInfo> {
         self.with_rendered_surface_world(query_building_render_infos)
+    }
+
+    fn crop_render_infos(&self) -> Vec<CropRenderInfo> {
+        self.with_rendered_surface_world(query_crop_render_infos)
     }
 
     fn npc_render_infos(&self) -> Vec<NpcRenderInfo> {
@@ -1041,7 +1262,7 @@ impl GameWorld {
         self.selected_npc = None;
         self.selected_building = None;
         self.hovered_map_entity = None;
-        self.build_mode = None;
+        self.placement_mode = None;
 
         let mut tile_map = self.tile_map.clone();
         if !self.populate_tile_map(&mut tile_map) {
@@ -1051,6 +1272,9 @@ impl GameWorld {
 
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
+
+        let mut crop_map = self.crop_map.clone();
+        self.populate_crop_map(&mut crop_map);
 
         self.sync_building_sprites();
         self.sync_npc_sprites();
@@ -1177,8 +1401,36 @@ impl GameWorld {
     }
 
     #[func]
+    pub(crate) fn start_farm_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::Farm);
+    }
+
+    #[func]
+    pub(crate) fn start_field_placement_for_selected_farm(&mut self) -> bool {
+        let Some(selected) = self.selected_building else {
+            godot_warn!("GameWorld: cannot start field placement without a selected Farm");
+            return false;
+        };
+        let is_farm = self.with_rendered_surface_world(|world| {
+            world
+                .get::<Building>(selected.entity)
+                .is_some_and(|building| building.kind == BuildingKind::Farm)
+                || world
+                    .get::<BuildingBlueprint>(selected.entity)
+                    .is_some_and(|blueprint| blueprint.kind == BuildingKind::Farm)
+        });
+        if !is_farm {
+            godot_warn!("GameWorld: selected building is not a Farm");
+            return false;
+        }
+
+        self.start_field_placement_mode(selected.entity);
+        true
+    }
+
+    #[func]
     pub(crate) fn cancel_building_blueprint_placement(&mut self) {
-        self.cancel_build_mode();
+        self.cancel_placement_mode();
     }
 }
 
@@ -1371,29 +1623,48 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
     buildings
 }
 
+fn query_crop_render_infos(world: &World) -> Vec<CropRenderInfo> {
+    world
+        .try_query::<(Entity, &Building, &FieldCrop)>()
+        .map(|mut query| {
+            let mut crops = query
+                .iter(world)
+                .filter_map(|(entity, building, _)| {
+                    if building.kind != BuildingKind::Field {
+                        return None;
+                    }
+                    let state = field_crop_state(world, entity)?;
+                    Some(CropRenderInfo {
+                        coord: building.footprint.origin(),
+                        state,
+                    })
+                })
+                .collect::<Vec<_>>();
+            crops.sort_by_key(|crop| (crop.coord.y(), crop.coord.x()));
+            crops
+        })
+        .unwrap_or_default()
+}
+
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
-        .try_query::<(
-            Entity,
-            &NpcPosition,
-            Option<&Velocity>,
-            Option<&MovementFacing>,
-            Option<&AiGatherResource>,
-            &Npc,
-        )>()
+        .try_query::<(Entity, &NpcPosition, &Npc)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(
-                    |(entity, position, velocity, facing, gather, _)| NpcRenderInfo {
-                        entity,
-                        coord: position.coord,
-                        subtile_offset: position.subtile_offset,
-                        velocity: velocity.copied().unwrap_or_default(),
-                        facing: facing.copied().unwrap_or_default(),
-                        is_gathering: gather.is_some(),
-                    },
-                )
+                .map(|(entity, position, _)| NpcRenderInfo {
+                    entity,
+                    coord: position.coord,
+                    subtile_offset: position.subtile_offset,
+                    velocity: world.get::<Velocity>(entity).copied().unwrap_or_default(),
+                    facing: world
+                        .get::<MovementFacing>(entity)
+                        .copied()
+                        .unwrap_or_default(),
+                    is_gathering: world.get::<AiGatherResource>(entity).is_some()
+                        || world.get::<AiSeedField>(entity).is_some()
+                        || world.get::<AiHarvestField>(entity).is_some(),
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -1416,6 +1687,28 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+
+    if let Some(mut query) = world.try_query::<(Entity, &SeedField)>() {
+        rows.extend(query.iter(world).filter_map(|(entity, seed)| {
+            let entity_id = encode_entity_id(entity)?;
+            Some(TaskTableRow {
+                entity_id,
+                task_type: SeedField::label().to_string(),
+                details: format_field_task_details(world, "Field", seed.field()),
+            })
+        }));
+    }
+
+    if let Some(mut query) = world.try_query::<(Entity, &HarvestField)>() {
+        rows.extend(query.iter(world).filter_map(|(entity, harvest)| {
+            let entity_id = encode_entity_id(entity)?;
+            Some(TaskTableRow {
+                entity_id,
+                task_type: HarvestField::label().to_string(),
+                details: format_field_task_details(world, "Field", harvest.field()),
+            })
+        }));
+    }
 
     rows.sort_by_key(|row| row.entity_id);
     rows
@@ -1445,6 +1738,17 @@ fn format_construction_task_details(world: &World, blueprint: Entity) -> String 
             blueprint_data.kind.definition().construction_cost()
         )
     )
+}
+
+fn format_field_task_details(world: &World, label: &str, field: Entity) -> String {
+    let field_id = encode_entity_id(field)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let Some(building) = world.get::<Building>(field) else {
+        return format!("{label} {field_id}: unavailable");
+    };
+    let origin = building.footprint.origin();
+    format!("{label} {field_id}: at ({}, {})", origin.x(), origin.y())
 }
 
 fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
@@ -1538,11 +1842,48 @@ fn building_asset_path(kind: BuildingKind) -> &'static str {
     match kind {
         BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
         BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
+        BuildingKind::Farm => BUILDING_FARM_PATH,
+        BuildingKind::Field => BUILDING_FIELD_PATH,
     }
 }
 
 fn terrain_source_id(kind: TerrainKind) -> i32 {
     kind as i32
+}
+
+fn crop_tile_asset_paths() -> [(FieldCropState, &'static str); 4] {
+    [
+        (FieldCropState::Seedable, CROP_SEEDABLE_PATH),
+        (FieldCropState::GrowingStep1, CROP_GROWING_STEP1_PATH),
+        (FieldCropState::GrowingStep2, CROP_GROWING_STEP2_PATH),
+        (FieldCropState::Grown, CROP_GROWN_PATH),
+    ]
+}
+
+fn crop_source_id(state: FieldCropState) -> i32 {
+    match state {
+        FieldCropState::Seedable | FieldCropState::Seeding => 0,
+        FieldCropState::GrowingStep1 => 1,
+        FieldCropState::GrowingStep2 => 2,
+        FieldCropState::Grown => 3,
+        FieldCropState::Inactive => -1,
+    }
+}
+
+fn crop_render_source_id(state: FieldCropState) -> Option<i32> {
+    match state {
+        FieldCropState::Inactive => None,
+        _ => Some(crop_source_id(state)),
+    }
+}
+
+fn append_field_drag_cell(drag_cells: &mut Vec<CellCoord>, coord: Option<CellCoord>) {
+    let Some(coord) = coord else {
+        return;
+    };
+    if drag_cells.last().copied() != Some(coord) {
+        drag_cells.push(coord);
+    }
 }
 
 fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
@@ -1558,9 +1899,10 @@ fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<
 mod tests {
     use super::*;
     use game_engine::buildings::BuildingBlueprintBundle;
+    use game_engine::farming::{FarmInventory, FieldOwner};
     use game_engine::grid::GridSize;
     use game_engine::npcs::InitialNpcBundle;
-    use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
+    use game_engine::tasks::{ProgressBuildingConstructionTaskBundle, Task};
     use game_engine::tile::TileBundle;
 
     #[test]
@@ -1608,6 +1950,22 @@ mod tests {
     }
 
     #[test]
+    fn query_npc_render_infos_marks_farming_work_as_gathering() {
+        let mut world = World::new();
+        let target = world.spawn_empty().id();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(2, 3)))
+            .id();
+        world.entity_mut(npc).insert(AiSeedField::new(target));
+
+        let infos = query_npc_render_infos(&world);
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].entity, npc);
+        assert!(infos[0].is_gathering);
+    }
+
+    #[test]
     fn task_table_rows_format_construction_tasks() {
         let mut world = World::new();
         let blueprint = world
@@ -1633,6 +1991,114 @@ mod tests {
                 ),
             }]
         );
+    }
+
+    #[test]
+    fn task_table_rows_format_farming_tasks() {
+        let mut world = World::new();
+        let farm = world
+            .spawn((
+                Building::new(
+                    BuildingKind::Farm,
+                    BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
+                ),
+                FarmInventory::empty(),
+            ))
+            .id();
+        let field = world
+            .spawn((
+                Building::new(
+                    BuildingKind::Field,
+                    BuildingFootprint::new(CellCoord::new(3, 1), 1, 1),
+                ),
+                FieldOwner::new(farm),
+                FieldCrop::seedable(),
+            ))
+            .id();
+        let seed_task = world.spawn((Task, SeedField::new(field))).id();
+        let harvest_task = world.spawn((Task, HarvestField::new(field))).id();
+
+        let rows = query_task_table_rows(&world);
+
+        assert_eq!(rows.len(), 2);
+        assert!(rows.contains(&TaskTableRow {
+            entity_id: encode_entity_id(seed_task).expect("task entity id should encode"),
+            task_type: "SeedField".to_string(),
+            details: format!(
+                "Field {}: at (3, 1)",
+                encode_entity_id(field).expect("field entity id should encode")
+            ),
+        }));
+        assert!(rows.contains(&TaskTableRow {
+            entity_id: encode_entity_id(harvest_task).expect("task entity id should encode"),
+            task_type: "HarvestField".to_string(),
+            details: format!(
+                "Field {}: at (3, 1)",
+                encode_entity_id(field).expect("field entity id should encode")
+            ),
+        }));
+    }
+
+    #[test]
+    fn query_crop_render_infos_uses_field_crop_state() {
+        let mut world = World::new();
+        let farm = world
+            .spawn((
+                Building::new(
+                    BuildingKind::Farm,
+                    BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
+                ),
+                FarmInventory::empty(),
+            ))
+            .id();
+        world.spawn((
+            Building::new(
+                BuildingKind::Field,
+                BuildingFootprint::new(CellCoord::new(3, 1), 1, 1),
+            ),
+            FieldOwner::new(farm),
+            FieldCrop::growing(game_engine::farming::FIELD_GROWTH_TICKS),
+        ));
+
+        assert_eq!(
+            query_crop_render_infos(&world),
+            vec![CropRenderInfo {
+                coord: CellCoord::new(3, 1),
+                state: FieldCropState::Grown,
+            }]
+        );
+    }
+
+    #[test]
+    fn append_field_drag_cell_records_path_and_skips_same_cell_samples() {
+        let mut cells = Vec::new();
+
+        append_field_drag_cell(&mut cells, Some(CellCoord::new(3, 2)));
+        append_field_drag_cell(&mut cells, Some(CellCoord::new(3, 2)));
+        append_field_drag_cell(&mut cells, None);
+        append_field_drag_cell(&mut cells, Some(CellCoord::new(4, 2)));
+
+        assert_eq!(cells, vec![CellCoord::new(3, 2), CellCoord::new(4, 2)]);
+    }
+
+    #[test]
+    fn building_asset_paths_include_farming_assets() {
+        assert_eq!(
+            building_asset_path(BuildingKind::Farm),
+            "res://assets/generated/building_farm.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::Field),
+            "res://assets/generated/building_field.png"
+        );
+    }
+
+    #[test]
+    fn crop_source_ids_use_seedable_tile_for_active_seeding() {
+        assert_eq!(crop_source_id(FieldCropState::Seedable), 0);
+        assert_eq!(crop_source_id(FieldCropState::Seeding), 0);
+        assert_eq!(crop_render_source_id(FieldCropState::Inactive), None);
+        assert_eq!(crop_render_source_id(FieldCropState::Grown), Some(3));
     }
 
     #[test]

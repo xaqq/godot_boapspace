@@ -1,9 +1,13 @@
 use crate::ai::{
-    system_assign_construction_work, system_deposit_construction_resources, system_gather_resource,
+    system_assign_construction_work, system_assign_farming_work,
+    system_deposit_construction_resources, system_gather_resource,
     system_keep_enough_food_in_inventory, system_npc_idle, system_route_construction_work,
-    system_search_for_food,
+    system_route_farming_work, system_search_for_food,
 };
 use crate::buildings::system_complete_building_construction;
+use crate::farming::{
+    maintain_farming_tasks, system_advance_field_growth, system_harvest_fields, system_seed_fields,
+};
 use crate::movement::update_npc_movement;
 use crate::npcs::update_npc_hunger;
 use crate::tasks::maintain_construction_tasks;
@@ -15,17 +19,24 @@ pub fn build_surface_schedule() -> Schedule {
     schedule.add_systems(
         (
             maintain_construction_tasks,
+            maintain_farming_tasks,
+            system_advance_field_growth,
             system_keep_enough_food_in_inventory,
             system_search_for_food,
             system_assign_construction_work,
             system_route_construction_work,
+            system_assign_farming_work,
+            system_route_farming_work,
             system_npc_idle,
             update_npc_movement,
             system_gather_resource,
             system_deposit_construction_resources,
+            system_seed_fields,
+            system_harvest_fields,
             system_complete_building_construction,
             update_npc_hunger,
             maintain_construction_tasks,
+            maintain_farming_tasks,
         )
             .chain(),
     );

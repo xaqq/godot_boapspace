@@ -1,12 +1,17 @@
 use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
 use crate::world::game_world::{decode_entity_id, GameWorld};
+use bevy_ecs::prelude::Entity;
 use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
     WarehouseInventory,
 };
+use game_engine::farming::{
+    farm_field_counts, field_crop_state, FarmInventory, FieldCrop, FieldCropState, FieldOwner,
+    FIELD_GROWTH_TICKS, FIELD_SEEDING_TICKS,
+};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
+use godot::classes::{Button, IPanelContainer, Label, PanelContainer, VBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -18,6 +23,12 @@ pub(crate) struct BuildingInfoPanel {
 
     #[export]
     footprint_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    farming_info_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    fields_button: OnEditor<Gd<Button>>,
 
     #[export]
     construction_container: OnEditor<Gd<VBoxContainer>>,
@@ -64,6 +75,8 @@ impl IPanelContainer for BuildingInfoPanel {
         Self {
             name_label: OnEditor::default(),
             footprint_label: OnEditor::default(),
+            farming_info_label: OnEditor::default(),
+            fields_button: OnEditor::default(),
             construction_container: OnEditor::default(),
             wood_construction_progress: OnEditor::default(),
             stone_construction_progress: OnEditor::default(),
@@ -84,6 +97,8 @@ impl IPanelContainer for BuildingInfoPanel {
         let game_world = self.game_world.clone();
         let name_label = self.name_label.clone();
         let footprint_label = self.footprint_label.clone();
+        let farming_info_label = self.farming_info_label.clone();
+        let fields_button = self.fields_button.clone();
         let construction_container = self.construction_container.clone();
         let wood_construction_progress = self.wood_construction_progress.clone();
         let stone_construction_progress = self.stone_construction_progress.clone();
@@ -99,6 +114,8 @@ impl IPanelContainer for BuildingInfoPanel {
         let selected_game_world = game_world.clone();
         let mut selected_name_label = name_label.clone();
         let mut selected_footprint_label = footprint_label.clone();
+        let mut selected_farming_info_label = farming_info_label.clone();
+        let mut selected_fields_button = fields_button.clone();
         let mut selected_construction_container = construction_container.clone();
         let mut selected_wood_construction_progress = wood_construction_progress.clone();
         let mut selected_stone_construction_progress = stone_construction_progress.clone();
@@ -119,6 +136,8 @@ impl IPanelContainer for BuildingInfoPanel {
                     clear_building_labels(
                         &mut selected_name_label,
                         &mut selected_footprint_label,
+                        &mut selected_farming_info_label,
+                        &mut selected_fields_button,
                         &mut selected_construction_container,
                         &mut selected_inventory_container,
                         &mut selected_inventory_label,
@@ -128,6 +147,12 @@ impl IPanelContainer for BuildingInfoPanel {
 
                 selected_name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
                 selected_footprint_label.set_text(format_footprint(info.footprint).as_str());
+                update_farming_info(
+                    &mut selected_farming_info_label,
+                    &mut selected_fields_button,
+                    info.kind,
+                    info.farming,
+                );
                 match info.construction {
                     Some(construction) => update_construction_progress(
                         &mut selected_construction_container,
@@ -161,6 +186,8 @@ impl IPanelContainer for BuildingInfoPanel {
 
         let mut deselected_name_label = name_label;
         let mut deselected_footprint_label = footprint_label;
+        let mut deselected_farming_info_label = farming_info_label;
+        let mut deselected_fields_button = fields_button.clone();
         let mut deselected_construction_container = construction_container;
         let mut deselected_inventory_container = inventory_container;
         let mut deselected_inventory_label = inventory_label;
@@ -168,11 +195,20 @@ impl IPanelContainer for BuildingInfoPanel {
             clear_building_labels(
                 &mut deselected_name_label,
                 &mut deselected_footprint_label,
+                &mut deselected_farming_info_label,
+                &mut deselected_fields_button,
                 &mut deselected_construction_container,
                 &mut deselected_inventory_container,
                 &mut deselected_inventory_label,
             );
         });
+
+        fields_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_field_placement_for_selected_farm();
+            },
+        );
     }
 }
 
@@ -180,7 +216,8 @@ struct BuildingInfo {
     kind: BuildingKind,
     footprint: BuildingFootprint,
     construction: Option<BuildingConstructionInfo>,
-    inventory: Option<WarehouseInventory>,
+    inventory: Option<BuildingInventoryInfo>,
+    farming: Option<FarmingInfo>,
 }
 
 struct BuildingConstructionInfo {
@@ -188,10 +225,31 @@ struct BuildingConstructionInfo {
     progress: ResourceAmounts,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BuildingInventoryInfo {
+    contents: ResourceAmounts,
+    used_size: u32,
+    max_size: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FarmingInfo {
+    Farm {
+        linked_fields: usize,
+        constructed_fields: usize,
+    },
+    Field {
+        owner: Entity,
+        crop: Option<FieldCrop>,
+        state: Option<FieldCropState>,
+        blocked_by_full_inventory: bool,
+    },
+}
+
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
     game_world.with_rendered_surface_world(|world| {
-        let inventory = world.get::<WarehouseInventory>(entity).copied();
+        let inventory = building_inventory_info(world, entity);
 
         if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
             let progress = world.get::<ConstructionProgress>(entity)?;
@@ -203,6 +261,7 @@ fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<Buil
                     progress: progress.deposited(),
                 }),
                 inventory,
+                farming: farming_info(world, entity, blueprint.kind),
             });
         }
 
@@ -212,8 +271,62 @@ fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<Buil
             footprint: building.footprint,
             construction: None,
             inventory,
+            farming: farming_info(world, entity, building.kind),
         })
     })
+}
+
+fn building_inventory_info(
+    world: &bevy_ecs::world::World,
+    entity: Entity,
+) -> Option<BuildingInventoryInfo> {
+    if let Some(inventory) = world.get::<WarehouseInventory>(entity).copied() {
+        return Some(BuildingInventoryInfo {
+            contents: inventory.contents(),
+            used_size: inventory.used_size(),
+            max_size: inventory.max_size(),
+        });
+    }
+    world
+        .get::<FarmInventory>(entity)
+        .copied()
+        .map(|inventory| BuildingInventoryInfo {
+            contents: inventory.contents(),
+            used_size: inventory.used_size(),
+            max_size: inventory.max_size(),
+        })
+}
+
+fn farming_info(
+    world: &bevy_ecs::world::World,
+    entity: Entity,
+    kind: BuildingKind,
+) -> Option<FarmingInfo> {
+    match kind {
+        BuildingKind::Farm => {
+            let (linked_fields, constructed_fields) = farm_field_counts(world, entity);
+            Some(FarmingInfo::Farm {
+                linked_fields,
+                constructed_fields,
+            })
+        }
+        BuildingKind::Field => {
+            let owner = world.get::<FieldOwner>(entity)?;
+            let crop = world.get::<FieldCrop>(entity).copied();
+            let state = field_crop_state(world, entity);
+            let blocked_by_full_inventory = state == Some(FieldCropState::Grown)
+                && world
+                    .get::<FarmInventory>(owner.farm())
+                    .is_some_and(|inventory| !inventory.has_food_capacity());
+            Some(FarmingInfo::Field {
+                owner: owner.farm(),
+                crop,
+                state,
+                blocked_by_full_inventory,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn format_footprint(footprint: BuildingFootprint) -> String {
@@ -301,6 +414,63 @@ fn update_construction_progress_row(
     true
 }
 
+fn update_farming_info(
+    farming_info_label: &mut Gd<Label>,
+    fields_button: &mut Gd<Button>,
+    kind: BuildingKind,
+    farming: Option<FarmingInfo>,
+) {
+    if let Some(farming) = farming {
+        farming_info_label.set_text(format_farming_info(farming).as_str());
+        farming_info_label.show();
+    } else {
+        farming_info_label.set_text("");
+        farming_info_label.hide();
+    }
+
+    if kind == BuildingKind::Farm {
+        fields_button.show();
+    } else {
+        fields_button.hide();
+    }
+}
+
+fn format_farming_info(info: FarmingInfo) -> String {
+    match info {
+        FarmingInfo::Farm {
+            linked_fields,
+            constructed_fields,
+        } => format!("Fields: {constructed_fields}/{linked_fields} constructed"),
+        FarmingInfo::Field {
+            owner,
+            crop,
+            state,
+            blocked_by_full_inventory,
+        } => {
+            let owner_id = owner.to_bits();
+            let mut lines = vec![format!("Owner Farm: {owner_id}")];
+            match (crop, state) {
+                (Some(crop), Some(state)) => {
+                    lines.push(format!("Crop: {}", state.label()));
+                    lines.push(format!(
+                        "Seeding: {}/{}",
+                        crop.seeding_progress_ticks(),
+                        FIELD_SEEDING_TICKS
+                    ));
+                    if let Some(growth) = crop.growth_ticks() {
+                        lines.push(format!("Growth: {growth}/{FIELD_GROWTH_TICKS}"));
+                    }
+                }
+                _ => lines.push("Crop: Pending construction".to_string()),
+            }
+            if blocked_by_full_inventory {
+                lines.push("Blocked: Farm inventory full".to_string());
+            }
+            lines.join("\n")
+        }
+    }
+}
+
 fn update_inventory(
     inventory_container: &mut Gd<VBoxContainer>,
     inventory_label: &mut Gd<Label>,
@@ -308,12 +478,12 @@ fn update_inventory(
     stone_quantity: &mut Gd<ResourceQuantity>,
     food_quantity: &mut Gd<ResourceQuantity>,
     gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: Option<WarehouseInventory>,
+    inventory: Option<BuildingInventoryInfo>,
 ) {
     if let Some(inventory) = inventory {
-        let contents = inventory.contents();
+        let contents = inventory.contents;
         inventory_label
-            .set_text(inventory_header_text(inventory.used_size(), inventory.max_size()).as_str());
+            .set_text(inventory_header_text(inventory.used_size, inventory.max_size).as_str());
         wood_quantity
             .bind_mut()
             .set_amount(contents.get(ResourceKind::Wood));
@@ -335,12 +505,17 @@ fn update_inventory(
 fn clear_building_labels(
     name_label: &mut Gd<Label>,
     footprint_label: &mut Gd<Label>,
+    farming_info_label: &mut Gd<Label>,
+    fields_button: &mut Gd<Button>,
     construction_container: &mut Gd<VBoxContainer>,
     inventory_container: &mut Gd<VBoxContainer>,
     inventory_label: &mut Gd<Label>,
 ) {
     name_label.set_text("Building: None");
     footprint_label.set_text("");
+    farming_info_label.set_text("");
+    farming_info_label.hide();
+    fields_button.hide();
     construction_container.hide();
     inventory_label.set_text("Inventory:");
     inventory_container.hide();
@@ -401,5 +576,36 @@ mod tests {
     #[test]
     fn inventory_header_text_shows_used_over_max() {
         assert_eq!(inventory_header_text(125, 2000), "Inventory: 125/2000");
+    }
+
+    #[test]
+    fn farming_info_text_shows_farm_field_counts() {
+        assert_eq!(
+            format_farming_info(FarmingInfo::Farm {
+                linked_fields: 12,
+                constructed_fields: 7,
+            }),
+            "Fields: 7/12 constructed"
+        );
+    }
+
+    #[test]
+    fn farming_info_text_shows_field_crop_progress_and_full_block() {
+        let mut world = bevy_ecs::world::World::new();
+        let owner = world.spawn_empty().id();
+
+        assert_eq!(
+            format_farming_info(FarmingInfo::Field {
+                owner,
+                crop: Some(FieldCrop::with_seeding_progress(42)),
+                state: Some(FieldCropState::Seeding),
+                blocked_by_full_inventory: true,
+            }),
+            format!(
+                "Owner Farm: {}\nCrop: Seeding\nSeeding: 42/{}\nBlocked: Farm inventory full",
+                owner.to_bits(),
+                FIELD_SEEDING_TICKS
+            )
+        );
     }
 }

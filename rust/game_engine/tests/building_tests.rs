@@ -30,6 +30,24 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Stone), 60);
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Gold), 20);
+
+    let farm = BuildingKind::Farm.definition();
+    assert_eq!(farm.kind(), BuildingKind::Farm);
+    assert_eq!(farm.width(), 3);
+    assert_eq!(farm.height(), 3);
+    assert_eq!(farm.construction_cost().get(ResourceKind::Wood), 20);
+    assert_eq!(farm.construction_cost().get(ResourceKind::Stone), 30);
+    assert_eq!(farm.construction_cost().get(ResourceKind::Food), 0);
+    assert_eq!(farm.construction_cost().get(ResourceKind::Gold), 0);
+
+    let field = BuildingKind::Field.definition();
+    assert_eq!(field.kind(), BuildingKind::Field);
+    assert_eq!(field.width(), 1);
+    assert_eq!(field.height(), 1);
+    assert_eq!(field.construction_cost().get(ResourceKind::Wood), 5);
+    assert_eq!(field.construction_cost().get(ResourceKind::Stone), 1);
+    assert_eq!(field.construction_cost().get(ResourceKind::Food), 0);
+    assert_eq!(field.construction_cost().get(ResourceKind::Gold), 0);
 }
 
 #[test]
@@ -81,6 +99,17 @@ fn test_place_building_blueprint_rejects_blueprint_overlap() {
         simulation.place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(3, 3));
 
     assert_eq!(result, Err(BuildingPlacementError::OverlapsBuilding));
+}
+
+#[test]
+fn test_standalone_field_blueprint_requires_farm_owner() {
+    let mut simulation = GameSimulation::new();
+    let surface = simulation.create_surface(GridSize::new(4, 4));
+
+    let result =
+        simulation.place_building_blueprint(surface, BuildingKind::Field, CellCoord::new(1, 1));
+
+    assert_eq!(result, Err(BuildingPlacementError::FieldRequiresFarm));
 }
 
 #[test]

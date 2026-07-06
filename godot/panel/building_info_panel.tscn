@@ -3,9 +3,11 @@
 [ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
 [ext_resource type="PackedScene" path="res://panel/resource_quantity_progress.tscn" id="2_resource_quantity_progress"]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
+farming_info_label = NodePath("MarginContainer/VBoxContainer/farming_info_label")
+fields_button = NodePath("MarginContainer/VBoxContainer/FieldsButton")
 construction_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer")
 wood_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/WoodConstructionProgress")
 stone_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/StoneConstructionProgress")
@@ -49,6 +51,16 @@ text = "Building: None"
 [node name="footprint_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271514]
 layout_mode = 2
 text = ""
+
+[node name="farming_info_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271530]
+visible = false
+layout_mode = 2
+text = ""
+
+[node name="FieldsButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1173271531]
+visible = false
+layout_mode = 2
+text = "Fields"
 
 [node name="ConstructionContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271515]
 visible = false

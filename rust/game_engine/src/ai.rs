@@ -2,9 +2,13 @@ pub use crate::components::{
     AiConstructBuilding, AiGatherResource, AiIdleRoam, AiKeepEnoughFoodInInventory, AiSearchForFood,
 };
 
-use crate::buildings::{BuildingBlueprint, BuildingFootprint, ConstructionProgress};
+use crate::buildings::{Building, BuildingBlueprint, BuildingFootprint, ConstructionProgress};
 use crate::components::{
     MovementTarget, Npc, NpcInventory, NpcPosition, ResourceNode, TilePosition,
+};
+use crate::farming::{
+    field_harvest_is_actionable, field_seeding_is_actionable, AiHarvestField, AiSeedField,
+    FarmInventory, Farmer, FieldCrop, FieldOwner, HarvestField, SeedField,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::{ResourceAmounts, ResourceKind};
@@ -165,6 +169,121 @@ pub fn system_assign_construction_work(
         commands
             .entity(entity)
             .insert(AiConstructBuilding::new(blueprint));
+    }
+}
+
+pub fn system_assign_farming_work(
+    mut commands: Commands,
+    npcs: Query<
+        (
+            Entity,
+            &NpcPosition,
+            &NpcInventory,
+            Option<&AiKeepEnoughFoodInInventory>,
+            Option<&AiSearchForFood>,
+            Option<&AiGatherResource>,
+            Option<&AiConstructBuilding>,
+            Option<&AiSeedField>,
+            Option<&AiHarvestField>,
+        ),
+        (With<Npc>, With<Farmer>),
+    >,
+    seed_tasks: Query<&SeedField>,
+    harvest_tasks: Query<&HarvestField>,
+    active_seed_work: Query<&AiSeedField>,
+    active_harvest_work: Query<&AiHarvestField>,
+    fields: Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
+    farms: Query<(&Building, &FarmInventory)>,
+    resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
+) {
+    let active_seed_fields = active_seed_work
+        .iter()
+        .map(|seed| seed.field())
+        .collect::<std::collections::HashSet<_>>();
+    let active_harvest_fields = active_harvest_work
+        .iter()
+        .map(|harvest| harvest.field())
+        .collect::<std::collections::HashSet<_>>();
+
+    for (entity, position, inventory, keep_food, search, gather, construction, seed, harvest) in
+        &npcs
+    {
+        if search.is_some()
+            || gather.is_some()
+            || construction.is_some()
+            || seed.is_some()
+            || harvest.is_some()
+            || should_interrupt_for_food(inventory, keep_food, &resource_nodes)
+        {
+            continue;
+        }
+
+        let Some(target) = farming_work_target(
+            position.coord,
+            &seed_tasks,
+            &harvest_tasks,
+            &active_seed_fields,
+            &active_harvest_fields,
+            &fields,
+            &farms,
+        ) else {
+            continue;
+        };
+
+        let mut entity_commands = commands.entity(entity);
+        entity_commands.remove::<AiIdleRoam>();
+        match target {
+            FarmingWorkTarget::Seed(field) => {
+                entity_commands.insert(AiSeedField::new(field));
+            }
+            FarmingWorkTarget::Harvest(field) => {
+                entity_commands.insert(AiHarvestField::new(field));
+            }
+        }
+    }
+}
+
+pub fn system_route_farming_work(
+    mut commands: Commands,
+    npcs: Query<
+        (
+            Entity,
+            &NpcPosition,
+            Option<&AiSearchForFood>,
+            Option<&AiGatherResource>,
+            Option<&AiConstructBuilding>,
+            Option<&AiSeedField>,
+            Option<&AiHarvestField>,
+            Option<&MovementTarget>,
+        ),
+        With<Npc>,
+    >,
+    fields: Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
+    farms: Query<(&Building, &FarmInventory)>,
+) {
+    for (entity, position, search, gather, construction, seed, harvest, movement_target) in &npcs {
+        if search.is_some() || gather.is_some() || construction.is_some() {
+            continue;
+        }
+
+        if let Some(seed) = seed {
+            let Some(coord) = field_seeding_is_actionable(seed.field(), &fields, &farms) else {
+                commands.entity(entity).remove::<AiSeedField>();
+                commands.entity(entity).remove::<MovementTarget>();
+                continue;
+            };
+            route_to_farming_cell(&mut commands, entity, position, movement_target, coord);
+            continue;
+        }
+
+        if let Some(harvest) = harvest {
+            let Some(coord) = field_harvest_is_actionable(harvest.field(), &fields, &farms) else {
+                commands.entity(entity).remove::<AiHarvestField>();
+                commands.entity(entity).remove::<MovementTarget>();
+                continue;
+            };
+            route_to_farming_cell(&mut commands, entity, position, movement_target, coord);
+        }
     }
 }
 
@@ -387,6 +506,8 @@ pub fn system_npc_idle(
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
             Option<&AiConstructBuilding>,
+            Option<&AiSeedField>,
+            Option<&AiHarvestField>,
             Option<&mut AiIdleRoam>,
         ),
         With<Npc>,
@@ -403,10 +524,17 @@ pub fn system_npc_idle(
         search,
         gather,
         construction,
+        seed,
+        harvest,
         idle,
     ) in &mut npcs
     {
-        if search.is_some() || gather.is_some() || construction.is_some() {
+        if search.is_some()
+            || gather.is_some()
+            || construction.is_some()
+            || seed.is_some()
+            || harvest.is_some()
+        {
             commands.entity(entity).remove::<AiIdleRoam>();
             continue;
         }
@@ -580,6 +708,78 @@ fn construction_work_target(
         })
         .min_by_key(|(_, distance, y, x, bits)| (*distance, *y, *x, *bits))
         .map(|(entity, _, _, _, _)| entity)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FarmingWorkTarget {
+    Seed(Entity),
+    Harvest(Entity),
+}
+
+fn farming_work_target(
+    origin: CellCoord,
+    seed_tasks: &Query<&SeedField>,
+    harvest_tasks: &Query<&HarvestField>,
+    active_seed_fields: &std::collections::HashSet<Entity>,
+    active_harvest_fields: &std::collections::HashSet<Entity>,
+    fields: &Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
+    farms: &Query<(&Building, &FarmInventory)>,
+) -> Option<FarmingWorkTarget> {
+    let seed_candidates = seed_tasks.iter().filter_map(|task| {
+        let field = task.field();
+        if active_seed_fields.contains(&field) || active_harvest_fields.contains(&field) {
+            return None;
+        }
+        let coord = field_seeding_is_actionable(field, fields, farms)?;
+        Some((
+            FarmingWorkTarget::Seed(field),
+            manhattan_distance(origin, coord),
+            coord.y(),
+            coord.x(),
+            field.to_bits(),
+            1usize,
+        ))
+    });
+
+    let harvest_candidates = harvest_tasks.iter().filter_map(|task| {
+        let field = task.field();
+        if active_seed_fields.contains(&field) || active_harvest_fields.contains(&field) {
+            return None;
+        }
+        let coord = field_harvest_is_actionable(field, fields, farms)?;
+        Some((
+            FarmingWorkTarget::Harvest(field),
+            manhattan_distance(origin, coord),
+            coord.y(),
+            coord.x(),
+            field.to_bits(),
+            0usize,
+        ))
+    });
+
+    seed_candidates
+        .chain(harvest_candidates)
+        .min_by_key(|(_, distance, y, x, bits, task_index)| (*distance, *y, *x, *bits, *task_index))
+        .map(|(target, _, _, _, _, _)| target)
+}
+
+fn route_to_farming_cell(
+    commands: &mut Commands,
+    entity: Entity,
+    position: &NpcPosition,
+    movement_target: Option<&MovementTarget>,
+    coord: CellCoord,
+) {
+    if position.coord == coord {
+        if movement_target.is_some() {
+            commands.entity(entity).remove::<MovementTarget>();
+        }
+        return;
+    }
+
+    if movement_target.map(|movement_target| movement_target.coord) != Some(coord) {
+        commands.entity(entity).insert(MovementTarget::new(coord));
+    }
 }
 
 fn construction_work_is_actionable(

@@ -13,6 +13,9 @@ pub(crate) struct BuildingPalette {
     town_hall_button: OnEditor<Gd<Button>>,
 
     #[export]
+    farm_button: OnEditor<Gd<Button>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     base: Base<PanelContainer>,
@@ -24,6 +27,7 @@ impl IPanelContainer for BuildingPalette {
         Self {
             warehouse_button: OnEditor::default(),
             town_hall_button: OnEditor::default(),
+            farm_button: OnEditor::default(),
             game_world: OnEditor::default(),
             base,
         }
@@ -32,6 +36,7 @@ impl IPanelContainer for BuildingPalette {
     fn ready(&mut self) {
         let warehouse_button = self.warehouse_button.clone();
         let town_hall_button = self.town_hall_button.clone();
+        let farm_button = self.farm_button.clone();
         let game_world = self.game_world.clone();
 
         warehouse_button.signals().pressed().connect_other(
@@ -47,5 +52,12 @@ impl IPanelContainer for BuildingPalette {
                 game_world.start_town_hall_blueprint_placement();
             },
         );
+
+        farm_button
+            .signals()
+            .pressed()
+            .connect_other(&game_world, |game_world: &mut GameWorld| {
+                game_world.start_farm_blueprint_placement();
+            });
     }
 }

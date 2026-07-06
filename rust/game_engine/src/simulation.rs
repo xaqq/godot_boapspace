@@ -3,6 +3,11 @@ use crate::buildings::{
     BuildingKind, BuildingPlacementError,
 };
 use crate::components::{Terrain, TerrainKind, Tile};
+use crate::farming::{
+    place_field_blueprint, place_field_blueprints, validate_field_blueprint_placement,
+    validate_field_blueprint_placement_batch, FieldPlacementBatchResult, FieldPlacementError,
+    FieldPlacementPreview,
+};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npc, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
@@ -234,6 +239,46 @@ impl GameSimulation {
     ) -> Result<BuildingFootprint, BuildingPlacementError> {
         let surface = self.surface(surface_id);
         validate_building_blueprint_placement(&surface.world, kind, origin)
+    }
+
+    pub fn place_field_blueprint(
+        &mut self,
+        surface_id: SurfaceId,
+        farm: Entity,
+        coord: CellCoord,
+    ) -> Result<Entity, FieldPlacementError> {
+        let surface = self.surface_mut(surface_id);
+        place_field_blueprint(&mut surface.world, farm, coord)
+    }
+
+    pub fn place_field_blueprints(
+        &mut self,
+        surface_id: SurfaceId,
+        farm: Entity,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> FieldPlacementBatchResult {
+        let surface = self.surface_mut(surface_id);
+        place_field_blueprints(&mut surface.world, farm, coords)
+    }
+
+    pub fn validate_field_blueprint_placement(
+        &self,
+        surface_id: SurfaceId,
+        farm: Entity,
+        coord: CellCoord,
+    ) -> Result<BuildingFootprint, FieldPlacementError> {
+        let surface = self.surface(surface_id);
+        validate_field_blueprint_placement(&surface.world, farm, coord)
+    }
+
+    pub fn validate_field_blueprint_placement_batch(
+        &self,
+        surface_id: SurfaceId,
+        farm: Entity,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> Vec<FieldPlacementPreview> {
+        let surface = self.surface(surface_id);
+        validate_field_blueprint_placement_batch(&surface.world, farm, coords)
     }
 
     fn surface(&self, surface_id: SurfaceId) -> &SurfaceRuntime {

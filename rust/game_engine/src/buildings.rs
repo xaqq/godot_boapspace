@@ -1,3 +1,4 @@
+use crate::farming::{FarmInventory, FieldCrop};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
@@ -8,15 +9,19 @@ pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
 pub enum BuildingKind {
     Warehouse,
     TownHall,
+    Farm,
+    Field,
 }
 
 impl BuildingKind {
-    pub const ALL: [Self; 2] = [Self::Warehouse, Self::TownHall];
+    pub const ALL: [Self; 4] = [Self::Warehouse, Self::TownHall, Self::Farm, Self::Field];
 
     pub const fn label(self) -> &'static str {
         match self {
             Self::Warehouse => "Warehouse",
             Self::TownHall => "TownHall",
+            Self::Farm => "Farm",
+            Self::Field => "Field",
         }
     }
 
@@ -33,6 +38,18 @@ impl BuildingKind {
                 width: 3,
                 height: 3,
                 construction_cost: ResourceAmounts::new(80, 60, 0, 20),
+            },
+            Self::Farm => BuildingDefinition {
+                kind: self,
+                width: 3,
+                height: 3,
+                construction_cost: ResourceAmounts::new(20, 30, 0, 0),
+            },
+            Self::Field => BuildingDefinition {
+                kind: self,
+                width: 1,
+                height: 1,
+                construction_cost: ResourceAmounts::new(5, 1, 0, 0),
             },
         }
     }
@@ -260,6 +277,7 @@ impl Default for WarehouseInventory {
 pub enum BuildingPlacementError {
     OutOfBounds,
     OverlapsBuilding,
+    FieldRequiresFarm,
 }
 
 pub fn place_building_blueprint(
@@ -275,6 +293,18 @@ pub fn place_building_blueprint(
 }
 
 pub fn validate_building_blueprint_placement(
+    world: &World,
+    kind: BuildingKind,
+    origin: CellCoord,
+) -> Result<BuildingFootprint, BuildingPlacementError> {
+    if kind == BuildingKind::Field {
+        return Err(BuildingPlacementError::FieldRequiresFarm);
+    }
+
+    validate_building_footprint_placement(world, kind, origin)
+}
+
+pub(crate) fn validate_building_footprint_placement(
     world: &World,
     kind: BuildingKind,
     origin: CellCoord,
@@ -333,6 +363,12 @@ pub fn system_complete_building_construction(
             .insert(Building::new(blueprint.kind, blueprint.footprint));
         if blueprint.kind == BuildingKind::Warehouse {
             entity_commands.insert(WarehouseInventory::empty());
+        }
+        if blueprint.kind == BuildingKind::Farm {
+            entity_commands.insert(FarmInventory::empty());
+        }
+        if blueprint.kind == BuildingKind::Field {
+            entity_commands.insert(FieldCrop::seedable());
         }
     }
 }

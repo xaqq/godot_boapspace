@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod buildings;
 pub mod components;
+pub mod farming;
 pub mod grid;
 pub mod movement;
 pub mod npcs;

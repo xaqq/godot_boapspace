@@ -1,8 +1,9 @@
 [gd_scene format=3]
 
-[node name="BuildingPalette" type="BuildingPalette" unique_id=963753131 node_paths=PackedStringArray("warehouse_button", "town_hall_button")]
+[node name="BuildingPalette" type="BuildingPalette" unique_id=963753131 node_paths=PackedStringArray("warehouse_button", "town_hall_button", "farm_button")]
 warehouse_button = NodePath("MarginContainer/VBoxContainer/WarehouseButton")
 town_hall_button = NodePath("MarginContainer/VBoxContainer/TownHallButton")
+farm_button = NodePath("MarginContainer/VBoxContainer/FarmButton")
 custom_minimum_size = Vector2(200, 0)
 anchors_preset = 15
 anchor_right = 1.0
@@ -35,3 +36,7 @@ text = "Warehouse"
 [node name="TownHallButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1173271513]
 layout_mode = 2
 text = "TownHall"
+
+[node name="FarmButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1173271529]
+layout_mode = 2
+text = "Farm"
