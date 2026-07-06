@@ -1,5 +1,6 @@
 use crate::ai::{
-    system_gather_resource, system_keep_enough_food_in_inventory, system_search_for_food,
+    system_gather_resource, system_keep_enough_food_in_inventory, system_npc_idle,
+    system_search_for_food,
 };
 use crate::movement::update_npc_movement;
 use crate::npcs::update_npc_hunger;
@@ -13,6 +14,7 @@ pub fn build_surface_schedule() -> Schedule {
         (
             system_keep_enough_food_in_inventory,
             system_search_for_food,
+            system_npc_idle,
             update_npc_movement,
             system_gather_resource,
             update_npc_hunger,

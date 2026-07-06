@@ -1,5 +1,5 @@
 pub use crate::components::{
-    AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
+    AiIdleRoam, AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
     MovementTarget, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
 };
 

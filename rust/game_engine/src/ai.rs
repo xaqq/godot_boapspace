@@ -1,14 +1,45 @@
-pub use crate::components::{AiGatherResource, AiKeepEnoughFoodInInventory, AiSearchForFood};
+pub use crate::components::{
+    AiGatherResource, AiIdleRoam, AiKeepEnoughFoodInInventory, AiSearchForFood,
+};
 
 use crate::components::{
     MovementTarget, Npc, NpcInventory, NpcPosition, ResourceNode, TilePosition,
 };
-use crate::grid::CellCoord;
+use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::ResourceKind;
 use bevy_ecs::prelude::*;
 
 pub const DEFAULT_NPC_FOOD_INVENTORY_TARGET: u32 = 20;
+pub const DEFAULT_NPC_IDLE_ROAM_RADIUS: u32 = 3;
+pub const DEFAULT_NPC_IDLE_DWELL_TICKS: u32 = 180;
 pub const RESOURCE_GATHER_TICKS_PER_UNIT: u32 = 60;
+
+const IDLE_ROAM_OFFSETS: [(i32, i32); 24] = [
+    (1, 0),
+    (0, 1),
+    (-1, 0),
+    (0, -1),
+    (2, 0),
+    (1, 1),
+    (0, 2),
+    (-1, 1),
+    (-2, 0),
+    (-1, -1),
+    (0, -2),
+    (1, -1),
+    (3, 0),
+    (2, 1),
+    (1, 2),
+    (0, 3),
+    (-1, 2),
+    (-2, 1),
+    (-3, 0),
+    (-2, -1),
+    (-1, -2),
+    (0, -3),
+    (1, -2),
+    (2, -1),
+];
 
 pub fn system_keep_enough_food_in_inventory(
     mut commands: Commands,
@@ -67,6 +98,71 @@ pub fn system_search_for_food(
     }
 }
 
+pub fn system_npc_idle(
+    mut commands: Commands,
+    grid: Res<Grid>,
+    mut npcs: Query<
+        (
+            Entity,
+            &NpcPosition,
+            Option<&NpcInventory>,
+            Option<&AiKeepEnoughFoodInInventory>,
+            Option<&MovementTarget>,
+            Option<&AiSearchForFood>,
+            Option<&AiGatherResource>,
+            Option<&mut AiIdleRoam>,
+        ),
+        With<Npc>,
+    >,
+) {
+    let size = grid.size();
+    for (entity, position, inventory, keep_food, movement_target, search, gather, idle) in &mut npcs
+    {
+        if search.is_some() || gather.is_some() {
+            commands.entity(entity).remove::<AiIdleRoam>();
+            continue;
+        }
+
+        if needs_food(inventory, keep_food) {
+            if idle.is_some() {
+                commands.entity(entity).remove::<AiIdleRoam>();
+                commands.entity(entity).remove::<MovementTarget>();
+            }
+            continue;
+        }
+
+        if movement_target.is_some() {
+            continue;
+        }
+
+        let Some(mut idle) = idle else {
+            commands.entity(entity).insert(AiIdleRoam::new(
+                position.coord,
+                DEFAULT_NPC_IDLE_DWELL_TICKS,
+            ));
+            continue;
+        };
+
+        if idle.dwell_ticks_remaining() > 0 {
+            idle.advance_dwell();
+            if idle.dwell_ticks_remaining() > 0 {
+                continue;
+            }
+        }
+
+        if let Some((target, next_offset_index)) = idle_roam_target(
+            idle.origin(),
+            position.coord,
+            size,
+            idle.next_offset_index(),
+        ) {
+            idle.set_next_offset_index(next_offset_index);
+            commands.entity(entity).insert(MovementTarget::new(target));
+        }
+        idle.reset_dwell(DEFAULT_NPC_IDLE_DWELL_TICKS);
+    }
+}
+
 pub fn system_gather_resource(
     mut commands: Commands,
     mut npcs: Query<
@@ -107,6 +203,49 @@ pub fn system_gather_resource(
         }
         commands.entity(entity).remove::<AiGatherResource>();
     }
+}
+
+fn needs_food(
+    inventory: Option<&NpcInventory>,
+    keep_food: Option<&AiKeepEnoughFoodInInventory>,
+) -> bool {
+    let Some(inventory) = inventory else {
+        return false;
+    };
+    let Some(keep_food) = keep_food else {
+        return false;
+    };
+
+    inventory.contents().get(ResourceKind::Food) < keep_food.target()
+}
+
+fn idle_roam_target(
+    origin: CellCoord,
+    current: CellCoord,
+    size: GridSize,
+    start_offset_index: usize,
+) -> Option<(CellCoord, usize)> {
+    for step in 0..IDLE_ROAM_OFFSETS.len() {
+        let index = (start_offset_index + step) % IDLE_ROAM_OFFSETS.len();
+        let offset = IDLE_ROAM_OFFSETS[index];
+        let Some(target) = offset_coord(origin, offset) else {
+            continue;
+        };
+        if target == current || !size.contains(target) {
+            continue;
+        }
+
+        return Some((target, (index + 1) % IDLE_ROAM_OFFSETS.len()));
+    }
+
+    None
+}
+
+fn offset_coord(origin: CellCoord, offset: (i32, i32)) -> Option<CellCoord> {
+    Some(CellCoord::new(
+        origin.x().checked_add(offset.0)?,
+        origin.y().checked_add(offset.1)?,
+    ))
 }
 
 fn nearest_food_resource(

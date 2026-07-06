@@ -227,6 +227,47 @@ impl AiKeepEnoughFoodInInventory {
 pub struct AiSearchForFood;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct AiIdleRoam {
+    origin: CellCoord,
+    dwell_ticks_remaining: u32,
+    next_offset_index: usize,
+}
+
+impl AiIdleRoam {
+    pub const fn new(origin: CellCoord, dwell_ticks_remaining: u32) -> Self {
+        Self {
+            origin,
+            dwell_ticks_remaining,
+            next_offset_index: 0,
+        }
+    }
+
+    pub const fn origin(self) -> CellCoord {
+        self.origin
+    }
+
+    pub const fn dwell_ticks_remaining(self) -> u32 {
+        self.dwell_ticks_remaining
+    }
+
+    pub const fn next_offset_index(self) -> usize {
+        self.next_offset_index
+    }
+
+    pub fn advance_dwell(&mut self) {
+        self.dwell_ticks_remaining = self.dwell_ticks_remaining.saturating_sub(1);
+    }
+
+    pub const fn reset_dwell(&mut self, dwell_ticks: u32) {
+        self.dwell_ticks_remaining = dwell_ticks;
+    }
+
+    pub const fn set_next_offset_index(&mut self, next_offset_index: usize) {
+        self.next_offset_index = next_offset_index;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiGatherResource {
     target: Entity,
     progress_ticks: u32,
