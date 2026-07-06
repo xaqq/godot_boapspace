@@ -117,6 +117,11 @@ Seeding takes 1 in-game day of worker time. The simulation currently uses
 1-minute fixed ticks, so this is 1,440 simulation ticks unless the time constants
 change.
 
+Seeding progress is stored on the Field, not on the NPC. If a Farmer is
+interrupted, loses the Farmer tag, switches work, or disappears before seeding is
+complete, the Field keeps its accumulated seeding progress and remains eligible
+for another `SeedField` task instead of resetting to zero.
+
 After seeding completes, that Field starts its own independent 1-year growth
 timer. One year means 365 in-game days, matching the existing world-date age
 logic. Growth does not wait for other Fields on the same Farm.
@@ -130,6 +135,8 @@ Recommended visual thresholds:
 
 When a crop is harvested:
 
+- Harvest work takes the existing one-hour resource gather duration,
+  `RESOURCE_GATHER_TICKS_PER_UNIT`, currently 60 fixed ticks.
 - 1 Food is added to the owning Farm's inventory.
 - The Field returns to `Seedable`.
 - The Field can generate another seeding task in a later tick.
@@ -174,17 +181,25 @@ Task maintenance should:
 - Generic resource gathering should continue to award `Forager` for wild Food.
 - Crop harvest should be separate farming work and should store Food in the
   owning Farm's inventory instead of the NPC inventory.
-- The original design intent was that crop gathering gives Farmer skill. Since
-  assignment is tag-based, this should be interpreted as optional Farmer-skill XP
-  for completed farm work, not as a work eligibility rule. See Open Decisions.
+- Completed seeding and completed harvest each award 1 `SkillKind::Farmer` XP,
+  matching the existing one-XP-per-completed-gather convention.
+- `SkillKind::Farmer` value does not affect farming eligibility, work speed,
+  crop growth duration, or yield in this feature.
 
 ### Inventory
 
-- Farm inventory stores harvested Food.
+- Farm inventory stores harvested Food with a capacity of 200 Food.
 - The Farm inventory should be shown in the building info panel.
 - Food is deposited directly into the Farm inventory when harvest completes.
 - If the Farm inventory cannot accept the Food, harvest completion must not
   destroy the crop.
+- A full Farm inventory leaves the Field in `Grown`, does not consume the crop,
+  and should show a blocked/full-storage state in Farm or Field details.
+- `HarvestField` tasks should only be created or kept while the owning Farm has
+  capacity for at least 1 Food. When capacity returns, the grown Field becomes
+  harvestable again and can receive a new harvest task.
+- Farm inventory is not a food source for hungry NPCs in v1. Existing food-refill
+  AI continues to use Food `ResourceNode`s only.
 
 ### Terrain, Resource Nodes, And Overlap
 
@@ -302,12 +317,17 @@ resources, consistent with the current asset-loading rule.
 - Constructed Fields remain inactive until their owning Farm is constructed.
 - Each eligible constructed Field gets at most one seed task.
 - A Farmer-tagged NPC can seed a Field after 1 in-game day of worker time.
+- Partial seeding progress is stored on the Field and survives Farmer
+  interruption.
 - Each seeded Field grows independently for 365 in-game days.
 - Growth state moves through `GrowingStep1`, `GrowingStep2`, and `Grown`.
 - Each grown Field gets at most one harvest task.
-- A Farmer-tagged NPC harvesting a grown Field adds exactly 1 Food to the owning
-  Farm inventory and returns the Field to `Seedable`.
+- A Farmer-tagged NPC harvesting a grown Field after 60 fixed ticks adds exactly
+  1 Food to the owning Farm inventory and returns the Field to `Seedable`.
+- Completed seeding and completed harvest each award 1 `SkillKind::Farmer` XP.
 - Grown crops are not visible to generic food search as `ResourceNode` Food.
+- Farm inventory is not visible to NPC hunger refill or generic food search in
+  v1.
 - Paused simulation ticks do not advance seeding, growth, or harvest progress.
 - Faster simulation speeds advance farming by the correct number of fixed ticks.
 - Farm inventory appears in the building info UI.
@@ -327,12 +347,16 @@ Simulation tests should cover:
 - Construction completion inserts Farm inventory and Field crop state.
 - Task maintenance creates, de-duplicates, and removes seed/harvest tasks.
 - Farmer-tagged NPC assignment and non-Farmer exclusion.
-- Seeding duration, pause behavior, and speed multiplier behavior.
+- Seeding duration, Field-stored partial progress, pause behavior, and speed
+  multiplier behavior.
 - Independent growth timers for multiple Fields.
-- Harvest adds exactly 1 Food to the Farm inventory and cycles the Field back to
-  `Seedable`.
+- Harvest takes 60 fixed ticks, adds exactly 1 Food to the Farm inventory, and
+  cycles the Field back to `Seedable`.
+- Completed seeding and completed harvest award Farmer XP without changing
+  eligibility, speed, yield, or growth.
 - Full/unavailable Farm inventory does not destroy a grown crop.
 - Generic food search ignores grown crops.
+- NPC hunger refill ignores Farm inventory in v1.
 
 Bridge/UI tests should cover:
 
@@ -346,43 +370,14 @@ Bridge/UI tests should cover:
 
 ## Open Decisions
 
-These decisions are still needed before a complete implementation plan:
+None. The previous open questions are resolved in this brief:
 
-1. Farm inventory capacity.
-   - Recommended default: 200 Food, matching the maximum Fields per Farm and one
-     Food per Field harvest cycle.
-   - Tradeoff: simple and predictable, but a full Farm can stall harvest until
-     later storage/hauling behavior exists.
-
-2. Full Farm inventory behavior.
-   - Recommended default: leave the Field in `Grown`, keep or recreate the
-     harvest task only when capacity is available, and show the blocked state in
-     UI.
-   - Tradeoff: no Food is lost, but Farms can visually remain ready while blocked
-     by storage.
-
-3. Whether NPCs can withdraw Food from Farm inventory for hunger.
-   - Current food-refill AI gathers from Food `ResourceNode`s into NPC inventory.
-   - If Farm inventory is not withdrawable, farming produces visible stored Food
-     but does not yet feed colonists.
-   - If Farm inventory is withdrawable, food-search AI needs a new source type
-     and clear rules for whether any NPC or only Farmer-tagged NPCs can withdraw.
-
-4. Whether seeding progress is stored on the Field or the NPC.
-   - Recommended default: store seeding progress on the Field so interruption
-     does not reset a full day of worker time.
-   - Tradeoff: more field state, but less frustrating and more similar to
-     construction progress.
-
-5. Harvest work duration.
-   - Recommended default: use the existing one-hour resource gather duration
-     (`RESOURCE_GATHER_TICKS_PER_UNIT`, currently 60 fixed ticks).
-   - Tradeoff: consistent with existing gathering, but harvest time is not
-     explicitly specified in the original request.
-
-6. Farmer skill XP.
-   - Original request says crop gathering should give Farmer skill.
-   - User decision says assignment should use the Farmer tag and not consider
-     skill.
-   - Recommended interpretation: completed seeding and/or harvest may award
-     `SkillKind::Farmer` XP, but skill value does not affect eligibility or yield.
+- Farm inventory capacity is 200 Food.
+- Full Farm inventory leaves crops `Grown`, blocks harvest completion, and does
+  not destroy Food.
+- Farm inventory is visible storage only in v1; NPC hunger refill does not
+  withdraw from it.
+- Seeding progress is stored on the Field.
+- Harvest work takes `RESOURCE_GATHER_TICKS_PER_UNIT`, currently 60 fixed ticks.
+- Completed seeding and completed harvest each award 1 `SkillKind::Farmer` XP,
+  but Farmer skill value does not affect farming behavior.
