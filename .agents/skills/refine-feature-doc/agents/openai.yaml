@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refine Feature Doc"
+  short_description: "Iteratively refine feature briefs"
+  default_prompt: "Use $refine-feature-doc to inspect the repo, ask follow-up questions, and iteratively refine this feature request markdown into a complete feature brief."
