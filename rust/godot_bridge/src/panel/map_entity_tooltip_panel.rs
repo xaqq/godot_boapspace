@@ -143,7 +143,7 @@ fn npc_tooltip_text(world: &World, entity: Entity) -> Option<String> {
         name.as_str(),
         position.coord,
         world_date_time.age_years_since(*birth_date),
-        inventory.contents(),
+        *inventory,
     ))
 }
 
@@ -177,15 +177,17 @@ fn format_npc_tooltip(
     name: &str,
     coord: game_engine::grid::CellCoord,
     age_years: u32,
-    inventory: ResourceAmounts,
+    inventory: NpcInventory,
 ) -> String {
     format!(
-        "[b]{}[/b]\nNPC\nCell: ({}, {})\nAge: {}\nInventory: {}",
+        "[b]{}[/b]\nNPC\nCell: ({}, {})\nAge: {}\nInventory: {}/{} ({})",
         name,
         coord.x(),
         coord.y(),
         age_years,
-        format_resource_amounts(inventory)
+        inventory.used_size(),
+        inventory.max_size(),
+        format_resource_amounts(inventory.contents())
     )
 }
 
@@ -256,27 +258,22 @@ mod tests {
             "Mara Voss",
             CellCoord::new(8, 9),
             32,
-            ResourceAmounts::new(2, 0, 4, 0),
+            NpcInventory::new(ResourceAmounts::new(2, 0, 4, 0)),
         );
 
         assert_eq!(
             text,
-            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: Wood: 2, Food: 4"
+            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: 6/100 (Wood: 2, Food: 4)"
         );
     }
 
     #[test]
     fn npc_tooltip_formats_empty_inventory_as_none() {
-        let text = format_npc_tooltip(
-            "Mara Voss",
-            CellCoord::new(8, 9),
-            32,
-            ResourceAmounts::zero(),
-        );
+        let text = format_npc_tooltip("Mara Voss", CellCoord::new(8, 9), 32, NpcInventory::empty());
 
         assert_eq!(
             text,
-            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: None"
+            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: 0/100 (None)"
         );
     }
 

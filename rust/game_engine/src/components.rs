@@ -1,5 +1,5 @@
 use crate::grid::CellCoord;
-use crate::resources::{ResourceAmounts, ResourceKind};
+use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::time::SIMULATION_TICKS_PER_DAY;
 use bevy_ecs::prelude::{Component, Entity};
 use std::time::Duration;
@@ -7,6 +7,7 @@ use std::time::Duration;
 pub const SUBTILE_UNITS_PER_TILE: i32 = 1024;
 pub const HALF_SUBTILE_UNITS_PER_TILE: i32 = SUBTILE_UNITS_PER_TILE / 2;
 pub const DEFAULT_MAX_VELOCITY_UNITS_PER_TICK: u32 = 16;
+pub const DEFAULT_NPC_INVENTORY_MAX_SIZE: u32 = 100;
 pub const NPC_HUNGER_HUNGRY_THRESHOLD: u32 = SIMULATION_TICKS_PER_DAY;
 pub const NPC_HUNGER_FULL_SATIATION: u32 = 2 * SIMULATION_TICKS_PER_DAY;
 
@@ -394,37 +395,44 @@ impl Default for NpcHunger {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct NpcInventory {
-    contents: ResourceAmounts,
+    inventory: ResourceInventory,
 }
 
 impl NpcInventory {
     pub const fn empty() -> Self {
         Self {
-            contents: ResourceAmounts::zero(),
+            inventory: ResourceInventory::empty(DEFAULT_NPC_INVENTORY_MAX_SIZE),
         }
     }
 
     pub const fn new(contents: ResourceAmounts) -> Self {
-        Self { contents }
+        Self {
+            inventory: ResourceInventory::new(contents, DEFAULT_NPC_INVENTORY_MAX_SIZE),
+        }
     }
 
     pub const fn contents(self) -> ResourceAmounts {
-        self.contents
+        self.inventory.contents()
+    }
+
+    pub const fn max_size(self) -> u32 {
+        self.inventory.max_size()
+    }
+
+    pub const fn used_size(self) -> u32 {
+        self.inventory.used_size()
+    }
+
+    pub const fn free_size(self) -> u32 {
+        self.inventory.free_size()
     }
 
     pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
-        let available = self.contents.get(kind);
-        if available < amount {
-            return false;
-        }
-
-        self.contents.set(kind, available - amount);
-        true
+        self.inventory.consume(kind, amount)
     }
 
-    pub fn add(&mut self, kind: ResourceKind, amount: u32) {
-        let available = self.contents.get(kind);
-        self.contents.set(kind, available.saturating_add(amount));
+    pub fn add(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        self.inventory.add(kind, amount)
     }
 }
 

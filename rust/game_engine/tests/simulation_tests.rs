@@ -1,4 +1,6 @@
-use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
+use game_engine::components::{
+    Terrain, TerrainKind, Tile, TilePosition, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+};
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
     BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
@@ -502,17 +504,16 @@ fn test_initial_npc_inventory_starts_with_food() {
     let inventory = simulation
         .with_surface_world(surface, |world| {
             let mut query = world.try_query::<(&NpcInventory, &Npc)>()?;
-            query
-                .iter(world)
-                .next()
-                .map(|(inventory, _)| inventory.contents())
+            query.iter(world).next().map(|(inventory, _)| *inventory)
         })
         .expect("default NPC should have inventory");
 
     for kind in ResourceKind::ALL {
         let expected = if kind == ResourceKind::Food { 20 } else { 0 };
-        assert_eq!(inventory.get(kind), expected);
+        assert_eq!(inventory.contents().get(kind), expected);
     }
+    assert_eq!(inventory.used_size(), 20);
+    assert_eq!(inventory.max_size(), DEFAULT_NPC_INVENTORY_MAX_SIZE);
 }
 
 #[test]

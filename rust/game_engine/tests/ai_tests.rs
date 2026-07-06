@@ -6,7 +6,9 @@ use game_engine::ai::{
     AiSearchForFood, DEFAULT_NPC_FOOD_INVENTORY_TARGET, DEFAULT_NPC_IDLE_DWELL_TICKS,
     DEFAULT_NPC_IDLE_ROAM_RADIUS, RESOURCE_GATHER_TICKS_PER_UNIT,
 };
-use game_engine::components::{MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition};
+use game_engine::components::{
+    MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+};
 use game_engine::grid::{CellCoord, Grid};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
@@ -41,6 +43,27 @@ fn test_keep_enough_food_adds_search_when_below_target() {
     run_keep_enough_food(&mut world);
 
     assert!(world.get::<AiSearchForFood>(npc).is_some());
+}
+
+#[test]
+fn test_keep_enough_food_does_not_search_when_inventory_is_full() {
+    let mut world = World::new();
+    let npc = world
+        .spawn((
+            Npc,
+            NpcInventory::new(ResourceAmounts::new(
+                DEFAULT_NPC_INVENTORY_MAX_SIZE,
+                0,
+                0,
+                0,
+            )),
+            AiKeepEnoughFoodInInventory::new(DEFAULT_NPC_FOOD_INVENTORY_TARGET),
+        ))
+        .id();
+
+    run_keep_enough_food(&mut world);
+
+    assert!(world.get::<AiSearchForFood>(npc).is_none());
 }
 
 #[test]
@@ -408,6 +431,33 @@ fn test_gather_resource_removes_depleted_resource_node_not_tile() {
     assert!(world.get::<ResourceNode>(resource).is_none());
     assert!(world.get::<TilePosition>(resource).is_some());
     assert!(world.get::<Tile>(resource).is_some());
+}
+
+#[test]
+fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full() {
+    let mut world = World::new();
+    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 2);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(2, 1)),
+            NpcInventory::new(ResourceAmounts::new(
+                DEFAULT_NPC_INVENTORY_MAX_SIZE,
+                0,
+                0,
+                0,
+            )),
+            AiGatherResource::new(resource),
+        ))
+        .id();
+
+    for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
+        run_gather_resource(&mut world);
+    }
+
+    assert_eq!(npc_food(&world, npc), 0);
+    assert_eq!(resource_quantity(&world, resource), Some(2));
+    assert!(world.get::<AiGatherResource>(npc).is_none());
 }
 
 #[test]

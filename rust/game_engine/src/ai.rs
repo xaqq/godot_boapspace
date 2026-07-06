@@ -54,7 +54,10 @@ pub fn system_keep_enough_food_in_inventory(
     >,
 ) {
     for (entity, inventory, goal, search) in &npcs {
-        if inventory.contents().get(ResourceKind::Food) < goal.target() && search.is_none() {
+        if inventory.contents().get(ResourceKind::Food) < goal.target()
+            && inventory.free_size() > 0
+            && search.is_none()
+        {
             commands.entity(entity).insert(AiSearchForFood);
         }
     }
@@ -196,7 +199,11 @@ pub fn system_gather_resource(
             continue;
         }
 
-        inventory.add(ResourceKind::Food, 1);
+        if !inventory.add(ResourceKind::Food, 1) {
+            commands.entity(entity).remove::<AiGatherResource>();
+            continue;
+        }
+
         resource_node.quantity = resource_node.quantity.saturating_sub(1);
         if resource_node.quantity == 0 {
             commands.entity(target).remove::<ResourceNode>();
@@ -216,7 +223,7 @@ fn needs_food(
         return false;
     };
 
-    inventory.contents().get(ResourceKind::Food) < keep_food.target()
+    inventory.contents().get(ResourceKind::Food) < keep_food.target() && inventory.free_size() > 0
 }
 
 fn idle_roam_target(

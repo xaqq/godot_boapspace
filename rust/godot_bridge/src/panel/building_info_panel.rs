@@ -37,6 +37,9 @@ pub(crate) struct BuildingInfoPanel {
     inventory_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
+    inventory_label: OnEditor<Gd<Label>>,
+
+    #[export]
     wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
@@ -66,6 +69,7 @@ impl IPanelContainer for BuildingInfoPanel {
             food_construction_progress: OnEditor::default(),
             gold_construction_progress: OnEditor::default(),
             inventory_container: OnEditor::default(),
+            inventory_label: OnEditor::default(),
             wood_inventory_quantity: OnEditor::default(),
             stone_inventory_quantity: OnEditor::default(),
             food_inventory_quantity: OnEditor::default(),
@@ -85,6 +89,7 @@ impl IPanelContainer for BuildingInfoPanel {
         let food_construction_progress = self.food_construction_progress.clone();
         let gold_construction_progress = self.gold_construction_progress.clone();
         let inventory_container = self.inventory_container.clone();
+        let inventory_label = self.inventory_label.clone();
         let wood_inventory_quantity = self.wood_inventory_quantity.clone();
         let stone_inventory_quantity = self.stone_inventory_quantity.clone();
         let food_inventory_quantity = self.food_inventory_quantity.clone();
@@ -99,6 +104,7 @@ impl IPanelContainer for BuildingInfoPanel {
         let mut selected_food_construction_progress = food_construction_progress.clone();
         let mut selected_gold_construction_progress = gold_construction_progress.clone();
         let mut selected_inventory_container = inventory_container.clone();
+        let mut selected_inventory_label = inventory_label.clone();
         let mut selected_wood_inventory_quantity = wood_inventory_quantity.clone();
         let mut selected_stone_inventory_quantity = stone_inventory_quantity.clone();
         let mut selected_food_inventory_quantity = food_inventory_quantity.clone();
@@ -114,6 +120,7 @@ impl IPanelContainer for BuildingInfoPanel {
                         &mut selected_footprint_label,
                         &mut selected_construction_container,
                         &mut selected_inventory_container,
+                        &mut selected_inventory_label,
                     );
                     return;
                 };
@@ -131,6 +138,7 @@ impl IPanelContainer for BuildingInfoPanel {
                 );
                 update_inventory(
                     &mut selected_inventory_container,
+                    &mut selected_inventory_label,
                     &mut selected_wood_inventory_quantity,
                     &mut selected_stone_inventory_quantity,
                     &mut selected_food_inventory_quantity,
@@ -143,12 +151,14 @@ impl IPanelContainer for BuildingInfoPanel {
         let mut deselected_footprint_label = footprint_label;
         let mut deselected_construction_container = construction_container;
         let mut deselected_inventory_container = inventory_container;
+        let mut deselected_inventory_label = inventory_label;
         game_world.signals().building_deselected().connect(move || {
             clear_building_labels(
                 &mut deselected_name_label,
                 &mut deselected_footprint_label,
                 &mut deselected_construction_container,
                 &mut deselected_inventory_container,
+                &mut deselected_inventory_label,
             );
         });
     }
@@ -159,7 +169,7 @@ struct BuildingInfo {
     footprint: BuildingFootprint,
     cost: ResourceAmounts,
     progress: ResourceAmounts,
-    inventory: Option<ResourceAmounts>,
+    inventory: Option<WarehouseInventory>,
 }
 
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
@@ -167,9 +177,7 @@ fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<Buil
     game_world.with_rendered_surface_world(|world| {
         let blueprint = world.get::<BuildingBlueprint>(entity)?;
         let progress = world.get::<ConstructionProgress>(entity)?;
-        let inventory = world
-            .get::<WarehouseInventory>(entity)
-            .map(|inventory| inventory.contents());
+        let inventory = world.get::<WarehouseInventory>(entity).copied();
 
         Some(BuildingInfo {
             kind: blueprint.kind,
@@ -268,25 +276,29 @@ fn update_construction_progress_row(
 
 fn update_inventory(
     inventory_container: &mut Gd<VBoxContainer>,
+    inventory_label: &mut Gd<Label>,
     wood_quantity: &mut Gd<ResourceQuantity>,
     stone_quantity: &mut Gd<ResourceQuantity>,
     food_quantity: &mut Gd<ResourceQuantity>,
     gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: Option<ResourceAmounts>,
+    inventory: Option<WarehouseInventory>,
 ) {
     if let Some(inventory) = inventory {
+        let contents = inventory.contents();
+        inventory_label
+            .set_text(inventory_header_text(inventory.used_size(), inventory.max_size()).as_str());
         wood_quantity
             .bind_mut()
-            .set_amount(inventory.get(ResourceKind::Wood));
+            .set_amount(contents.get(ResourceKind::Wood));
         stone_quantity
             .bind_mut()
-            .set_amount(inventory.get(ResourceKind::Stone));
+            .set_amount(contents.get(ResourceKind::Stone));
         food_quantity
             .bind_mut()
-            .set_amount(inventory.get(ResourceKind::Food));
+            .set_amount(contents.get(ResourceKind::Food));
         gold_quantity
             .bind_mut()
-            .set_amount(inventory.get(ResourceKind::Gold));
+            .set_amount(contents.get(ResourceKind::Gold));
         inventory_container.show();
     } else {
         inventory_container.hide();
@@ -298,11 +310,17 @@ fn clear_building_labels(
     footprint_label: &mut Gd<Label>,
     construction_container: &mut Gd<VBoxContainer>,
     inventory_container: &mut Gd<VBoxContainer>,
+    inventory_label: &mut Gd<Label>,
 ) {
     name_label.set_text("Building: None");
     footprint_label.set_text("");
     construction_container.hide();
+    inventory_label.set_text("Inventory:");
     inventory_container.hide();
+}
+
+fn inventory_header_text(used_size: u32, max_size: u32) -> String {
+    format!("Inventory: {used_size}/{max_size}")
 }
 
 #[cfg(test)]
@@ -351,5 +369,10 @@ mod tests {
         assert!(
             construction_progress_rows(ResourceAmounts::zero(), ResourceAmounts::zero()).is_empty()
         );
+    }
+
+    #[test]
+    fn inventory_header_text_shows_used_over_max() {
+        assert_eq!(inventory_header_text(125, 2000), "Inventory: 125/2000");
     }
 }

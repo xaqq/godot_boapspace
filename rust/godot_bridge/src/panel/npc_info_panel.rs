@@ -4,7 +4,7 @@ use game_engine::grid::CellCoord;
 use game_engine::npcs::{
     BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
 };
-use game_engine::resources::{ResourceAmounts, ResourceKind};
+use game_engine::resources::ResourceKind;
 use game_engine::time::SECONDS_PER_DAY;
 use godot::classes::{IPanelContainer, Label, PanelContainer, ProgressBar, VBoxContainer};
 use godot::obj::OnEditor;
@@ -38,6 +38,9 @@ pub(crate) struct NpcInfoPanel {
     inventory_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
+    inventory_label: OnEditor<Gd<Label>>,
+
+    #[export]
     wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
@@ -68,6 +71,7 @@ impl IPanelContainer for NpcInfoPanel {
             satiation_container: OnEditor::default(),
             satiation_progress_bar: OnEditor::default(),
             inventory_container: OnEditor::default(),
+            inventory_label: OnEditor::default(),
             wood_inventory_quantity: OnEditor::default(),
             stone_inventory_quantity: OnEditor::default(),
             food_inventory_quantity: OnEditor::default(),
@@ -143,6 +147,7 @@ impl NpcInfoPanel {
         let mut satiation_container = self.satiation_container.clone();
         let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
+        let mut inventory_label = self.inventory_label.clone();
         let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
         let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
         let mut food_inventory_quantity = self.food_inventory_quantity.clone();
@@ -166,6 +171,7 @@ impl NpcInfoPanel {
         );
         update_inventory(
             &mut inventory_container,
+            &mut inventory_label,
             &mut wood_inventory_quantity,
             &mut stone_inventory_quantity,
             &mut food_inventory_quantity,
@@ -183,6 +189,7 @@ impl NpcInfoPanel {
         let mut satiation_container = self.satiation_container.clone();
         let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
+        let mut inventory_label = self.inventory_label.clone();
 
         name_label.set_text("Name: None");
         age_label.set_text("");
@@ -192,6 +199,7 @@ impl NpcInfoPanel {
         satiation_progress_bar.set_value(0.0);
         satiation_progress_bar.set_tooltip_text("");
         satiation_container.hide();
+        inventory_label.set_text("Inventory:");
         inventory_container.hide();
     }
 }
@@ -204,7 +212,7 @@ struct NpcInfo {
     hunger_state: HungerState,
     satiation_level: u32,
     max_satiation_level: u32,
-    inventory: ResourceAmounts,
+    inventory: NpcInventory,
 }
 
 fn npc_info(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcInfo> {
@@ -226,7 +234,7 @@ fn npc_info(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcInfo> {
             hunger_state: hunger.state(),
             satiation_level: hunger.satiation_level(),
             max_satiation_level: NpcHunger::MAX_SATIATION_LEVEL,
-            inventory: inventory.contents(),
+            inventory: *inventory,
         })
     })
 }
@@ -279,25 +287,33 @@ fn satiation_progress_value(satiation_level: u32, max_satiation_level: u32) -> f
 
 fn update_inventory(
     inventory_container: &mut Gd<VBoxContainer>,
+    inventory_label: &mut Gd<Label>,
     wood_quantity: &mut Gd<ResourceQuantity>,
     stone_quantity: &mut Gd<ResourceQuantity>,
     food_quantity: &mut Gd<ResourceQuantity>,
     gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: ResourceAmounts,
+    inventory: NpcInventory,
 ) {
+    let contents = inventory.contents();
+    inventory_label
+        .set_text(inventory_header_text(inventory.used_size(), inventory.max_size()).as_str());
     wood_quantity
         .bind_mut()
-        .set_amount(inventory.get(ResourceKind::Wood));
+        .set_amount(contents.get(ResourceKind::Wood));
     stone_quantity
         .bind_mut()
-        .set_amount(inventory.get(ResourceKind::Stone));
+        .set_amount(contents.get(ResourceKind::Stone));
     food_quantity
         .bind_mut()
-        .set_amount(inventory.get(ResourceKind::Food));
+        .set_amount(contents.get(ResourceKind::Food));
     gold_quantity
         .bind_mut()
-        .set_amount(inventory.get(ResourceKind::Gold));
+        .set_amount(contents.get(ResourceKind::Gold));
     inventory_container.show();
+}
+
+fn inventory_header_text(used_size: u32, max_size: u32) -> String {
+    format!("Inventory: {used_size}/{max_size}")
 }
 
 #[cfg(test)]
@@ -316,5 +332,10 @@ mod tests {
     fn satiation_progress_value_uses_component_range() {
         assert_eq!(satiation_progress_value(12, 48), 12.0);
         assert_eq!(satiation_progress_value(80, 48), 48.0);
+    }
+
+    #[test]
+    fn inventory_header_text_shows_used_over_max() {
+        assert_eq!(inventory_header_text(20, 100), "Inventory: 20/100");
     }
 }

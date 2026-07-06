@@ -1,6 +1,8 @@
 use crate::grid::{CellCoord, Grid, GridSize};
-use crate::resources::ResourceAmounts;
+use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
+
+pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuildingKind {
@@ -175,18 +177,38 @@ impl BuildingBlueprintBundle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct WarehouseInventory {
-    contents: ResourceAmounts,
+    inventory: ResourceInventory,
 }
 
 impl WarehouseInventory {
     pub const fn empty() -> Self {
         Self {
-            contents: ResourceAmounts::zero(),
+            inventory: ResourceInventory::empty(DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE),
         }
     }
 
     pub const fn contents(self) -> ResourceAmounts {
-        self.contents
+        self.inventory.contents()
+    }
+
+    pub const fn max_size(self) -> u32 {
+        self.inventory.max_size()
+    }
+
+    pub const fn used_size(self) -> u32 {
+        self.inventory.used_size()
+    }
+
+    pub const fn free_size(self) -> u32 {
+        self.inventory.free_size()
+    }
+
+    pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        self.inventory.consume(kind, amount)
+    }
+
+    pub fn add(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        self.inventory.add(kind, amount)
     }
 }
 

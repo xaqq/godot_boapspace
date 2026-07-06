@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
 
-[node name="NpcInfoPanel" type="NpcInfoPanel" unique_id=963753130 node_paths=PackedStringArray("name_label", "age_label", "birth_day_label", "pos_label", "hunger_label", "satiation_container", "satiation_progress_bar", "inventory_container", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
+[node name="NpcInfoPanel" type="NpcInfoPanel" unique_id=963753130 node_paths=PackedStringArray("name_label", "age_label", "birth_day_label", "pos_label", "hunger_label", "satiation_container", "satiation_progress_bar", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 age_label = NodePath("MarginContainer/VBoxContainer/age_label")
 birth_day_label = NodePath("MarginContainer/VBoxContainer/birth_day_label")
@@ -11,6 +11,7 @@ hunger_label = NodePath("MarginContainer/VBoxContainer/SatiationContainer/hunger
 satiation_container = NodePath("MarginContainer/VBoxContainer/SatiationContainer")
 satiation_progress_bar = NodePath("MarginContainer/VBoxContainer/SatiationContainer/SatiationProgressBar")
 inventory_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer")
+inventory_label = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryLabel")
 wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
 stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
 food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")

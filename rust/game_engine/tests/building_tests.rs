@@ -1,6 +1,6 @@
 use game_engine::buildings::{
     BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
-    ConstructionProgress, WarehouseInventory,
+    ConstructionProgress, WarehouseInventory, DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{Npc, NpcPosition};
@@ -159,6 +159,16 @@ fn test_town_hall_does_not_have_warehouse_inventory() {
     });
 
     assert!(!has_inventory);
+}
+
+#[test]
+fn test_warehouse_inventory_defaults_to_requested_capacity() {
+    let inventory = WarehouseInventory::empty();
+
+    assert_eq!(inventory.contents().total(), 0);
+    assert_eq!(inventory.used_size(), 0);
+    assert_eq!(inventory.free_size(), DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE);
+    assert_eq!(inventory.max_size(), DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE);
 }
 
 #[test]
