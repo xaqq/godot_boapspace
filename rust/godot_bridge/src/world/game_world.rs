@@ -5,7 +5,7 @@ use game_engine::buildings::{
     BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
-    MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
+    AiGatherResource, MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
     SUBTILE_UNITS_PER_TILE,
 };
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
@@ -106,6 +106,7 @@ struct NpcRenderInfo {
     subtile_offset: SubtileOffset,
     velocity: Velocity,
     facing: MovementFacing,
+    is_gathering: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1283,18 +1284,22 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
             &NpcPosition,
             Option<&Velocity>,
             Option<&MovementFacing>,
+            Option<&AiGatherResource>,
             &Npc,
         )>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(entity, position, velocity, facing, _)| NpcRenderInfo {
-                    entity,
-                    coord: position.coord,
-                    subtile_offset: position.subtile_offset,
-                    velocity: velocity.copied().unwrap_or_default(),
-                    facing: facing.copied().unwrap_or_default(),
-                })
+                .map(
+                    |(entity, position, velocity, facing, gather, _)| NpcRenderInfo {
+                        entity,
+                        coord: position.coord,
+                        subtile_offset: position.subtile_offset,
+                        velocity: velocity.copied().unwrap_or_default(),
+                        facing: facing.copied().unwrap_or_default(),
+                        is_gathering: gather.is_some(),
+                    },
+                )
                 .collect()
         })
         .unwrap_or_default()
@@ -1394,6 +1399,10 @@ fn set_npc_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
 }
 
 fn npc_animation_name(npc: NpcRenderInfo) -> &'static str {
+    if npc.is_gathering {
+        return "gather";
+    }
+
     if npc.velocity.is_zero() {
         return "idle";
     }
@@ -1453,6 +1462,50 @@ mod tests {
     use game_engine::npcs::InitialNpcBundle;
     use game_engine::tasks::ProgressBuildingConstructionTaskBundle;
     use game_engine::tile::TileBundle;
+
+    #[test]
+    fn npc_animation_name_returns_gather_when_gathering() {
+        let npc = npc_render_info_with(Velocity::ZERO, MovementFacing::South, true);
+
+        assert_eq!(npc_animation_name(npc), "gather");
+    }
+
+    #[test]
+    fn npc_animation_name_prefers_gather_over_walking() {
+        let npc = npc_render_info_with(Velocity::new(1, 0), MovementFacing::East, true);
+
+        assert_eq!(npc_animation_name(npc), "gather");
+    }
+
+    #[test]
+    fn npc_animation_name_returns_idle_when_stationary_and_not_gathering() {
+        let npc = npc_render_info_with(Velocity::ZERO, MovementFacing::South, false);
+
+        assert_eq!(npc_animation_name(npc), "idle");
+    }
+
+    #[test]
+    fn npc_animation_name_returns_directional_walk_when_moving_and_not_gathering() {
+        let npc = npc_render_info_with(Velocity::new(1, 0), MovementFacing::East, false);
+
+        assert_eq!(npc_animation_name(npc), "walk_e");
+    }
+
+    #[test]
+    fn query_npc_render_infos_marks_gathering_npcs() {
+        let mut world = World::new();
+        let target = world.spawn_empty().id();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(2, 3)))
+            .id();
+        world.entity_mut(npc).insert(AiGatherResource::new(target));
+
+        let infos = query_npc_render_infos(&world);
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].entity, npc);
+        assert!(infos[0].is_gathering);
+    }
 
     #[test]
     fn task_table_rows_format_construction_tasks() {
@@ -1541,6 +1594,23 @@ mod tests {
         spawn_resource_node(&mut world, CellCoord::new(2, 3));
 
         assert_eq!(map_entity_target_at(&world, CellCoord::new(4, 5)), None);
+    }
+
+    fn npc_render_info_with(
+        velocity: Velocity,
+        facing: MovementFacing,
+        is_gathering: bool,
+    ) -> NpcRenderInfo {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        NpcRenderInfo {
+            entity,
+            coord: CellCoord::new(0, 0),
+            subtile_offset: SubtileOffset::ZERO,
+            velocity,
+            facing,
+            is_gathering,
+        }
     }
 
     fn spawn_resource_node(world: &mut World, coord: CellCoord) -> Entity {
