@@ -1,0 +1,6 @@
+interface:
+  display_name: "Wrap It Up"
+  short_description: "Finish and remove a Codex worktree"
+  default_prompt: "Use $wrap-it-up to finish this worktree and clean it up."
+policy:
+  allow_implicit_invocation: false
