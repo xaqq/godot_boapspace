@@ -211,12 +211,21 @@ impl MovementTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiKeepEnoughFoodInInventory {
+    start_threshold: u32,
     target: u32,
 }
 
 impl AiKeepEnoughFoodInInventory {
-    pub const fn new(target: u32) -> Self {
-        Self { target }
+    pub const fn new(start_threshold: u32, target: u32) -> Self {
+        assert!(start_threshold <= target);
+        Self {
+            start_threshold,
+            target,
+        }
+    }
+
+    pub const fn start_threshold(self) -> u32 {
+        self.start_threshold
     }
 
     pub const fn target(self) -> u32 {

@@ -3,7 +3,7 @@ pub use crate::components::{
     MovementTarget, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
 };
 
-use crate::ai::DEFAULT_NPC_FOOD_INVENTORY_TARGET;
+use crate::ai::{DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INVENTORY_TARGET};
 use crate::grid::{CellCoord, Grid};
 use crate::resources::ResourceAmounts;
 use crate::time::SECONDS_PER_DAY;
@@ -96,6 +96,7 @@ impl InitialNpcBundle {
             hunger: NpcHunger::fed(),
             inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
             keep_food_in_inventory: AiKeepEnoughFoodInInventory::new(
+                DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD,
                 DEFAULT_NPC_FOOD_INVENTORY_TARGET,
             ),
         }

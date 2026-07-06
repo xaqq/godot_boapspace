@@ -11,6 +11,7 @@ use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::tasks::ProgressBuildingConstruction;
 use bevy_ecs::prelude::*;
 
+pub const DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD: u32 = 5;
 pub const DEFAULT_NPC_FOOD_INVENTORY_TARGET: u32 = 20;
 pub const DEFAULT_NPC_IDLE_ROAM_RADIUS: u32 = 3;
 pub const DEFAULT_NPC_IDLE_DWELL_TICKS: u32 = 180;
@@ -55,12 +56,19 @@ pub fn system_keep_enough_food_in_inventory(
         ),
         With<Npc>,
     >,
+    resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
+    let food_available = resource_kind_available(ResourceKind::Food, &resource_nodes);
     for (entity, inventory, goal, search) in &npcs {
-        if inventory.contents().get(ResourceKind::Food) < goal.target()
-            && inventory.free_size() > 0
-            && search.is_none()
-        {
+        if search.is_some() {
+            if !should_continue_food_refill(inventory, goal) || !food_available {
+                commands.entity(entity).remove::<AiSearchForFood>();
+                commands.entity(entity).remove::<MovementTarget>();
+            }
+            continue;
+        }
+
+        if should_start_food_refill(inventory, goal) && food_available {
             commands.entity(entity).insert(AiSearchForFood);
         }
     }
@@ -72,6 +80,8 @@ pub fn system_search_for_food(
         (
             Entity,
             &NpcPosition,
+            &NpcInventory,
+            &AiKeepEnoughFoodInInventory,
             Option<&AiGatherResource>,
             Option<&MovementTarget>,
         ),
@@ -79,15 +89,25 @@ pub fn system_search_for_food(
     >,
     resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
-    for (entity, position, gather, movement_target) in &npcs {
+    for (entity, position, inventory, goal, gather, movement_target) in &npcs {
+        if !should_continue_food_refill(inventory, goal) {
+            commands.entity(entity).remove::<AiSearchForFood>();
+            commands.entity(entity).remove::<MovementTarget>();
+            continue;
+        }
+
         let Some((resource_entity, resource_coord)) =
             nearest_food_resource(position.coord, &resource_nodes)
         else {
+            commands.entity(entity).remove::<AiSearchForFood>();
+            commands.entity(entity).remove::<MovementTarget>();
             continue;
         };
 
         if position.coord == resource_coord {
-            commands.entity(entity).remove::<AiSearchForFood>();
+            if movement_target.is_some() {
+                commands.entity(entity).remove::<MovementTarget>();
+            }
             if gather.map(|gather| gather.target()) != Some(resource_entity) {
                 commands
                     .entity(entity)
@@ -126,7 +146,7 @@ pub fn system_assign_construction_work(
         if search.is_some()
             || gather.is_some()
             || construction.is_some()
-            || needs_food(Some(inventory), keep_food)
+            || should_interrupt_for_food(inventory, keep_food, &resource_nodes)
         {
             continue;
         }
@@ -370,6 +390,7 @@ pub fn system_npc_idle(
         ),
         With<Npc>,
     >,
+    resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
     let size = grid.size();
     for (
@@ -389,7 +410,7 @@ pub fn system_npc_idle(
             continue;
         }
 
-        if needs_food(inventory, keep_food) {
+        if should_interrupt_for_food_opt(inventory, keep_food, &resource_nodes) {
             if idle.is_some() {
                 commands.entity(entity).remove::<AiIdleRoam>();
                 commands.entity(entity).remove::<MovementTarget>();
@@ -437,12 +458,14 @@ pub fn system_gather_resource(
             &NpcPosition,
             &mut NpcInventory,
             &mut AiGatherResource,
+            Option<&AiSearchForFood>,
+            Option<&AiKeepEnoughFoodInInventory>,
         ),
         With<Npc>,
     >,
     mut resource_nodes: Query<(&TilePosition, &mut ResourceNode)>,
 ) {
-    for (entity, position, mut inventory, mut gather) in &mut npcs {
+    for (entity, position, mut inventory, mut gather, search, keep_food) in &mut npcs {
         let target = gather.target();
         let Ok((target_position, mut resource_node)) = resource_nodes.get_mut(target) else {
             commands.entity(entity).remove::<AiGatherResource>();
@@ -469,22 +492,56 @@ pub fn system_gather_resource(
         if resource_node.quantity == 0 {
             commands.entity(target).remove::<ResourceNode>();
         }
+        if kind == ResourceKind::Food
+            && search.is_some()
+            && keep_food.is_some_and(|goal| !should_continue_food_refill(&inventory, goal))
+        {
+            commands.entity(entity).remove::<AiSearchForFood>();
+        }
         commands.entity(entity).remove::<AiGatherResource>();
     }
 }
 
-fn needs_food(
-    inventory: Option<&NpcInventory>,
-    keep_food: Option<&AiKeepEnoughFoodInInventory>,
+fn should_start_food_refill(
+    inventory: &NpcInventory,
+    keep_food: &AiKeepEnoughFoodInInventory,
 ) -> bool {
-    let Some(inventory) = inventory else {
-        return false;
-    };
+    let carried_food = inventory.contents().get(ResourceKind::Food);
+    carried_food <= keep_food.start_threshold()
+        && carried_food < keep_food.target()
+        && inventory.free_size() > 0
+}
+
+fn should_continue_food_refill(
+    inventory: &NpcInventory,
+    keep_food: &AiKeepEnoughFoodInInventory,
+) -> bool {
+    inventory.contents().get(ResourceKind::Food) < keep_food.target() && inventory.free_size() > 0
+}
+
+fn should_interrupt_for_food(
+    inventory: &NpcInventory,
+    keep_food: Option<&AiKeepEnoughFoodInInventory>,
+    resource_nodes: &Query<(Entity, &TilePosition, &ResourceNode)>,
+) -> bool {
     let Some(keep_food) = keep_food else {
         return false;
     };
 
-    inventory.contents().get(ResourceKind::Food) < keep_food.target() && inventory.free_size() > 0
+    should_start_food_refill(inventory, keep_food)
+        && resource_kind_available(ResourceKind::Food, resource_nodes)
+}
+
+fn should_interrupt_for_food_opt(
+    inventory: Option<&NpcInventory>,
+    keep_food: Option<&AiKeepEnoughFoodInInventory>,
+    resource_nodes: &Query<(Entity, &TilePosition, &ResourceNode)>,
+) -> bool {
+    let Some(inventory) = inventory else {
+        return false;
+    };
+
+    should_interrupt_for_food(inventory, keep_food, resource_nodes)
 }
 
 fn construction_work_target(
