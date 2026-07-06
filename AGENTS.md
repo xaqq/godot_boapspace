@@ -56,8 +56,3 @@ cargo test --manifest-path rust/Cargo.toml            # Run all tests
 - When asking questions with the questions/request_user_input tool, do not set `autoResolutionMs`.
   Questions should wait for an answer unless the user explicitly allows auto-resolve.
 - Do not hesitate to perform exploration task by fanning out subagents.
-
-## Git workflow
-
-- When asked to switch to a new worktree for work, create those somewhere in the repository.
-- New worktree should be based off local `master` branch unless explicitly specified otherwise.
