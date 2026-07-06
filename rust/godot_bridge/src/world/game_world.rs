@@ -131,6 +131,13 @@ struct BuildingRenderInfo {
     entity: Entity,
     kind: BuildingKind,
     footprint: BuildingFootprint,
+    state: BuildingRenderState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildingRenderState {
+    Blueprint,
+    Constructed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,8 +308,9 @@ impl INode2D for GameWorld {
         self.game.tick();
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
+        let buildings_changed = self.sync_building_sprites();
         self.sync_npc_sprites();
-        if self.build_mode.is_some() {
+        if self.build_mode.is_some() || buildings_changed {
             self.base_mut().queue_redraw();
         }
         self.update_hovered_map_entity();
@@ -328,6 +336,7 @@ impl INode2D for GameWorld {
         let blueprint_footprints = self
             .building_render_infos()
             .into_iter()
+            .filter(|building| building.state == BuildingRenderState::Blueprint)
             .map(|building| building.footprint)
             .collect::<Vec<_>>();
 
@@ -783,8 +792,9 @@ impl GameWorld {
         )
     }
 
-    fn sync_building_sprites(&mut self) {
+    fn sync_building_sprites(&mut self) -> bool {
         let buildings = self.building_render_infos();
+        let mut redraw_needed = false;
 
         let active_entities: HashSet<Entity> =
             buildings.iter().map(|building| building.entity).collect();
@@ -797,6 +807,7 @@ impl GameWorld {
         for entity in stale_entities {
             if let Some(mut sprite) = self.building_sprites.remove(&entity) {
                 sprite.queue_free();
+                redraw_needed = true;
             }
         }
 
@@ -807,10 +818,11 @@ impl GameWorld {
                     building.kind
                 );
                 self.disable_processing();
-                return;
+                return redraw_needed;
             };
 
             let position = cell_top_left(building.footprint.origin());
+            let modulate = building_sprite_modulate(building.state);
             if !self.building_sprites.contains_key(&building.entity) {
                 let mut sprite = Sprite2D::new_alloc();
                 sprite.set_texture(&texture);
@@ -818,16 +830,20 @@ impl GameWorld {
                 sprite.set_texture_filter(TextureFilter::NEAREST);
                 sprite.set_z_index(2);
                 sprite.set_position(position);
-                sprite.set_modulate(building_sprite_modulate());
+                sprite.set_modulate(modulate);
                 self.base_mut().add_child(&sprite);
                 self.building_sprites.insert(building.entity, sprite);
+                redraw_needed = true;
                 continue;
             }
 
             if let Some(sprite) = self.building_sprites.get_mut(&building.entity) {
+                if sprite.get_position() != position || sprite.get_modulate() != modulate {
+                    redraw_needed = true;
+                }
                 sprite.set_texture(&texture);
                 sprite.set_position(position);
-                sprite.set_modulate(building_sprite_modulate());
+                sprite.set_modulate(modulate);
             }
         }
 
@@ -835,8 +851,11 @@ impl GameWorld {
             let selected_still_exists = active_entities.contains(&selected.entity);
             if !selected_still_exists {
                 self.clear_building_selection();
+                redraw_needed = true;
             }
         }
+
+        redraw_needed
     }
 
     fn sync_npc_sprites(&mut self) {
@@ -1329,6 +1348,7 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
                     entity,
                     kind: blueprint.kind,
                     footprint: blueprint.footprint,
+                    state: BuildingRenderState::Blueprint,
                 })
                 .collect::<Vec<_>>()
         })
@@ -1342,6 +1362,7 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
                     entity,
                     kind: building.kind,
                     footprint: building.footprint,
+                    state: BuildingRenderState::Constructed,
                 }),
         );
     }
@@ -1502,10 +1523,15 @@ fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {
     )
 }
 
-fn building_sprite_modulate() -> Color {
-    let mut color = Color::from_rgb(0.55, 0.9, 1.0);
-    color.a = 0.62;
-    color
+fn building_sprite_modulate(state: BuildingRenderState) -> Color {
+    match state {
+        BuildingRenderState::Blueprint => {
+            let mut color = Color::from_rgb(0.55, 0.9, 1.0);
+            color.a = 0.62;
+            color
+        }
+        BuildingRenderState::Constructed => Color::from_rgb(1.0, 1.0, 1.0),
+    }
 }
 
 fn building_asset_path(kind: BuildingKind) -> &'static str {
@@ -1952,7 +1978,57 @@ mod tests {
                 entity: building,
                 kind: BuildingKind::Warehouse,
                 footprint: BuildingFootprint::new(CellCoord::new(2, 2), 2, 2),
+                state: BuildingRenderState::Constructed,
             }]
+        );
+    }
+
+    #[test]
+    fn query_building_render_infos_marks_blueprints_and_constructed_buildings() {
+        let mut world = World::new();
+        let blueprint_footprint = BuildingFootprint::new(CellCoord::new(1, 1), 2, 2);
+        let blueprint = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                blueprint_footprint,
+            ))
+            .id();
+        let constructed_footprint = BuildingFootprint::new(CellCoord::new(5, 5), 3, 3);
+        let constructed = world
+            .spawn(Building::new(BuildingKind::TownHall, constructed_footprint))
+            .id();
+
+        let mut expected = vec![
+            BuildingRenderInfo {
+                entity: blueprint,
+                kind: BuildingKind::Warehouse,
+                footprint: blueprint_footprint,
+                state: BuildingRenderState::Blueprint,
+            },
+            BuildingRenderInfo {
+                entity: constructed,
+                kind: BuildingKind::TownHall,
+                footprint: constructed_footprint,
+                state: BuildingRenderState::Constructed,
+            },
+        ];
+        expected.sort_by_key(|building| building.entity.to_bits());
+
+        assert_eq!(query_building_render_infos(&world), expected);
+    }
+
+    #[test]
+    fn building_sprite_modulate_distinguishes_blueprint_and_constructed_states() {
+        let blueprint = building_sprite_modulate(BuildingRenderState::Blueprint);
+        assert_eq!(blueprint, {
+            let mut color = Color::from_rgb(0.55, 0.9, 1.0);
+            color.a = 0.62;
+            color
+        });
+
+        assert_eq!(
+            building_sprite_modulate(BuildingRenderState::Constructed),
+            Color::from_rgb(1.0, 1.0, 1.0)
         );
     }
 
