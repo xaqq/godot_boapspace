@@ -4,7 +4,10 @@ use bevy_ecs::world::World;
 use game_engine::buildings::{
     BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
-use game_engine::components::{TerrainKind, Tile, TilePosition};
+use game_engine::components::{
+    MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
+    SUBTILE_UNITS_PER_TILE,
+};
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
@@ -100,6 +103,9 @@ struct MapEntityTarget {
 struct NpcRenderInfo {
     entity: Entity,
     coord: CellCoord,
+    subtile_offset: SubtileOffset,
+    velocity: Velocity,
+    facing: MovementFacing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -886,7 +892,7 @@ impl GameWorld {
                 selected_coord = Some(npc.coord);
             }
 
-            let position = cell_top_left(npc.coord);
+            let position = npc_top_left(npc.coord, npc.subtile_offset);
             if !self.npc_sprites.contains_key(&npc.entity) {
                 let Some(node) = npc_scene.instantiate() else {
                     godot_error!("GameWorld: failed to instantiate NPC scene");
@@ -907,6 +913,7 @@ impl GameWorld {
                     }
                 };
                 sprite.set_position(position);
+                set_npc_animation(&mut sprite, npc);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(npc.entity, sprite);
                 continue;
@@ -914,6 +921,7 @@ impl GameWorld {
 
             if let Some(sprite) = self.npc_sprites.get_mut(&npc.entity) {
                 sprite.set_position(position);
+                set_npc_animation(sprite, npc);
             }
         }
 
@@ -1268,13 +1276,22 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
 
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
-        .try_query::<(Entity, &NpcPosition, &Npc)>()
+        .try_query::<(
+            Entity,
+            &NpcPosition,
+            Option<&Velocity>,
+            Option<&MovementFacing>,
+            &Npc,
+        )>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(entity, position, _)| NpcRenderInfo {
+                .map(|(entity, position, velocity, facing, _)| NpcRenderInfo {
                     entity,
                     coord: position.coord,
+                    subtile_offset: position.subtile_offset,
+                    velocity: velocity.copied().unwrap_or_default(),
+                    facing: facing.copied().unwrap_or_default(),
                 })
                 .collect()
         })
@@ -1350,6 +1367,45 @@ fn cell_top_left(coord: CellCoord) -> Vector2 {
         coord.x() as f32 * grid::TILE_SIZE,
         coord.y() as f32 * grid::TILE_SIZE,
     )
+}
+
+fn npc_top_left(coord: CellCoord, subtile_offset: SubtileOffset) -> Vector2 {
+    cell_top_left(coord)
+        + Vector2::new(
+            subtile_units_to_pixels(subtile_offset.x_units),
+            subtile_units_to_pixels(subtile_offset.y_units),
+        )
+}
+
+fn subtile_units_to_pixels(units: i32) -> f32 {
+    units as f32 * grid::TILE_SIZE / SUBTILE_UNITS_PER_TILE as f32
+}
+
+fn set_npc_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
+    let animation = StringName::from(npc_animation_name(npc));
+    if sprite.get_animation() != animation {
+        sprite.set_animation(&animation);
+    }
+    if !sprite.is_playing() {
+        sprite.play();
+    }
+}
+
+fn npc_animation_name(npc: NpcRenderInfo) -> &'static str {
+    if npc.velocity.is_zero() {
+        return "idle";
+    }
+
+    match npc.facing {
+        MovementFacing::North => "walk_n",
+        MovementFacing::NorthEast => "walk_ne",
+        MovementFacing::East => "walk_e",
+        MovementFacing::SouthEast => "walk_se",
+        MovementFacing::South => "walk_s",
+        MovementFacing::SouthWest => "walk_sw",
+        MovementFacing::West => "walk_w",
+        MovementFacing::NorthWest => "walk_nw",
+    }
 }
 
 fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {

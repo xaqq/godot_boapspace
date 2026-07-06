@@ -1,11 +1,11 @@
 pub use crate::components::{
-    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition,
+    BirthDate, HungerState, MaxVelocity, MovementFacing, MovementTarget, Npc, NpcHunger,
+    NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
 };
 
 use crate::grid::{CellCoord, Grid};
 use bevy_ecs::prelude::*;
 use std::time::Duration;
-use crate::resources::ResourceAmounts;
 
 pub const INITIAL_NPC_NAME: &str = "Mara Voss";
 pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
@@ -88,6 +88,9 @@ pub struct InitialNpcBundle {
     name: NpcName,
     birth_date: BirthDate,
     position: NpcPosition,
+    velocity: Velocity,
+    max_velocity: MaxVelocity,
+    movement_facing: MovementFacing,
     hunger: NpcHunger,
     inventory: NpcInventory,
 }
@@ -98,9 +101,12 @@ impl InitialNpcBundle {
             npc: Npc,
             name: NpcName::new(INITIAL_NPC_NAME),
             birth_date: BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
-            position: NpcPosition { coord },
+            position: NpcPosition::new(coord),
+            velocity: Velocity::ZERO,
+            max_velocity: MaxVelocity::default(),
+            movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
-            inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
+            inventory: NpcInventory::empty(),
         }
     }
 }

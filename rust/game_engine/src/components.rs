@@ -3,6 +3,9 @@ use crate::resources::{ResourceAmounts, ResourceKind};
 use bevy_ecs::prelude::Component;
 use std::time::Duration;
 
+pub const SUBTILE_UNITS_PER_TILE: i32 = 1024;
+pub const HALF_SUBTILE_UNITS_PER_TILE: i32 = SUBTILE_UNITS_PER_TILE / 2;
+pub const DEFAULT_MAX_VELOCITY_UNITS_PER_TICK: u32 = 16;
 pub const NPC_HUNGER_FULL_SATIATION: Duration = Duration::from_secs(86_400);
 pub const NPC_HUNGER_STARVING_THRESHOLD: Duration = Duration::from_secs(86_400);
 
@@ -111,6 +114,137 @@ impl BirthDate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct NpcPosition {
     pub coord: CellCoord,
+    pub subtile_offset: SubtileOffset,
+}
+
+impl NpcPosition {
+    pub const fn new(coord: CellCoord) -> Self {
+        Self {
+            coord,
+            subtile_offset: SubtileOffset::ZERO,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubtileOffset {
+    pub x_units: i32,
+    pub y_units: i32,
+}
+
+impl SubtileOffset {
+    pub const ZERO: Self = Self {
+        x_units: 0,
+        y_units: 0,
+    };
+
+    pub const fn new(x_units: i32, y_units: i32) -> Self {
+        Self { x_units, y_units }
+    }
+}
+
+impl Default for SubtileOffset {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Velocity {
+    pub x_units_per_tick: i32,
+    pub y_units_per_tick: i32,
+}
+
+impl Velocity {
+    pub const ZERO: Self = Self {
+        x_units_per_tick: 0,
+        y_units_per_tick: 0,
+    };
+
+    pub const fn new(x_units_per_tick: i32, y_units_per_tick: i32) -> Self {
+        Self {
+            x_units_per_tick,
+            y_units_per_tick,
+        }
+    }
+
+    pub const fn is_zero(self) -> bool {
+        self.x_units_per_tick == 0 && self.y_units_per_tick == 0
+    }
+}
+
+impl Default for Velocity {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct MaxVelocity {
+    pub units_per_tick: u32,
+}
+
+impl MaxVelocity {
+    pub const fn new(units_per_tick: u32) -> Self {
+        Self { units_per_tick }
+    }
+}
+
+impl Default for MaxVelocity {
+    fn default() -> Self {
+        Self::new(DEFAULT_MAX_VELOCITY_UNITS_PER_TICK)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct MovementTarget {
+    pub coord: CellCoord,
+}
+
+impl MovementTarget {
+    pub const fn new(coord: CellCoord) -> Self {
+        Self { coord }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub enum MovementFacing {
+    North,
+    NorthEast,
+    East,
+    SouthEast,
+    South,
+    SouthWest,
+    West,
+    NorthWest,
+}
+
+impl MovementFacing {
+    pub fn from_velocity(velocity: Velocity) -> Option<Self> {
+        if velocity.is_zero() {
+            return None;
+        }
+
+        let angle = (velocity.y_units_per_tick as f64).atan2(velocity.x_units_per_tick as f64);
+        let octant = (angle / std::f64::consts::FRAC_PI_4).round() as i32;
+        match octant.rem_euclid(8) {
+            0 => Some(Self::East),
+            1 => Some(Self::SouthEast),
+            2 => Some(Self::South),
+            3 => Some(Self::SouthWest),
+            4 => Some(Self::West),
+            5 => Some(Self::NorthWest),
+            6 => Some(Self::North),
+            7 => Some(Self::NorthEast),
+            _ => unreachable!("rem_euclid(8) should only produce 0..=7"),
+        }
+    }
+}
+
+impl Default for MovementFacing {
+    fn default() -> Self {
+        Self::South
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]

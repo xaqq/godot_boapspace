@@ -1,6 +1,7 @@
 pub mod buildings;
 pub mod components;
 pub mod grid;
+pub mod movement;
 pub mod npcs;
 pub mod resource_nodes;
 pub mod resources;
