@@ -6,7 +6,7 @@ use game_engine::npcs::{
 };
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::time::SECONDS_PER_DAY;
-use godot::classes::{IPanelContainer, Label, PanelContainer, VBoxContainer};
+use godot::classes::{IPanelContainer, Label, PanelContainer, ProgressBar, VBoxContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -27,6 +27,12 @@ pub(crate) struct NpcInfoPanel {
 
     #[export]
     hunger_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    satiation_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    satiation_progress_bar: OnEditor<Gd<ProgressBar>>,
 
     #[export]
     inventory_container: OnEditor<Gd<VBoxContainer>>,
@@ -59,6 +65,8 @@ impl IPanelContainer for NpcInfoPanel {
             birth_day_label: OnEditor::default(),
             pos_label: OnEditor::default(),
             hunger_label: OnEditor::default(),
+            satiation_container: OnEditor::default(),
+            satiation_progress_bar: OnEditor::default(),
             inventory_container: OnEditor::default(),
             wood_inventory_quantity: OnEditor::default(),
             stone_inventory_quantity: OnEditor::default(),
@@ -82,6 +90,12 @@ impl IPanelContainer for NpcInfoPanel {
             .signals()
             .npc_deselected()
             .connect_other(self, Self::deselect_npc);
+
+        let mut satiation_progress_bar = self.satiation_progress_bar.clone();
+        configure_satiation_progress_bar(
+            &mut satiation_progress_bar,
+            NpcHunger::MAX_SATIATION_LEVEL,
+        );
 
         self.base_mut().set_process(true);
     }
@@ -126,6 +140,8 @@ impl NpcInfoPanel {
         let mut birth_day_label = self.birth_day_label.clone();
         let mut pos_label = self.pos_label.clone();
         let mut hunger_label = self.hunger_label.clone();
+        let mut satiation_container = self.satiation_container.clone();
+        let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
         let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
@@ -136,12 +152,18 @@ impl NpcInfoPanel {
         let age_text = format!("Age: {}", info.age_years);
         let birth_day_text = format!("Birth Day: {}", info.birth_day);
         let position_text = format!("Cell: ({}, {})", info.coord.x(), info.coord.y());
-        let hunger_text = format!("Hunger: {}", info.hunger_state.label());
         name_label.set_text(name_text.as_str());
         age_label.set_text(age_text.as_str());
         birth_day_label.set_text(birth_day_text.as_str());
         pos_label.set_text(position_text.as_str());
-        hunger_label.set_text(hunger_text.as_str());
+        update_satiation(
+            &mut hunger_label,
+            &mut satiation_container,
+            &mut satiation_progress_bar,
+            info.hunger_state,
+            info.satiation_level,
+            info.max_satiation_level,
+        );
         update_inventory(
             &mut inventory_container,
             &mut wood_inventory_quantity,
@@ -158,6 +180,8 @@ impl NpcInfoPanel {
         let mut birth_day_label = self.birth_day_label.clone();
         let mut pos_label = self.pos_label.clone();
         let mut hunger_label = self.hunger_label.clone();
+        let mut satiation_container = self.satiation_container.clone();
+        let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
 
         name_label.set_text("Name: None");
@@ -165,6 +189,9 @@ impl NpcInfoPanel {
         birth_day_label.set_text("");
         pos_label.set_text("Cell: None");
         hunger_label.set_text("");
+        satiation_progress_bar.set_value(0.0);
+        satiation_progress_bar.set_tooltip_text("");
+        satiation_container.hide();
         inventory_container.hide();
     }
 }
@@ -175,6 +202,8 @@ struct NpcInfo {
     birth_day: u64,
     age_years: u32,
     hunger_state: HungerState,
+    satiation_level: u32,
+    max_satiation_level: u32,
     inventory: ResourceAmounts,
 }
 
@@ -195,9 +224,57 @@ fn npc_info(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcInfo> {
             birth_day: birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
             age_years: world_date_time.age_years_since(*birth_date),
             hunger_state: hunger.state(),
+            satiation_level: hunger.satiation_level(),
+            max_satiation_level: NpcHunger::MAX_SATIATION_LEVEL,
             inventory: inventory.contents(),
         })
     })
+}
+
+fn update_satiation(
+    hunger_label: &mut Gd<Label>,
+    satiation_container: &mut Gd<VBoxContainer>,
+    satiation_progress_bar: &mut Gd<ProgressBar>,
+    hunger_state: HungerState,
+    satiation_level: u32,
+    max_satiation_level: u32,
+) {
+    let text = hunger_text(hunger_state, satiation_level, max_satiation_level);
+    hunger_label.set_text(text.as_str());
+
+    configure_satiation_progress_bar(satiation_progress_bar, max_satiation_level);
+    satiation_progress_bar.set_value(satiation_progress_value(
+        satiation_level,
+        max_satiation_level,
+    ));
+    satiation_progress_bar.set_tooltip_text(text.as_str());
+    satiation_container.show();
+}
+
+fn configure_satiation_progress_bar(
+    satiation_progress_bar: &mut Gd<ProgressBar>,
+    max_satiation_level: u32,
+) {
+    satiation_progress_bar.set_min(f64::from(NpcHunger::MIN_SATIATION_LEVEL));
+    satiation_progress_bar.set_max(f64::from(max_satiation_level));
+    satiation_progress_bar.set_show_percentage(false);
+}
+
+fn hunger_text(
+    hunger_state: HungerState,
+    satiation_level: u32,
+    max_satiation_level: u32,
+) -> String {
+    format!(
+        "Hunger: {} ({}/{})",
+        hunger_state.label(),
+        satiation_level,
+        max_satiation_level
+    )
+}
+
+fn satiation_progress_value(satiation_level: u32, max_satiation_level: u32) -> f64 {
+    f64::from(satiation_level.min(max_satiation_level))
 }
 
 fn update_inventory(
@@ -221,4 +298,23 @@ fn update_inventory(
         .bind_mut()
         .set_amount(inventory.get(ResourceKind::Gold));
     inventory_container.show();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hunger_text_includes_status_and_satiation_range() {
+        assert_eq!(
+            hunger_text(HungerState::Hungry, 12, 48),
+            "Hunger: Hungry (12/48)"
+        );
+    }
+
+    #[test]
+    fn satiation_progress_value_uses_component_range() {
+        assert_eq!(satiation_progress_value(12, 48), 12.0);
+        assert_eq!(satiation_progress_value(80, 48), 48.0);
+    }
 }

@@ -254,9 +254,12 @@ pub struct NpcHunger {
 }
 
 impl NpcHunger {
+    pub const MIN_SATIATION_LEVEL: u32 = 0;
+    pub const MAX_SATIATION_LEVEL: u32 = NPC_HUNGER_FULL_SATIATION;
+
     pub const fn fed() -> Self {
         Self {
-            satiation_level: NPC_HUNGER_FULL_SATIATION,
+            satiation_level: Self::MAX_SATIATION_LEVEL,
         }
     }
 
