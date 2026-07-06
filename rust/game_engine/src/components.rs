@@ -1,7 +1,7 @@
 use crate::grid::CellCoord;
 use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::time::SIMULATION_TICKS_PER_DAY;
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Entity};
 use std::time::Duration;
 
 pub const SUBTILE_UNITS_PER_TILE: i32 = 1024;
@@ -209,6 +209,51 @@ impl MovementTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct AiKeepEnoughFoodInInventory {
+    target: u32,
+}
+
+impl AiKeepEnoughFoodInInventory {
+    pub const fn new(target: u32) -> Self {
+        Self { target }
+    }
+
+    pub const fn target(self) -> u32 {
+        self.target
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct AiSearchForFood;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct AiGatherResource {
+    target: Entity,
+    progress_ticks: u32,
+}
+
+impl AiGatherResource {
+    pub const fn new(target: Entity) -> Self {
+        Self {
+            target,
+            progress_ticks: 0,
+        }
+    }
+
+    pub const fn target(self) -> Entity {
+        self.target
+    }
+
+    pub const fn progress_ticks(self) -> u32 {
+        self.progress_ticks
+    }
+
+    pub fn advance_tick(&mut self) {
+        self.progress_ticks = self.progress_ticks.saturating_add(1);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub enum MovementFacing {
     North,
     NorthEast,
@@ -334,6 +379,11 @@ impl NpcInventory {
 
         self.contents.set(kind, available - amount);
         true
+    }
+
+    pub fn add(&mut self, kind: ResourceKind, amount: u32) {
+        let available = self.contents.get(kind);
+        self.contents.set(kind, available.saturating_add(amount));
     }
 }
 

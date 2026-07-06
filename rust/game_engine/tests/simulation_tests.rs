@@ -541,20 +541,7 @@ fn test_paused_tick_does_not_advance_npc_hunger() {
 }
 
 #[test]
-fn test_npc_becomes_hungry_after_spawn_food_is_consumed() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.default_surface_id();
-
-    tick_days(&mut simulation, 21);
-
-    let hunger_state =
-        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
-
-    assert_eq!(hunger_state, HungerState::Hungry);
-}
-
-#[test]
-fn test_npc_becomes_starving_after_spawn_food_is_consumed() {
+fn test_default_npc_ai_keeps_npc_fed_after_spawn_food_would_be_consumed() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
@@ -563,7 +550,7 @@ fn test_npc_becomes_starving_after_spawn_food_is_consumed() {
     let hunger_state =
         npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
 
-    assert_eq!(hunger_state, HungerState::Starving);
+    assert_eq!(hunger_state, HungerState::Fed);
 }
 
 fn sorted_resource_nodes(

@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod buildings;
 pub mod components;
 pub mod grid;

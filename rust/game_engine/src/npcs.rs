@@ -1,8 +1,9 @@
 pub use crate::components::{
-    BirthDate, HungerState, MaxVelocity, MovementFacing, MovementTarget, Npc, NpcHunger,
-    NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
+    AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
+    MovementTarget, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
 };
 
+use crate::ai::DEFAULT_NPC_FOOD_INVENTORY_TARGET;
 use crate::grid::{CellCoord, Grid};
 use crate::resources::ResourceAmounts;
 use crate::time::SECONDS_PER_DAY;
@@ -79,6 +80,7 @@ pub struct InitialNpcBundle {
     movement_facing: MovementFacing,
     hunger: NpcHunger,
     inventory: NpcInventory,
+    keep_food_in_inventory: AiKeepEnoughFoodInInventory,
 }
 
 impl InitialNpcBundle {
@@ -93,6 +95,9 @@ impl InitialNpcBundle {
             movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
             inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
+            keep_food_in_inventory: AiKeepEnoughFoodInInventory::new(
+                DEFAULT_NPC_FOOD_INVENTORY_TARGET,
+            ),
         }
     }
 }

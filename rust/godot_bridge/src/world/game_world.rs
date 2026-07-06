@@ -281,6 +281,8 @@ impl INode2D for GameWorld {
         }
 
         self.game.tick();
+        let mut resource_map = self.resource_node_map.clone();
+        self.populate_resource_node_map(&mut resource_map);
         self.sync_npc_sprites();
         if self.build_mode.is_some() {
             self.base_mut().queue_redraw();
