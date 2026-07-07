@@ -2,6 +2,7 @@ use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use bevy_ecs::prelude::Entity;
+use bevy_ecs::world::World;
 use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
     WarehouseInventory,
@@ -66,6 +67,7 @@ pub(crate) struct BuildingInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
+    selected_building_entity_id: Option<i64>,
     base: Base<PanelContainer>,
 }
 
@@ -89,129 +91,148 @@ impl IPanelContainer for BuildingInfoPanel {
             food_inventory_quantity: OnEditor::default(),
             gold_inventory_quantity: OnEditor::default(),
             game_world: OnEditor::default(),
+            selected_building_entity_id: None,
             base,
         }
     }
 
     fn ready(&mut self) {
         let game_world = self.game_world.clone();
-        let name_label = self.name_label.clone();
-        let footprint_label = self.footprint_label.clone();
-        let farming_info_label = self.farming_info_label.clone();
-        let fields_button = self.fields_button.clone();
-        let construction_container = self.construction_container.clone();
-        let wood_construction_progress = self.wood_construction_progress.clone();
-        let stone_construction_progress = self.stone_construction_progress.clone();
-        let food_construction_progress = self.food_construction_progress.clone();
-        let gold_construction_progress = self.gold_construction_progress.clone();
-        let inventory_container = self.inventory_container.clone();
-        let inventory_label = self.inventory_label.clone();
-        let wood_inventory_quantity = self.wood_inventory_quantity.clone();
-        let stone_inventory_quantity = self.stone_inventory_quantity.clone();
-        let food_inventory_quantity = self.food_inventory_quantity.clone();
-        let gold_inventory_quantity = self.gold_inventory_quantity.clone();
-
-        let selected_game_world = game_world.clone();
-        let mut selected_name_label = name_label.clone();
-        let mut selected_footprint_label = footprint_label.clone();
-        let mut selected_farming_info_label = farming_info_label.clone();
-        let mut selected_fields_button = fields_button.clone();
-        let mut selected_construction_container = construction_container.clone();
-        let mut selected_wood_construction_progress = wood_construction_progress.clone();
-        let mut selected_stone_construction_progress = stone_construction_progress.clone();
-        let mut selected_food_construction_progress = food_construction_progress.clone();
-        let mut selected_gold_construction_progress = gold_construction_progress.clone();
-        let mut selected_inventory_container = inventory_container.clone();
-        let mut selected_inventory_label = inventory_label.clone();
-        let mut selected_wood_inventory_quantity = wood_inventory_quantity.clone();
-        let mut selected_stone_inventory_quantity = stone_inventory_quantity.clone();
-        let mut selected_food_inventory_quantity = food_inventory_quantity.clone();
-        let mut selected_gold_inventory_quantity = gold_inventory_quantity.clone();
         game_world
             .signals()
             .building_selected()
-            .connect(move |building_entity_id| {
-                let game_world = selected_game_world.bind();
-                let Some(info) = building_info(&game_world, building_entity_id) else {
-                    clear_building_labels(
-                        &mut selected_name_label,
-                        &mut selected_footprint_label,
-                        &mut selected_farming_info_label,
-                        &mut selected_fields_button,
-                        &mut selected_construction_container,
-                        &mut selected_inventory_container,
-                        &mut selected_inventory_label,
-                    );
-                    return;
-                };
+            .connect_other(self, Self::select_building);
 
-                selected_name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
-                selected_footprint_label.set_text(format_footprint(info.footprint).as_str());
-                update_farming_info(
-                    &mut selected_farming_info_label,
-                    &mut selected_fields_button,
-                    info.kind,
-                    info.farming,
-                );
-                match info.construction {
-                    Some(construction) => update_construction_progress(
-                        &mut selected_construction_container,
-                        &mut selected_wood_construction_progress,
-                        &mut selected_stone_construction_progress,
-                        &mut selected_food_construction_progress,
-                        &mut selected_gold_construction_progress,
-                        construction.progress,
-                        construction.cost,
-                    ),
-                    None => update_construction_progress(
-                        &mut selected_construction_container,
-                        &mut selected_wood_construction_progress,
-                        &mut selected_stone_construction_progress,
-                        &mut selected_food_construction_progress,
-                        &mut selected_gold_construction_progress,
-                        ResourceAmounts::zero(),
-                        ResourceAmounts::zero(),
-                    ),
-                };
-                update_inventory(
-                    &mut selected_inventory_container,
-                    &mut selected_inventory_label,
-                    &mut selected_wood_inventory_quantity,
-                    &mut selected_stone_inventory_quantity,
-                    &mut selected_food_inventory_quantity,
-                    &mut selected_gold_inventory_quantity,
-                    info.inventory,
-                );
-            });
+        let game_world = self.game_world.clone();
+        game_world
+            .signals()
+            .building_deselected()
+            .connect_other(self, Self::deselect_building);
 
-        let mut deselected_name_label = name_label;
-        let mut deselected_footprint_label = footprint_label;
-        let mut deselected_farming_info_label = farming_info_label;
-        let mut deselected_fields_button = fields_button.clone();
-        let mut deselected_construction_container = construction_container;
-        let mut deselected_inventory_container = inventory_container;
-        let mut deselected_inventory_label = inventory_label;
-        game_world.signals().building_deselected().connect(move || {
-            clear_building_labels(
-                &mut deselected_name_label,
-                &mut deselected_footprint_label,
-                &mut deselected_farming_info_label,
-                &mut deselected_fields_button,
-                &mut deselected_construction_container,
-                &mut deselected_inventory_container,
-                &mut deselected_inventory_label,
-            );
-        });
-
+        let fields_button = self.fields_button.clone();
+        let game_world = self.game_world.clone();
         fields_button.signals().pressed().connect_other(
             &game_world,
             |game_world: &mut GameWorld| {
                 game_world.start_field_placement_for_selected_farm();
             },
         );
+
+        self.base_mut().set_process(true);
+    }
+
+    fn process(&mut self, _delta: f64) {
+        self.refresh_selected_building();
     }
 }
 
+impl BuildingInfoPanel {
+    fn select_building(&mut self, building_entity_id: i64) {
+        self.selected_building_entity_id = Some(building_entity_id);
+        self.refresh_selected_building();
+    }
+
+    fn deselect_building(&mut self) {
+        self.selected_building_entity_id = None;
+        self.clear_building_labels();
+    }
+
+    fn refresh_selected_building(&mut self) {
+        let Some(building_entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        let info = {
+            let game_world = self.game_world.bind();
+            building_info(&game_world, building_entity_id)
+        };
+
+        let Some(info) = info else {
+            self.selected_building_entity_id = None;
+            self.clear_building_labels();
+            return;
+        };
+
+        self.update_building_labels(info);
+    }
+
+    fn update_building_labels(&mut self, info: BuildingInfo) {
+        let mut name_label = self.name_label.clone();
+        let mut footprint_label = self.footprint_label.clone();
+        let mut farming_info_label = self.farming_info_label.clone();
+        let mut fields_button = self.fields_button.clone();
+        let mut construction_container = self.construction_container.clone();
+        let mut wood_construction_progress = self.wood_construction_progress.clone();
+        let mut stone_construction_progress = self.stone_construction_progress.clone();
+        let mut food_construction_progress = self.food_construction_progress.clone();
+        let mut gold_construction_progress = self.gold_construction_progress.clone();
+        let mut inventory_container = self.inventory_container.clone();
+        let mut inventory_label = self.inventory_label.clone();
+        let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
+        let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
+        let mut food_inventory_quantity = self.food_inventory_quantity.clone();
+        let mut gold_inventory_quantity = self.gold_inventory_quantity.clone();
+
+        name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
+        footprint_label.set_text(format_footprint(info.footprint).as_str());
+        update_farming_info(
+            &mut farming_info_label,
+            &mut fields_button,
+            info.kind,
+            info.farming,
+        );
+        match info.construction {
+            Some(construction) => update_construction_progress(
+                &mut construction_container,
+                &mut wood_construction_progress,
+                &mut stone_construction_progress,
+                &mut food_construction_progress,
+                &mut gold_construction_progress,
+                construction.progress,
+                construction.cost,
+            ),
+            None => update_construction_progress(
+                &mut construction_container,
+                &mut wood_construction_progress,
+                &mut stone_construction_progress,
+                &mut food_construction_progress,
+                &mut gold_construction_progress,
+                ResourceAmounts::zero(),
+                ResourceAmounts::zero(),
+            ),
+        };
+        update_inventory(
+            &mut inventory_container,
+            &mut inventory_label,
+            &mut wood_inventory_quantity,
+            &mut stone_inventory_quantity,
+            &mut food_inventory_quantity,
+            &mut gold_inventory_quantity,
+            info.inventory,
+        );
+    }
+
+    fn clear_building_labels(&mut self) {
+        let mut name_label = self.name_label.clone();
+        let mut footprint_label = self.footprint_label.clone();
+        let mut farming_info_label = self.farming_info_label.clone();
+        let mut fields_button = self.fields_button.clone();
+        let mut construction_container = self.construction_container.clone();
+        let mut inventory_container = self.inventory_container.clone();
+        let mut inventory_label = self.inventory_label.clone();
+
+        clear_building_labels(
+            &mut name_label,
+            &mut footprint_label,
+            &mut farming_info_label,
+            &mut fields_button,
+            &mut construction_container,
+            &mut inventory_container,
+            &mut inventory_label,
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BuildingInfo {
     kind: BuildingKind,
     footprint: BuildingFootprint,
@@ -220,6 +241,7 @@ struct BuildingInfo {
     farming: Option<FarmingInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BuildingConstructionInfo {
     cost: ResourceAmounts,
     progress: ResourceAmounts,
@@ -248,31 +270,33 @@ enum FarmingInfo {
 
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
-    game_world.with_rendered_surface_world(|world| {
-        let inventory = building_inventory_info(world, entity);
+    game_world.with_rendered_surface_world(|world| building_info_from_world(world, entity))
+}
 
-        if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
-            let progress = world.get::<ConstructionProgress>(entity)?;
-            return Some(BuildingInfo {
-                kind: blueprint.kind,
-                footprint: blueprint.footprint,
-                construction: Some(BuildingConstructionInfo {
-                    cost: blueprint.kind.definition().construction_cost(),
-                    progress: progress.deposited(),
-                }),
-                inventory,
-                farming: farming_info(world, entity, blueprint.kind),
-            });
-        }
+fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInfo> {
+    let inventory = building_inventory_info(world, entity);
 
-        let building = world.get::<Building>(entity)?;
-        Some(BuildingInfo {
-            kind: building.kind,
-            footprint: building.footprint,
-            construction: None,
+    if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
+        let progress = world.get::<ConstructionProgress>(entity)?;
+        return Some(BuildingInfo {
+            kind: blueprint.kind,
+            footprint: blueprint.footprint,
+            construction: Some(BuildingConstructionInfo {
+                cost: blueprint.kind.definition().construction_cost(),
+                progress: progress.deposited(),
+            }),
             inventory,
-            farming: farming_info(world, entity, building.kind),
-        })
+            farming: farming_info(world, entity, blueprint.kind),
+        });
+    }
+
+    let building = world.get::<Building>(entity)?;
+    Some(BuildingInfo {
+        kind: building.kind,
+        footprint: building.footprint,
+        construction: None,
+        inventory,
+        farming: farming_info(world, entity, building.kind),
     })
 }
 
@@ -528,6 +552,16 @@ fn inventory_header_text(used_size: u32, max_size: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::grid::CellCoord;
+
+    fn footprint(kind: BuildingKind) -> BuildingFootprint {
+        let definition = kind.definition();
+        BuildingFootprint::new(
+            CellCoord::new(1, 2),
+            definition.width(),
+            definition.height(),
+        )
+    }
 
     #[test]
     fn construction_progress_rows_show_deposited_over_required() {
@@ -576,6 +610,120 @@ mod tests {
     #[test]
     fn inventory_header_text_shows_used_over_max() {
         assert_eq!(inventory_header_text(125, 2000), "Inventory: 125/2000");
+    }
+
+    #[test]
+    fn building_info_reads_current_warehouse_inventory() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                Building::new(BuildingKind::Warehouse, footprint(BuildingKind::Warehouse)),
+                WarehouseInventory::empty(),
+            ))
+            .id();
+
+        assert_eq!(
+            building_info_from_world(&world, entity)
+                .expect("warehouse info should exist")
+                .inventory
+                .expect("warehouse should have inventory")
+                .contents,
+            ResourceAmounts::zero()
+        );
+
+        assert!(world
+            .get_mut::<WarehouseInventory>(entity)
+            .expect("warehouse should have inventory")
+            .add(ResourceKind::Wood, 7));
+
+        let inventory = building_info_from_world(&world, entity)
+            .expect("warehouse info should still exist")
+            .inventory
+            .expect("warehouse should still have inventory");
+        assert_eq!(inventory.contents, ResourceAmounts::new(7, 0, 0, 0));
+        assert_eq!(inventory.used_size, 7);
+    }
+
+    #[test]
+    fn building_info_reads_current_farm_inventory() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                Building::new(BuildingKind::Farm, footprint(BuildingKind::Farm)),
+                FarmInventory::empty(),
+            ))
+            .id();
+
+        assert_eq!(
+            building_info_from_world(&world, entity)
+                .expect("farm info should exist")
+                .inventory
+                .expect("farm should have inventory")
+                .contents,
+            ResourceAmounts::zero()
+        );
+
+        assert!(world
+            .get_mut::<FarmInventory>(entity)
+            .expect("farm should have inventory")
+            .add_food(5));
+
+        let inventory = building_info_from_world(&world, entity)
+            .expect("farm info should still exist")
+            .inventory
+            .expect("farm should still have inventory");
+        assert_eq!(inventory.contents, ResourceAmounts::new(0, 0, 5, 0));
+        assert_eq!(inventory.used_size, 5);
+    }
+
+    #[test]
+    fn building_info_reads_current_construction_progress() {
+        let mut world = World::new();
+        let kind = BuildingKind::Warehouse;
+        let cost = kind.definition().construction_cost();
+        let entity = world
+            .spawn((
+                BuildingBlueprint {
+                    kind,
+                    footprint: footprint(kind),
+                },
+                ConstructionProgress::new(ResourceAmounts::zero()),
+            ))
+            .id();
+
+        assert_eq!(
+            building_info_from_world(&world, entity)
+                .expect("blueprint info should exist")
+                .construction
+                .expect("blueprint should have construction info")
+                .progress,
+            ResourceAmounts::zero()
+        );
+
+        assert_eq!(
+            world
+                .get_mut::<ConstructionProgress>(entity)
+                .expect("blueprint should have construction progress")
+                .deposit(ResourceKind::Wood, 9, cost),
+            9
+        );
+
+        assert_eq!(
+            building_info_from_world(&world, entity)
+                .expect("blueprint info should still exist")
+                .construction
+                .expect("blueprint should still have construction info")
+                .progress,
+            ResourceAmounts::new(9, 0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn building_info_is_none_for_non_building_entity() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+
+        assert_eq!(building_info_from_world(&world, entity), None);
     }
 
     #[test]
