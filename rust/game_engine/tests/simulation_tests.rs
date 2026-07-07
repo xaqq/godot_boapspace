@@ -3,8 +3,8 @@ use game_engine::components::{
 };
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
-    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, WorldDateTime,
-    INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME,
+    BirthDate, HungerState, Npc, NpcAppearance, NpcHunger, NpcInventory, NpcName, NpcPosition,
+    WorldDateTime, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, INITIAL_NPC_SPECS,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
@@ -463,7 +463,7 @@ fn test_default_surface_spawns_initial_npc() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    assert_eq!(npcs(&simulation, surface).len(), 1);
+    assert_eq!(npcs(&simulation, surface).len(), INITIAL_NPC_SPECS.len());
 }
 
 #[test]
@@ -472,28 +472,65 @@ fn test_created_surfaces_do_not_spawn_initial_npc() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
-    assert_eq!(npcs(&simulation, default_surface).len(), 1);
+    assert_eq!(
+        npcs(&simulation, default_surface).len(),
+        INITIAL_NPC_SPECS.len()
+    );
     assert!(npcs(&simulation, second_surface).is_empty());
 }
 
 #[test]
-fn test_initial_npc_has_identity_birth_date_age_and_center_position() {
+fn test_initial_npcs_have_identity_birth_date_age_appearance_and_cluster_position() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
-    let initial_npc = npcs(&simulation, surface)
-        .into_iter()
-        .next()
-        .expect("default surface should have one NPC");
-    let expected_coord = CellCoord::from_usize(
+    let center = CellCoord::from_usize(
         DEFAULT_GRID_SIZE.width() / 2,
         DEFAULT_GRID_SIZE.height() / 2,
     )
     .expect("default grid center should fit in CellCoord");
+    let mut initial_npcs = npcs(&simulation, surface);
+    initial_npcs.sort_by(|a, b| a.1.cmp(&b.1));
 
-    assert_eq!(initial_npc.0, expected_coord);
-    assert_eq!(initial_npc.1, INITIAL_NPC_NAME);
-    assert_eq!(initial_npc.2, INITIAL_NPC_BIRTH_DAY);
-    assert_eq!(initial_npc.3, 0);
+    assert_eq!(
+        initial_npcs,
+        vec![
+            (
+                CellCoord::new(center.x() + 1, center.y()),
+                "Ilya Ren".to_string(),
+                326,
+                0,
+                NpcAppearance::Engineer,
+            ),
+            (
+                center,
+                INITIAL_NPC_NAME.to_string(),
+                INITIAL_NPC_BIRTH_DAY,
+                0,
+                NpcAppearance::Colonist,
+            ),
+            (
+                CellCoord::new(center.x(), center.y() + 1),
+                "Sera Nox".to_string(),
+                334,
+                0,
+                NpcAppearance::Botanist,
+            ),
+            (
+                CellCoord::new(center.x() - 1, center.y()),
+                "Toma Kade".to_string(),
+                311,
+                0,
+                NpcAppearance::Miner,
+            ),
+            (
+                CellCoord::new(center.x(), center.y() - 1),
+                "Vale Arin".to_string(),
+                303,
+                0,
+                NpcAppearance::Scout,
+            ),
+        ]
+    );
 }
 
 #[test]
@@ -501,19 +538,27 @@ fn test_initial_npc_inventory_starts_with_food() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    let inventory = simulation
+    let inventories = simulation
         .with_surface_world(surface, |world| {
             let mut query = world.try_query::<(&NpcInventory, &Npc)>()?;
-            query.iter(world).next().map(|(inventory, _)| *inventory)
+            Some(
+                query
+                    .iter(world)
+                    .map(|(inventory, _)| *inventory)
+                    .collect::<Vec<_>>(),
+            )
         })
-        .expect("default NPC should have inventory");
+        .expect("default NPCs should have inventory");
 
-    for kind in ResourceKind::ALL {
-        let expected = if kind == ResourceKind::Food { 20 } else { 0 };
-        assert_eq!(inventory.contents().get(kind), expected);
+    assert_eq!(inventories.len(), INITIAL_NPC_SPECS.len());
+    for inventory in inventories {
+        for kind in ResourceKind::ALL {
+            let expected = if kind == ResourceKind::Food { 20 } else { 0 };
+            assert_eq!(inventory.contents().get(kind), expected);
+        }
+        assert_eq!(inventory.used_size(), 20);
+        assert_eq!(inventory.max_size(), DEFAULT_NPC_INVENTORY_MAX_SIZE);
     }
-    assert_eq!(inventory.used_size(), 20);
-    assert_eq!(inventory.max_size(), DEFAULT_NPC_INVENTORY_MAX_SIZE);
 }
 
 #[test]
@@ -521,10 +566,12 @@ fn test_initial_npc_starts_fed() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    let hunger_state =
-        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+    let hunger_states = npc_hunger_states(&simulation, surface);
 
-    assert_eq!(hunger_state, HungerState::Fed);
+    assert_eq!(hunger_states.len(), INITIAL_NPC_SPECS.len());
+    assert!(hunger_states
+        .into_iter()
+        .all(|hunger_state| hunger_state == HungerState::Fed));
 }
 
 #[test]
@@ -535,10 +582,12 @@ fn test_paused_tick_does_not_advance_npc_hunger() {
     simulation.pause();
     tick_days(&mut simulation, 2);
 
-    let hunger_state =
-        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+    let hunger_states = npc_hunger_states(&simulation, surface);
 
-    assert_eq!(hunger_state, HungerState::Fed);
+    assert_eq!(hunger_states.len(), INITIAL_NPC_SPECS.len());
+    assert!(hunger_states
+        .into_iter()
+        .all(|hunger_state| hunger_state == HungerState::Fed));
 }
 
 #[test]
@@ -548,10 +597,12 @@ fn test_default_npc_ai_keeps_npc_fed_after_spawn_food_would_be_consumed() {
 
     tick_days(&mut simulation, 22);
 
-    let hunger_state =
-        npc_hunger_state(&simulation, surface).expect("default NPC should have hunger state");
+    let hunger_states = npc_hunger_states(&simulation, surface);
 
-    assert_eq!(hunger_state, HungerState::Fed);
+    assert_eq!(hunger_states.len(), INITIAL_NPC_SPECS.len());
+    assert!(hunger_states
+        .into_iter()
+        .all(|hunger_state| hunger_state == HungerState::Fed));
 }
 
 fn sorted_resource_nodes(
@@ -582,18 +633,25 @@ fn tiles(
 fn npcs(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
-) -> Vec<(CellCoord, String, u64, u32)> {
+) -> Vec<(CellCoord, String, u64, u32, NpcAppearance)> {
     simulation.with_surface_world(surface, query_npcs)
 }
 
-fn npc_hunger_state(
+fn npc_hunger_states(
     simulation: &GameSimulation,
     surface: game_engine::simulation::SurfaceId,
-) -> Option<HungerState> {
-    simulation.with_surface_world(surface, |world| {
-        let mut query = world.try_query::<(&NpcHunger, &Npc)>()?;
-        query.iter(world).next().map(|(hunger, _)| hunger.state())
-    })
+) -> Vec<HungerState> {
+    simulation
+        .with_surface_world(surface, |world| {
+            let mut query = world.try_query::<(&NpcHunger, &Npc)>()?;
+            Some(
+                query
+                    .iter(world)
+                    .map(|(hunger, _)| hunger.state())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn tick_days(simulation: &mut GameSimulation, days: u64) {
@@ -651,20 +709,21 @@ fn query_tiles(world: &bevy_ecs::world::World) -> Vec<(CellCoord, TerrainKind)> 
         .unwrap_or_default()
 }
 
-fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, u64, u32)> {
+fn query_npcs(world: &bevy_ecs::world::World) -> Vec<(CellCoord, String, u64, u32, NpcAppearance)> {
     let world_date_time = *world.resource::<WorldDateTime>();
 
     world
-        .try_query::<(&NpcPosition, &NpcName, &BirthDate, &Npc)>()
+        .try_query::<(&NpcPosition, &NpcName, &BirthDate, &NpcAppearance, &Npc)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(position, name, birth_date, _)| {
+                .map(|(position, name, birth_date, appearance, _)| {
                     (
                         position.coord,
                         name.as_str().to_string(),
                         birth_date.elapsed_since_world_epoch().as_secs() / SECONDS_PER_DAY,
                         world_date_time.age_years_since(*birth_date),
+                        *appearance,
                     )
                 })
                 .collect()

@@ -9,7 +9,7 @@ use crate::farming::{
     FieldPlacementPreview,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
-use crate::npcs::{spawn_initial_default_npc, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
+use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
@@ -84,7 +84,7 @@ impl SurfaceRuntime {
             .expect("initial resource node spawn system should run");
         if spawn_default_npc {
             world
-                .run_system_once(spawn_initial_default_npc)
+                .run_system_once(spawn_initial_default_npcs)
                 .expect("initial NPC spawn system should run");
         }
 

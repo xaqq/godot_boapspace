@@ -1,12 +1,14 @@
-use crate::assets::{load_packed_scene, load_texture, resource_asset_path, terrain_asset_path};
+use crate::assets::{
+    load_packed_scene, load_texture, npc_scene_path, resource_asset_path, terrain_asset_path,
+};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
-    AiGatherResource, MovementFacing, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
-    SUBTILE_UNITS_PER_TILE,
+    AiGatherResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind, Tile,
+    TilePosition, Velocity, SUBTILE_UNITS_PER_TILE,
 };
 use game_engine::farming::{
     field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState,
@@ -41,7 +43,6 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
-const NPC_COLONIST_SCENE_PATH: &str = "res://world/npc_colonist.tscn";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
 const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
@@ -129,11 +130,17 @@ struct MapEntityTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NpcRenderInfo {
     entity: Entity,
+    appearance: NpcAppearance,
     coord: CellCoord,
     subtile_offset: SubtileOffset,
     velocity: Velocity,
     facing: MovementFacing,
     is_gathering: bool,
+}
+
+struct RenderedNpcSprite {
+    appearance: NpcAppearance,
+    sprite: Gd<AnimatedSprite2D>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,8 +204,8 @@ pub(crate) struct GameWorld {
     _tile_set: Option<Gd<TileSet>>,
     _resource_node_tile_set: Option<Gd<TileSet>>,
     _crop_tile_set: Option<Gd<TileSet>>,
-    npc_scene: Option<Gd<PackedScene>>,
-    npc_sprites: HashMap<Entity, Gd<AnimatedSprite2D>>,
+    npc_scenes: HashMap<NpcAppearance, Gd<PackedScene>>,
+    npc_sprites: HashMap<Entity, RenderedNpcSprite>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
 
@@ -226,7 +233,7 @@ impl INode2D for GameWorld {
             _tile_set: None,
             _resource_node_tile_set: None,
             _crop_tile_set: None,
-            npc_scene: None,
+            npc_scenes: HashMap::new(),
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
             building_sprites: HashMap::new(),
@@ -285,11 +292,10 @@ impl INode2D for GameWorld {
         crop_map.set_z_index(3);
         self.populate_crop_map(&mut crop_map);
 
-        let Some(npc_scene) = load_packed_scene(NPC_COLONIST_SCENE_PATH, "GameWorld") else {
+        if !self.load_npc_scenes() {
             self.disable_processing();
             return;
-        };
-        self.npc_scene = Some(npc_scene);
+        }
         self.sync_npc_sprites();
 
         cam.set_enabled(true);
@@ -1034,11 +1040,11 @@ impl GameWorld {
 
     fn sync_npc_sprites(&mut self) {
         let npcs = self.npc_render_infos();
-        let Some(npc_scene) = self.npc_scene.clone() else {
-            godot_error!("GameWorld: NPC scene not initialized");
+        if self.npc_scenes.len() != NpcAppearance::ALL.len() {
+            godot_error!("GameWorld: NPC scenes not initialized");
             self.disable_processing();
             return;
-        };
+        }
 
         let active_entities: HashSet<Entity> = npcs.iter().map(|npc| npc.entity).collect();
         let stale_entities: Vec<Entity> = self
@@ -1048,8 +1054,8 @@ impl GameWorld {
             .filter(|entity| !active_entities.contains(entity))
             .collect();
         for entity in stale_entities {
-            if let Some(mut sprite) = self.npc_sprites.remove(&entity) {
-                sprite.queue_free();
+            if let Some(mut rendered) = self.npc_sprites.remove(&entity) {
+                rendered.sprite.queue_free();
             }
         }
 
@@ -1061,7 +1067,25 @@ impl GameWorld {
             }
 
             let position = npc_top_left(npc.coord, npc.subtile_offset);
-            if !self.npc_sprites.contains_key(&npc.entity) {
+            let should_recreate = self
+                .npc_sprites
+                .get(&npc.entity)
+                .map(|rendered| rendered.appearance != npc.appearance)
+                .unwrap_or(true);
+
+            if should_recreate {
+                if let Some(mut rendered) = self.npc_sprites.remove(&npc.entity) {
+                    rendered.sprite.queue_free();
+                }
+
+                let Some(npc_scene) = self.npc_scene(npc.appearance) else {
+                    godot_error!(
+                        "GameWorld: missing NPC scene for appearance {:?}",
+                        npc.appearance
+                    );
+                    self.disable_processing();
+                    return;
+                };
                 let Some(node) = npc_scene.instantiate() else {
                     godot_error!("GameWorld: failed to instantiate NPC scene");
                     self.disable_processing();
@@ -1083,13 +1107,19 @@ impl GameWorld {
                 sprite.set_position(position);
                 set_npc_animation(&mut sprite, npc);
                 self.base_mut().add_child(&sprite);
-                self.npc_sprites.insert(npc.entity, sprite);
+                self.npc_sprites.insert(
+                    npc.entity,
+                    RenderedNpcSprite {
+                        appearance: npc.appearance,
+                        sprite,
+                    },
+                );
                 continue;
             }
 
-            if let Some(sprite) = self.npc_sprites.get_mut(&npc.entity) {
-                sprite.set_position(position);
-                set_npc_animation(sprite, npc);
+            if let Some(rendered) = self.npc_sprites.get_mut(&npc.entity) {
+                rendered.sprite.set_position(position);
+                set_npc_animation(&mut rendered.sprite, npc);
             }
         }
 
@@ -1201,6 +1231,24 @@ impl GameWorld {
 
     fn building_texture(&self, kind: BuildingKind) -> Option<Gd<Texture2D>> {
         self.building_textures.get(&kind).cloned()
+    }
+
+    fn load_npc_scenes(&mut self) -> bool {
+        self.npc_scenes.clear();
+
+        for appearance in NpcAppearance::ALL {
+            let path = npc_scene_path(appearance);
+            let Some(scene) = load_packed_scene(path, "GameWorld") else {
+                return false;
+            };
+            self.npc_scenes.insert(appearance, scene);
+        }
+
+        true
+    }
+
+    fn npc_scene(&self, appearance: NpcAppearance) -> Option<Gd<PackedScene>> {
+        self.npc_scenes.get(&appearance).cloned()
     }
 
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
@@ -1648,12 +1696,13 @@ fn query_crop_render_infos(world: &World) -> Vec<CropRenderInfo> {
 
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
-        .try_query::<(Entity, &NpcPosition, &Npc)>()
+        .try_query::<(Entity, &NpcPosition, Option<&NpcAppearance>, &Npc)>()
         .map(|mut query| {
             query
                 .iter(world)
-                .map(|(entity, position, _)| NpcRenderInfo {
+                .map(|(entity, position, appearance, _)| NpcRenderInfo {
                     entity,
+                    appearance: appearance.copied().unwrap_or_default(),
                     coord: position.coord,
                     subtile_offset: position.subtile_offset,
                     velocity: world.get::<Velocity>(entity).copied().unwrap_or_default(),
@@ -1963,6 +2012,21 @@ mod tests {
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].entity, npc);
         assert!(infos[0].is_gathering);
+    }
+
+    #[test]
+    fn query_npc_render_infos_includes_appearance() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(2, 3)))
+            .id();
+        world.entity_mut(npc).insert(NpcAppearance::Miner);
+
+        let infos = query_npc_render_infos(&world);
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].entity, npc);
+        assert_eq!(infos[0].appearance, NpcAppearance::Miner);
     }
 
     #[test]
@@ -2515,6 +2579,7 @@ mod tests {
         let entity = world.spawn_empty().id();
         NpcRenderInfo {
             entity,
+            appearance: NpcAppearance::Colonist,
             coord: CellCoord::new(0, 0),
             subtile_offset: SubtileOffset::ZERO,
             velocity,

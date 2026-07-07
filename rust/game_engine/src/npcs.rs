@@ -1,6 +1,7 @@
 pub use crate::components::{
     AiIdleRoam, AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
-    MovementTarget, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, SubtileOffset, Velocity,
+    MovementTarget, Npc, NpcAppearance, NpcHunger, NpcInventory, NpcName, NpcPosition,
+    SubtileOffset, Velocity,
 };
 pub use crate::skills::{skill_percent, NpcSkills, SkillKind, SkillRank, MAX_SKILL_VALUE};
 
@@ -18,6 +19,43 @@ pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 0;
 const SECONDS_PER_HOUR: u64 = 3_600;
 const SECONDS_PER_MINUTE: u64 = 60;
 const DAYS_PER_YEAR: u64 = 365;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitialNpcSpec {
+    pub name: &'static str,
+    pub birth_day: u64,
+    pub appearance: NpcAppearance,
+    offset_from_center: (i32, i32),
+}
+
+impl InitialNpcSpec {
+    const fn new(
+        name: &'static str,
+        birth_day: u64,
+        appearance: NpcAppearance,
+        offset_from_center: (i32, i32),
+    ) -> Self {
+        Self {
+            name,
+            birth_day,
+            appearance,
+            offset_from_center,
+        }
+    }
+}
+
+pub const INITIAL_NPC_SPECS: [InitialNpcSpec; 5] = [
+    InitialNpcSpec::new(
+        INITIAL_NPC_NAME,
+        INITIAL_NPC_BIRTH_DAY,
+        NpcAppearance::Colonist,
+        (0, 0),
+    ),
+    InitialNpcSpec::new("Ilya Ren", 326, NpcAppearance::Engineer, (1, 0)),
+    InitialNpcSpec::new("Sera Nox", 334, NpcAppearance::Botanist, (0, 1)),
+    InitialNpcSpec::new("Toma Kade", 311, NpcAppearance::Miner, (-1, 0)),
+    InitialNpcSpec::new("Vale Arin", 303, NpcAppearance::Scout, (0, -1)),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
 pub struct WorldDateTime {
@@ -74,6 +112,7 @@ pub const fn world_duration_from_day(day: u64) -> Duration {
 #[derive(Debug, Clone, PartialEq, Eq, Bundle)]
 pub struct InitialNpcBundle {
     npc: Npc,
+    appearance: NpcAppearance,
     name: NpcName,
     birth_date: BirthDate,
     position: NpcPosition,
@@ -89,10 +128,15 @@ pub struct InitialNpcBundle {
 
 impl InitialNpcBundle {
     pub fn new(coord: CellCoord) -> Self {
+        Self::from_spec(INITIAL_NPC_SPECS[0], coord)
+    }
+
+    pub fn from_spec(spec: InitialNpcSpec, coord: CellCoord) -> Self {
         Self {
             npc: Npc,
-            name: NpcName::new(INITIAL_NPC_NAME),
-            birth_date: BirthDate::new(world_duration_from_day(INITIAL_NPC_BIRTH_DAY)),
+            appearance: spec.appearance,
+            name: NpcName::new(spec.name),
+            birth_date: BirthDate::new(world_duration_from_day(spec.birth_day)),
             position: NpcPosition::new(coord),
             velocity: Velocity::ZERO,
             max_velocity: MaxVelocity::default(),
@@ -109,12 +153,16 @@ impl InitialNpcBundle {
     }
 }
 
-pub fn spawn_initial_default_npc(mut commands: Commands, grid: Res<Grid>) {
+pub fn spawn_initial_default_npcs(mut commands: Commands, grid: Res<Grid>) {
     let Some(coord) = center_coord(&grid) else {
         return;
     };
 
-    commands.spawn(InitialNpcBundle::new(coord));
+    for spec in INITIAL_NPC_SPECS {
+        if let Some(coord) = initial_npc_coord(coord, spec, &grid) {
+            commands.spawn(InitialNpcBundle::from_spec(spec, coord));
+        }
+    }
 }
 
 pub fn update_npc_hunger(mut npcs: Query<(&mut NpcHunger, &mut NpcInventory), With<Npc>>) {
@@ -131,6 +179,14 @@ pub fn center_coord(grid: &Grid) -> Option<CellCoord> {
 
     let coord = CellCoord::from_usize(size.width() / 2, size.height() / 2)?;
     size.contains(coord).then_some(coord)
+}
+
+fn initial_npc_coord(center: CellCoord, spec: InitialNpcSpec, grid: &Grid) -> Option<CellCoord> {
+    let coord = CellCoord::new(
+        center.x() + spec.offset_from_center.0,
+        center.y() + spec.offset_from_center.1,
+    );
+    grid.size().contains(coord).then_some(coord)
 }
 
 #[cfg(test)]
@@ -201,5 +257,18 @@ mod tests {
         for kind in SkillKind::ALL {
             assert_eq!(skills.value(kind), 0);
         }
+    }
+
+    #[test]
+    fn initial_npc_bundle_includes_default_appearance() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(0, 0)))
+            .id();
+
+        assert_eq!(
+            world.get::<NpcAppearance>(npc).copied(),
+            Some(NpcAppearance::Colonist)
+        );
     }
 }

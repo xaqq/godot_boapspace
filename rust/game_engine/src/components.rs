@@ -62,6 +62,26 @@ pub struct ResourceNode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct Npc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Component)]
+pub enum NpcAppearance {
+    #[default]
+    Colonist,
+    Engineer,
+    Botanist,
+    Miner,
+    Scout,
+}
+
+impl NpcAppearance {
+    pub const ALL: [Self; 5] = [
+        Self::Colonist,
+        Self::Engineer,
+        Self::Botanist,
+        Self::Miner,
+        Self::Scout,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HungerState {
     Fed,
