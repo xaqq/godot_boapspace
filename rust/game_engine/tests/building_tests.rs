@@ -5,6 +5,7 @@ use game_engine::buildings::{
     BuildingFootprint, BuildingKind, BuildingPlacementError, ConstructionProgress,
     WarehouseInventory, DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE,
 };
+use game_engine::components::{Terrain, TerrainKind};
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
@@ -126,20 +127,20 @@ fn test_blueprint_can_overlap_npc() {
 }
 
 #[test]
-fn test_blueprint_can_overlap_resource_node() {
+fn test_blueprint_rejects_resource_node_overlap() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
     let size = simulation.grid_size(surface);
     let resource_coord = simulation
-        .with_surface_world(surface, first_resource_node_coord)
-        .expect("default surface should have resource nodes");
+        .with_surface_world(surface, first_buildable_resource_node_coord)
+        .expect("default surface should have buildable resource nodes");
     let origin = origin_for_footprint_containing(size, resource_coord, 2, 2);
     let footprint = BuildingFootprint::new(origin, 2, 2);
 
     assert!(footprint.contains(resource_coord));
     let result = simulation.place_building_blueprint(surface, BuildingKind::Warehouse, origin);
 
-    assert!(result.is_ok());
+    assert_eq!(result, Err(BuildingPlacementError::BlockedByResourceNode));
 }
 
 #[test]
@@ -279,9 +280,16 @@ fn first_npc_coord(world: &bevy_ecs::world::World) -> Option<CellCoord> {
     query.iter(world).next().map(|(position, _)| position.coord)
 }
 
-fn first_resource_node_coord(world: &bevy_ecs::world::World) -> Option<CellCoord> {
-    let mut query = world.try_query::<(&game_engine::components::TilePosition, &ResourceNode)>()?;
-    query.iter(world).next().map(|(position, _)| position.coord)
+fn first_buildable_resource_node_coord(world: &bevy_ecs::world::World) -> Option<CellCoord> {
+    let mut query = world.try_query::<(
+        &game_engine::components::TilePosition,
+        &ResourceNode,
+        &Terrain,
+    )>()?;
+    query
+        .iter(world)
+        .find(|(_, _, terrain)| terrain.kind != TerrainKind::Water)
+        .map(|(position, _, _)| position.coord)
 }
 
 fn origin_for_footprint_containing(

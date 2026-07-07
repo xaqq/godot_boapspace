@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod buildings;
+pub mod collision;
 pub mod components;
 pub mod farming;
 pub mod grid;

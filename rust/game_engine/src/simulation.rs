@@ -2,6 +2,7 @@ use crate::buildings::{
     place_building_blueprint, validate_building_blueprint_placement, BuildingFootprint,
     BuildingKind, BuildingPlacementError,
 };
+use crate::collision::{collision_flags_at, CollisionFlags};
 use crate::components::{Terrain, TerrainKind, Tile};
 use crate::farming::{
     place_field_blueprint, place_field_blueprints, validate_field_blueprint_placement,
@@ -215,6 +216,14 @@ impl GameSimulation {
 
     pub fn tile_coords(&self, surface_id: SurfaceId) -> Vec<CellCoord> {
         tile_coords(self.surface(surface_id))
+    }
+
+    pub fn collision_flags_at(
+        &self,
+        surface_id: SurfaceId,
+        coord: CellCoord,
+    ) -> Option<CollisionFlags> {
+        collision_flags_at(&self.surface(surface_id).world, coord)
     }
 
     pub fn with_surface_world<R>(&self, surface_id: SurfaceId, f: impl FnOnce(&World) -> R) -> R {

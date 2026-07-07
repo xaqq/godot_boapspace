@@ -204,6 +204,8 @@ impl FieldCropState {
 pub enum FieldPlacementError {
     OutOfBounds,
     OverlapsBuilding,
+    InvalidTerrain,
+    BlockedByResourceNode,
     OwnerMissing,
     OwnerNotFarm,
     NotConnected,
@@ -215,6 +217,8 @@ impl From<BuildingPlacementError> for FieldPlacementError {
         match value {
             BuildingPlacementError::OutOfBounds => Self::OutOfBounds,
             BuildingPlacementError::OverlapsBuilding => Self::OverlapsBuilding,
+            BuildingPlacementError::InvalidTerrain => Self::InvalidTerrain,
+            BuildingPlacementError::BlockedByResourceNode => Self::BlockedByResourceNode,
             BuildingPlacementError::FieldRequiresFarm => Self::OwnerMissing,
         }
     }
@@ -844,4 +848,121 @@ fn active_seed_fields(world: &World) -> HashSet<Entity> {
         .try_query::<&AiSeedField>()
         .map(|mut query| query.iter(world).map(|seed| seed.field()).collect())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{ResourceNode, Terrain, TerrainKind};
+    use crate::grid::{Grid, GridSize};
+    use crate::resources::ResourceKind;
+    use crate::tile::{TileBundle, TileIndex};
+
+    #[test]
+    fn field_placement_rejects_sand_and_water() {
+        for terrain in [TerrainKind::Sand, TerrainKind::Water] {
+            let mut world = world_with_default_terrain(TerrainKind::Grass);
+            let farm = spawn_farm(&mut world);
+            set_terrain(&mut world, CellCoord::new(3, 1), terrain);
+
+            assert_eq!(
+                validate_field_blueprint_placement(&world, farm, CellCoord::new(3, 1)),
+                Err(FieldPlacementError::InvalidTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn field_placement_rejects_resource_node_overlap() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        let farm = spawn_farm(&mut world);
+        insert_resource_node(&mut world, CellCoord::new(3, 1));
+
+        assert_eq!(
+            validate_field_blueprint_placement(&world, farm, CellCoord::new(3, 1)),
+            Err(FieldPlacementError::BlockedByResourceNode)
+        );
+    }
+
+    #[test]
+    fn field_batch_preview_rejects_invalid_cells_and_keeps_valid_cells() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        let farm = spawn_farm(&mut world);
+        set_terrain(&mut world, CellCoord::new(3, 1), TerrainKind::Water);
+
+        let previews = validate_field_blueprint_placement_batch(
+            &world,
+            farm,
+            [
+                CellCoord::new(3, 0),
+                CellCoord::new(3, 1),
+                CellCoord::new(3, 2),
+            ],
+        );
+
+        assert_eq!(
+            previews,
+            vec![
+                FieldPlacementPreview {
+                    coord: CellCoord::new(3, 0),
+                    result: Ok(BuildingFootprint::new(CellCoord::new(3, 0), 1, 1)),
+                },
+                FieldPlacementPreview {
+                    coord: CellCoord::new(3, 1),
+                    result: Err(FieldPlacementError::InvalidTerrain),
+                },
+                FieldPlacementPreview {
+                    coord: CellCoord::new(3, 2),
+                    result: Ok(BuildingFootprint::new(CellCoord::new(3, 2), 1, 1)),
+                },
+            ]
+        );
+    }
+
+    fn world_with_default_terrain(terrain: TerrainKind) -> World {
+        let size = GridSize::new(8, 8);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(size.width(), size.height()));
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let entity = world
+                .spawn(TileBundle::new_with_terrain(coord, terrain))
+                .id();
+            assert!(index.set(coord, entity));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn spawn_farm(world: &mut World) -> Entity {
+        world
+            .spawn(Building::new(
+                BuildingKind::Farm,
+                BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
+            ))
+            .id()
+    }
+
+    fn set_terrain(world: &mut World, coord: CellCoord, terrain: TerrainKind) {
+        let tile = indexed_tile_entity(world, coord);
+        world
+            .get_mut::<Terrain>(tile)
+            .expect("test tile should have terrain")
+            .kind = terrain;
+    }
+
+    fn insert_resource_node(world: &mut World, coord: CellCoord) {
+        let tile = indexed_tile_entity(world, coord);
+        world.entity_mut(tile).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 10,
+        });
+    }
+
+    fn indexed_tile_entity(world: &World, coord: CellCoord) -> Entity {
+        world
+            .resource::<TileIndex>()
+            .get(coord)
+            .expect("test tile should exist in index")
+    }
 }

@@ -1,3 +1,4 @@
+use crate::collision::{resource_node_at, terrain_allows_building, terrain_at};
 use crate::farming::{FarmInventory, FieldCrop};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
@@ -133,6 +134,23 @@ impl BuildingFootprint {
         };
 
         coord.x() >= left && coord.x() < right && coord.y() >= top && coord.y() < bottom
+    }
+
+    pub fn iter_coords(self) -> impl Iterator<Item = CellCoord> {
+        let origin = self.origin;
+        let width = self.width;
+        let height = self.height;
+
+        (0..height).flat_map(move |dy| {
+            (0..width).filter_map(move |dx| {
+                let dx = i32::try_from(dx).ok()?;
+                let dy = i32::try_from(dy).ok()?;
+                Some(CellCoord::new(
+                    origin.x().checked_add(dx)?,
+                    origin.y().checked_add(dy)?,
+                ))
+            })
+        })
     }
 
     pub fn is_within(self, size: GridSize) -> bool {
@@ -277,6 +295,8 @@ impl Default for WarehouseInventory {
 pub enum BuildingPlacementError {
     OutOfBounds,
     OverlapsBuilding,
+    InvalidTerrain,
+    BlockedByResourceNode,
     FieldRequiresFarm,
 }
 
@@ -319,8 +339,29 @@ pub(crate) fn validate_building_footprint_placement(
     if overlaps_existing_blueprint(world, footprint) {
         return Err(BuildingPlacementError::OverlapsBuilding);
     }
+    if has_invalid_terrain(world, kind, footprint) {
+        return Err(BuildingPlacementError::InvalidTerrain);
+    }
+    if overlaps_resource_node(world, footprint) {
+        return Err(BuildingPlacementError::BlockedByResourceNode);
+    }
 
     Ok(footprint)
+}
+
+fn has_invalid_terrain(world: &World, kind: BuildingKind, footprint: BuildingFootprint) -> bool {
+    footprint
+        .iter_coords()
+        .any(|coord| match terrain_at(world, coord) {
+            Some(terrain) => !terrain_allows_building(kind, terrain),
+            None => true,
+        })
+}
+
+fn overlaps_resource_node(world: &World, footprint: BuildingFootprint) -> bool {
+    footprint
+        .iter_coords()
+        .any(|coord| resource_node_at(world, coord))
 }
 
 fn overlaps_existing_blueprint(world: &World, footprint: BuildingFootprint) -> bool {
@@ -370,5 +411,161 @@ pub fn system_complete_building_construction(
         if blueprint.kind == BuildingKind::Field {
             entity_commands.insert(FieldCrop::seedable());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Npc, NpcPosition, ResourceNode, TerrainKind};
+    use crate::grid::GridSize;
+    use crate::resources::ResourceKind;
+    use crate::tile::{TileBundle, TileIndex};
+
+    #[test]
+    fn footprint_iter_coords_returns_row_major_cells() {
+        let footprint = BuildingFootprint::new(CellCoord::new(2, 3), 2, 3);
+
+        assert_eq!(
+            footprint.iter_coords().collect::<Vec<_>>(),
+            vec![
+                CellCoord::new(2, 3),
+                CellCoord::new(3, 3),
+                CellCoord::new(2, 4),
+                CellCoord::new(3, 4),
+                CellCoord::new(2, 5),
+                CellCoord::new(3, 5),
+            ]
+        );
+    }
+
+    #[test]
+    fn major_buildings_accept_grass_dirt_and_sand() {
+        for kind in [
+            BuildingKind::Warehouse,
+            BuildingKind::TownHall,
+            BuildingKind::Farm,
+        ] {
+            for terrain in [TerrainKind::Grass, TerrainKind::Dirt, TerrainKind::Sand] {
+                let world = world_with_default_terrain(terrain);
+
+                assert_eq!(
+                    validate_building_blueprint_placement(&world, kind, CellCoord::new(0, 0)),
+                    Ok(BuildingFootprint::new(
+                        CellCoord::new(0, 0),
+                        kind.definition().width(),
+                        kind.definition().height(),
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn major_buildings_reject_water() {
+        for kind in [
+            BuildingKind::Warehouse,
+            BuildingKind::TownHall,
+            BuildingKind::Farm,
+        ] {
+            let world = world_with_default_terrain(TerrainKind::Water);
+
+            assert_eq!(
+                validate_building_blueprint_placement(&world, kind, CellCoord::new(0, 0)),
+                Err(BuildingPlacementError::InvalidTerrain)
+            );
+        }
+    }
+
+    #[test]
+    fn building_placement_rejects_resource_node_overlap() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        insert_resource_node(&mut world, CellCoord::new(1, 1));
+
+        assert_eq!(
+            validate_building_blueprint_placement(
+                &world,
+                BuildingKind::Warehouse,
+                CellCoord::new(0, 0),
+            ),
+            Err(BuildingPlacementError::BlockedByResourceNode)
+        );
+    }
+
+    #[test]
+    fn building_placement_allows_npc_overlap() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        world.spawn((Npc, NpcPosition::new(CellCoord::new(1, 1))));
+
+        assert_eq!(
+            validate_building_blueprint_placement(
+                &world,
+                BuildingKind::Warehouse,
+                CellCoord::new(0, 0),
+            ),
+            Ok(BuildingFootprint::new(CellCoord::new(0, 0), 2, 2))
+        );
+    }
+
+    #[test]
+    fn building_placement_rejects_existing_blueprint_overlap() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        world.spawn(BuildingBlueprintBundle::new(
+            BuildingKind::Warehouse,
+            BuildingFootprint::new(CellCoord::new(1, 1), 2, 2),
+        ));
+
+        assert_eq!(
+            validate_building_blueprint_placement(
+                &world,
+                BuildingKind::Warehouse,
+                CellCoord::new(2, 2),
+            ),
+            Err(BuildingPlacementError::OverlapsBuilding)
+        );
+    }
+
+    #[test]
+    fn building_placement_rejects_constructed_building_overlap() {
+        let mut world = world_with_default_terrain(TerrainKind::Grass);
+        world.spawn(Building::new(
+            BuildingKind::Warehouse,
+            BuildingFootprint::new(CellCoord::new(1, 1), 2, 2),
+        ));
+
+        assert_eq!(
+            validate_building_blueprint_placement(
+                &world,
+                BuildingKind::Warehouse,
+                CellCoord::new(2, 2),
+            ),
+            Err(BuildingPlacementError::OverlapsBuilding)
+        );
+    }
+
+    fn world_with_default_terrain(terrain: TerrainKind) -> World {
+        let size = GridSize::new(8, 8);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(size.width(), size.height()));
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let entity = world
+                .spawn(TileBundle::new_with_terrain(coord, terrain))
+                .id();
+            assert!(index.set(coord, entity));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn insert_resource_node(world: &mut World, coord: CellCoord) {
+        let tile = world
+            .resource::<TileIndex>()
+            .get(coord)
+            .expect("test tile should exist in index");
+        world.entity_mut(tile).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 10,
+        });
     }
 }

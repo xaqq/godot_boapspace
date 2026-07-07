@@ -5,7 +5,7 @@ use game_engine::buildings::{
     system_complete_building_construction, Building, BuildingBlueprint, BuildingFootprint,
     BuildingKind, ConstructionProgress,
 };
-use game_engine::components::{MovementTarget, NpcInventory};
+use game_engine::components::{MovementTarget, NpcInventory, TerrainKind};
 use game_engine::farming::{
     farm_field_counts, field_crop_state, maintain_farming_tasks, place_field_blueprint,
     place_field_blueprints, system_advance_field_growth, system_harvest_fields, system_seed_fields,
@@ -18,6 +18,7 @@ use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::ResourceAmounts;
 use game_engine::simulation::GameSimulation;
 use game_engine::tasks::Task;
+use game_engine::tile::{TileBundle, TileIndex};
 
 #[test]
 fn field_blueprint_placement_requires_cardinal_farm_connection() {
@@ -511,8 +512,17 @@ fn farm_field_counts_include_blueprints_and_constructed_fields() {
 }
 
 fn farming_world() -> World {
+    let size = GridSize::new(16, 16);
     let mut world = World::new();
-    world.insert_resource(Grid::new(16, 16));
+    world.insert_resource(Grid::new(size.width(), size.height()));
+    let mut index = TileIndex::new(size);
+    for coord in size.iter_coords() {
+        let entity = world
+            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+            .id();
+        assert!(index.set(coord, entity));
+    }
+    world.insert_resource(index);
     world
 }
 
