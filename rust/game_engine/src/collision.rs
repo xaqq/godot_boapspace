@@ -73,6 +73,9 @@ pub const fn terrain_allows_building(kind: BuildingKind, terrain: TerrainKind) -
     match kind {
         BuildingKind::Warehouse
         | BuildingKind::TownHall
+        | BuildingKind::Sawmill
+        | BuildingKind::Stoneworks
+        | BuildingKind::Kitchen
         | BuildingKind::Farm
         | BuildingKind::SmallHouse
         | BuildingKind::MediumHouse
@@ -116,7 +119,7 @@ const fn terrain_collision_flags(terrain: TerrainKind) -> CollisionFlags {
     }
 }
 
-const fn building_blocks_npc_walk(kind: BuildingKind) -> bool {
+pub(crate) const fn building_blocks_npc_walk(kind: BuildingKind) -> bool {
     !matches!(kind, BuildingKind::Field | BuildingKind::TreePlot)
 }
 
@@ -180,6 +183,9 @@ mod tests {
         for kind in [
             BuildingKind::Warehouse,
             BuildingKind::TownHall,
+            BuildingKind::Sawmill,
+            BuildingKind::Stoneworks,
+            BuildingKind::Kitchen,
             BuildingKind::Farm,
             BuildingKind::SmallHouse,
             BuildingKind::MediumHouse,

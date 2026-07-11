@@ -591,11 +591,11 @@ fn test_paused_tick_does_not_advance_npc_hunger() {
 }
 
 #[test]
-fn test_default_npc_ai_keeps_npc_fed_after_spawn_food_would_be_consumed() {
+fn test_default_npc_does_not_treat_natural_ingredients_as_cooked_food() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    tick_days(&mut simulation, 22);
+    simulation.tick();
 
     let hunger_states = npc_hunger_states(&simulation, surface);
 
@@ -603,6 +603,9 @@ fn test_default_npc_ai_keeps_npc_fed_after_spawn_food_would_be_consumed() {
     assert!(hunger_states
         .into_iter()
         .all(|hunger_state| hunger_state == HungerState::Fed));
+    assert!(resource_nodes(&simulation, surface)
+        .into_iter()
+        .all(|(_, kind, _)| kind != ResourceKind::Food));
 }
 
 fn sorted_resource_nodes(

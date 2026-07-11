@@ -3,6 +3,8 @@ use crate::farming::{FarmInventory, FieldCrop};
 use crate::forestry::{ForesterLodgeInventory, TreePlotGrowth};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::housing::House;
+use crate::navigation::invalidate_navigation_snapshot;
+use crate::refining::{RefineryInventory, RefineryProduction};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
 
@@ -12,6 +14,9 @@ pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
 pub enum BuildingKind {
     Warehouse,
     TownHall,
+    Sawmill,
+    Stoneworks,
+    Kitchen,
     Farm,
     Field,
     ForesterLodge,
@@ -22,9 +27,12 @@ pub enum BuildingKind {
 }
 
 impl BuildingKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::Warehouse,
         Self::TownHall,
+        Self::Sawmill,
+        Self::Stoneworks,
+        Self::Kitchen,
         Self::Farm,
         Self::Field,
         Self::ForesterLodge,
@@ -38,6 +46,9 @@ impl BuildingKind {
         match self {
             Self::Warehouse => "Warehouse",
             Self::TownHall => "TownHall",
+            Self::Sawmill => "Sawmill",
+            Self::Stoneworks => "Stoneworks",
+            Self::Kitchen => "Kitchen",
             Self::Farm => "Farm",
             Self::Field => "Field",
             Self::ForesterLodge => "Forester's Lodge",
@@ -54,63 +65,109 @@ impl BuildingKind {
                 kind: self,
                 width: 2,
                 height: 2,
-                construction_cost: ResourceAmounts::new(40, 20, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 40)
+                    .with(ResourceKind::StoneBlocks, 20),
                 housing_capacity: None,
             },
             Self::TownHall => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
-                construction_cost: ResourceAmounts::new(80, 60, 0, 20),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 80)
+                    .with(ResourceKind::StoneBlocks, 60)
+                    .with(ResourceKind::Gold, 20),
+                housing_capacity: None,
+            },
+            Self::Sawmill => BuildingDefinition {
+                kind: self,
+                width: 2,
+                height: 2,
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Wood, 20)
+                    .with(ResourceKind::Stone, 10),
+                housing_capacity: None,
+            },
+            Self::Stoneworks => BuildingDefinition {
+                kind: self,
+                width: 2,
+                height: 2,
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Wood, 20)
+                    .with(ResourceKind::Stone, 20),
+                housing_capacity: None,
+            },
+            Self::Kitchen => BuildingDefinition {
+                kind: self,
+                width: 2,
+                height: 2,
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 20)
+                    .with(ResourceKind::StoneBlocks, 10),
                 housing_capacity: None,
             },
             Self::Farm => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
-                construction_cost: ResourceAmounts::new(20, 30, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 20)
+                    .with(ResourceKind::StoneBlocks, 30),
                 housing_capacity: None,
             },
             Self::Field => BuildingDefinition {
                 kind: self,
                 width: 1,
                 height: 1,
-                construction_cost: ResourceAmounts::new(5, 1, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 5)
+                    .with(ResourceKind::StoneBlocks, 1),
                 housing_capacity: None,
             },
             Self::ForesterLodge => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
-                construction_cost: ResourceAmounts::new(20, 30, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 20)
+                    .with(ResourceKind::StoneBlocks, 30),
                 housing_capacity: None,
             },
             Self::TreePlot => BuildingDefinition {
                 kind: self,
                 width: 1,
                 height: 1,
-                construction_cost: ResourceAmounts::new(5, 1, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 5)
+                    .with(ResourceKind::StoneBlocks, 1),
                 housing_capacity: None,
             },
             Self::SmallHouse => BuildingDefinition {
                 kind: self,
                 width: 1,
                 height: 1,
-                construction_cost: ResourceAmounts::new(10, 5, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 10)
+                    .with(ResourceKind::StoneBlocks, 5),
                 housing_capacity: Some(2),
             },
             Self::MediumHouse => BuildingDefinition {
                 kind: self,
                 width: 2,
                 height: 2,
-                construction_cost: ResourceAmounts::new(30, 15, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 30)
+                    .with(ResourceKind::StoneBlocks, 15),
                 housing_capacity: Some(4),
             },
             Self::LargeHouse => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
-                construction_cost: ResourceAmounts::new(60, 30, 0, 0),
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Planks, 60)
+                    .with(ResourceKind::StoneBlocks, 30),
                 housing_capacity: Some(8),
             },
         }
@@ -374,9 +431,12 @@ pub fn place_building_blueprint(
 ) -> Result<Entity, BuildingPlacementError> {
     let footprint = validate_building_blueprint_placement(world, kind, origin)?;
 
-    let entity = world.spawn(BuildingBlueprintBundle::new(kind, footprint));
+    let entity = world
+        .spawn(BuildingBlueprintBundle::new(kind, footprint))
+        .id();
+    invalidate_navigation_snapshot(world);
 
-    Ok(entity.id())
+    Ok(entity)
 }
 
 pub fn validate_building_blueprint_placement(
@@ -501,6 +561,12 @@ pub fn system_complete_building_construction(
         if blueprint.kind == BuildingKind::TreePlot {
             entity_commands.insert(TreePlotGrowth::seedable());
         }
+        if matches!(
+            blueprint.kind,
+            BuildingKind::Sawmill | BuildingKind::Stoneworks | BuildingKind::Kitchen
+        ) {
+            entity_commands.insert((RefineryInventory::empty(), RefineryProduction::default()));
+        }
         if let Some(capacity) = blueprint.kind.definition().housing_capacity() {
             entity_commands.insert(House::new(capacity, next_house_order));
             next_house_order = next_house_order.saturating_add(1);
@@ -538,6 +604,9 @@ mod tests {
         for kind in [
             BuildingKind::Warehouse,
             BuildingKind::TownHall,
+            BuildingKind::Sawmill,
+            BuildingKind::Stoneworks,
+            BuildingKind::Kitchen,
             BuildingKind::Farm,
         ] {
             for terrain in [TerrainKind::Grass, TerrainKind::Dirt, TerrainKind::Sand] {
@@ -560,6 +629,9 @@ mod tests {
         for kind in [
             BuildingKind::Warehouse,
             BuildingKind::TownHall,
+            BuildingKind::Sawmill,
+            BuildingKind::Stoneworks,
+            BuildingKind::Kitchen,
             BuildingKind::Farm,
         ] {
             let world = world_with_default_terrain(TerrainKind::Water);

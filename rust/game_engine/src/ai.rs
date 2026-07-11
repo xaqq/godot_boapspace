@@ -16,6 +16,8 @@ use crate::forestry::{
     TreePlotOwner,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::logistics::AiConstructionHaul;
+use crate::navigation::NpcRoute;
 use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::skills::{NpcSkills, SkillKind};
 use crate::tasks::ProgressBuildingConstruction;
@@ -114,7 +116,7 @@ pub fn system_search_for_food(
             continue;
         };
 
-        if position.coord == resource_coord {
+        if is_cardinally_adjacent(position.coord, resource_coord) {
             if movement_target.is_some() {
                 commands.entity(entity).remove::<MovementTarget>();
             }
@@ -127,9 +129,10 @@ pub fn system_search_for_food(
         }
 
         if movement_target.map(|target| target.coord) != Some(resource_coord) {
-            commands
-                .entity(entity)
-                .insert(MovementTarget::new(resource_coord));
+            commands.entity(entity).insert((
+                NpcRoute::new(cardinal_interaction_cells(resource_coord)),
+                MovementTarget::new(resource_coord),
+            ));
         }
     }
 }
@@ -183,8 +186,6 @@ pub fn system_assign_plot_work(
         (
             Entity,
             &NpcPosition,
-            &NpcInventory,
-            Option<&AiKeepEnoughFoodInInventory>,
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
             Option<&AiConstructBuilding>,
@@ -209,7 +210,6 @@ pub fn system_assign_plot_work(
     farms: Query<(&Building, &FarmInventory)>,
     tree_plots: Query<(Entity, &Building, &TreePlotOwner, &TreePlotGrowth)>,
     lodges: Query<(&Building, &ForesterLodgeInventory)>,
-    resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
     let mut claimed_fields = active_seed_work
         .iter()
@@ -227,8 +227,6 @@ pub fn system_assign_plot_work(
     for (
         entity,
         position,
-        inventory,
-        keep_food,
         search,
         gather,
         construction,
@@ -247,7 +245,6 @@ pub fn system_assign_plot_work(
             || field_harvest.is_some()
             || tree_seed.is_some()
             || tree_cut.is_some()
-            || should_interrupt_for_food(inventory, keep_food, &resource_nodes)
         {
             continue;
         }
@@ -391,6 +388,7 @@ pub fn system_route_construction_work(
             &mut AiConstructBuilding,
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
+            Option<&AiConstructionHaul>,
             Option<&MovementTarget>,
         ),
         With<Npc>,
@@ -398,10 +396,18 @@ pub fn system_route_construction_work(
     blueprints: Query<(&BuildingBlueprint, &ConstructionProgress)>,
     resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
-    for (entity, position, inventory, mut construction, search, gather, movement_target) in
-        &mut npcs
+    for (
+        entity,
+        position,
+        inventory,
+        mut construction,
+        search,
+        gather,
+        logistics_haul,
+        movement_target,
+    ) in &mut npcs
     {
-        if search.is_some() || gather.is_some() {
+        if search.is_some() || gather.is_some() || logistics_haul.is_some() {
             continue;
         }
 
@@ -507,7 +513,7 @@ pub fn system_route_construction_work(
             continue;
         };
 
-        if position.coord == resource_coord {
+        if is_cardinally_adjacent(position.coord, resource_coord) {
             if movement_target.is_some() {
                 commands.entity(entity).remove::<MovementTarget>();
             }
@@ -515,9 +521,10 @@ pub fn system_route_construction_work(
                 .entity(entity)
                 .insert(AiGatherResource::new(resource_entity));
         } else if movement_target.map(|target| target.coord) != Some(resource_coord) {
-            commands
-                .entity(entity)
-                .insert(MovementTarget::new(resource_coord));
+            commands.entity(entity).insert((
+                NpcRoute::new(cardinal_interaction_cells(resource_coord)),
+                MovementTarget::new(resource_coord),
+            ));
         }
     }
 }
@@ -532,14 +539,17 @@ pub fn system_deposit_construction_resources(
             &mut AiConstructBuilding,
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
+            Option<&AiConstructionHaul>,
         ),
         With<Npc>,
     >,
     mut blueprints: Query<(&BuildingBlueprint, &mut ConstructionProgress)>,
     resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
-    for (entity, position, mut inventory, mut construction, search, gather) in &mut npcs {
-        if search.is_some() || gather.is_some() {
+    for (entity, position, mut inventory, mut construction, search, gather, logistics_haul) in
+        &mut npcs
+    {
+        if search.is_some() || gather.is_some() || logistics_haul.is_some() {
             continue;
         }
 
@@ -547,7 +557,7 @@ pub fn system_deposit_construction_resources(
             commands.entity(entity).remove::<AiConstructBuilding>();
             continue;
         };
-        if !blueprint.footprint.contains(position.coord) {
+        if !building_interaction_reached(blueprint.kind, blueprint.footprint, position.coord) {
             continue;
         }
 
@@ -594,8 +604,6 @@ pub fn system_npc_idle(
         (
             Entity,
             &NpcPosition,
-            Option<&NpcInventory>,
-            Option<&AiKeepEnoughFoodInInventory>,
             Option<&MovementTarget>,
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
@@ -608,14 +616,11 @@ pub fn system_npc_idle(
         ),
         With<Npc>,
     >,
-    resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
     let size = grid.size();
     for (
         entity,
         position,
-        inventory,
-        keep_food,
         movement_target,
         search,
         gather,
@@ -636,14 +641,6 @@ pub fn system_npc_idle(
             || tree_cut.is_some()
         {
             commands.entity(entity).remove::<AiIdleRoam>();
-            continue;
-        }
-
-        if should_interrupt_for_food_opt(inventory, keep_food, &resource_nodes) {
-            if idle.is_some() {
-                commands.entity(entity).remove::<AiIdleRoam>();
-                commands.entity(entity).remove::<MovementTarget>();
-            }
             continue;
         }
 
@@ -673,7 +670,9 @@ pub fn system_npc_idle(
             idle.next_offset_index(),
         ) {
             idle.set_next_offset_index(next_offset_index);
-            commands.entity(entity).insert(MovementTarget::new(target));
+            commands
+                .entity(entity)
+                .insert((NpcRoute::to_cell(target), MovementTarget::new(target)));
         }
         idle.reset_dwell(DEFAULT_NPC_IDLE_DWELL_TICKS);
     }
@@ -702,7 +701,10 @@ pub fn system_gather_resource(
             continue;
         };
 
-        if target_position.coord != position.coord || resource_node.quantity == 0 {
+        if position.coord != target_position.coord
+            && !is_cardinally_adjacent(position.coord, target_position.coord)
+            || resource_node.quantity == 0
+        {
             commands.entity(entity).remove::<AiGatherResource>();
             continue;
         }
@@ -763,18 +765,6 @@ fn should_interrupt_for_food(
 
     should_start_food_refill(inventory, keep_food)
         && resource_kind_available(ResourceKind::Food, resource_nodes)
-}
-
-fn should_interrupt_for_food_opt(
-    inventory: Option<&NpcInventory>,
-    keep_food: Option<&AiKeepEnoughFoodInInventory>,
-    resource_nodes: &Query<(Entity, &TilePosition, &ResourceNode)>,
-) -> bool {
-    let Some(inventory) = inventory else {
-        return false;
-    };
-
-    should_interrupt_for_food(inventory, keep_food, resource_nodes)
 }
 
 fn construction_work_target(
@@ -932,7 +922,9 @@ fn route_to_farming_cell(
     }
 
     if movement_target.map(|movement_target| movement_target.coord) != Some(coord) {
-        commands.entity(entity).insert(MovementTarget::new(coord));
+        commands
+            .entity(entity)
+            .insert((NpcRoute::to_cell(coord), MovementTarget::new(coord)));
     }
 }
 
@@ -1024,16 +1016,65 @@ fn route_to_building_footprint(
     movement_target: Option<&MovementTarget>,
     footprint: BuildingFootprint,
 ) {
-    if footprint.contains(position.coord) {
+    if footprint.contains(position.coord)
+        || footprint
+            .iter_coords()
+            .any(|coord| is_cardinally_adjacent(position.coord, coord))
+    {
         if movement_target.is_some() {
             commands.entity(entity).remove::<MovementTarget>();
         }
         return;
     }
 
-    let target = footprint.origin();
-    if movement_target.map(|movement_target| movement_target.coord) != Some(target) {
-        commands.entity(entity).insert(MovementTarget::new(target));
+    let goals = footprint
+        .iter_coords()
+        .flat_map(cardinal_interaction_cells)
+        .filter(|coord| !footprint.contains(*coord))
+        .collect::<Vec<_>>();
+    commands.entity(entity).insert((
+        NpcRoute::new(goals),
+        MovementTarget::new(footprint.origin()),
+    ));
+}
+
+fn cardinal_interaction_cells(coord: CellCoord) -> Vec<CellCoord> {
+    let mut cells = Vec::with_capacity(4);
+    if let Some(y) = coord.y().checked_sub(1) {
+        cells.push(CellCoord::new(coord.x(), y));
+    }
+    if let Some(x) = coord.x().checked_sub(1) {
+        cells.push(CellCoord::new(x, coord.y()));
+    }
+    if let Some(x) = coord.x().checked_add(1) {
+        cells.push(CellCoord::new(x, coord.y()));
+    }
+    if let Some(y) = coord.y().checked_add(1) {
+        cells.push(CellCoord::new(coord.x(), y));
+    }
+    cells
+}
+
+fn is_cardinally_adjacent(a: CellCoord, b: CellCoord) -> bool {
+    a.x().abs_diff(b.x()).saturating_add(a.y().abs_diff(b.y())) == 1
+}
+
+fn building_interaction_reached(
+    kind: crate::buildings::BuildingKind,
+    footprint: BuildingFootprint,
+    position: CellCoord,
+) -> bool {
+    if footprint.contains(position) {
+        true
+    } else if matches!(
+        kind,
+        crate::buildings::BuildingKind::Field | crate::buildings::BuildingKind::TreePlot
+    ) {
+        false
+    } else {
+        footprint
+            .iter_coords()
+            .any(|coord| is_cardinally_adjacent(position, coord))
     }
 }
 

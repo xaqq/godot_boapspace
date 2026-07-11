@@ -19,11 +19,14 @@ use game_engine::forestry::{
     TreePlotState,
 };
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
-use game_engine::npcs::{Npc, NpcPosition};
+use game_engine::npcs::{Npc, NpcName, NpcPosition};
+use game_engine::refining::{
+    AiRefineResource, RecipeKind, RefineryProduction, RefiningTask, REFINING_TICKS_PER_UNIT,
+};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
 use game_engine::simulation::{GameSimulation, SimulationSpeed, SurfaceId};
-use game_engine::tasks::ProgressBuildingConstruction;
+use game_engine::tasks::{ProgressBuildingConstruction, TaskAssignment};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
@@ -49,6 +52,9 @@ const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
+const BUILDING_SAWMILL_PATH: &str = "res://assets/generated/building_sawmill.png";
+const BUILDING_STONEWORKS_PATH: &str = "res://assets/generated/building_stoneworks.png";
+const BUILDING_KITCHEN_PATH: &str = "res://assets/generated/building_kitchen.png";
 const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
 const BUILDING_FIELD_PATH: &str = "res://assets/generated/building_field.png";
 const BUILDING_FORESTER_LODGE_PATH: &str = "res://assets/generated/building_forester_lodge.png";
@@ -140,6 +146,31 @@ struct MapEntityTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NpcRefiningAnimation {
+    Saw,
+    Stonecut,
+    Cook,
+}
+
+impl NpcRefiningAnimation {
+    const fn from_recipe(recipe: RecipeKind) -> Self {
+        match recipe {
+            RecipeKind::SawWood => Self::Saw,
+            RecipeKind::CutStone => Self::Stonecut,
+            RecipeKind::CookCrops | RecipeKind::CookWildBerries => Self::Cook,
+        }
+    }
+
+    const fn animation_name(self) -> &'static str {
+        match self {
+            Self::Saw => "saw",
+            Self::Stonecut => "stonecut",
+            Self::Cook => "cook",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NpcRenderInfo {
     entity: Entity,
     appearance: NpcAppearance,
@@ -148,6 +179,7 @@ struct NpcRenderInfo {
     velocity: Velocity,
     facing: MovementFacing,
     is_gathering: bool,
+    refining_animation: Option<NpcRefiningAnimation>,
 }
 
 struct RenderedNpcSprite {
@@ -206,7 +238,11 @@ struct PlotPlacementPreview {
 pub(crate) struct TaskTableRow {
     pub(crate) entity_id: i64,
     pub(crate) task_type: String,
-    pub(crate) details: String,
+    pub(crate) assignment: String,
+    pub(crate) worker: String,
+    pub(crate) building: String,
+    pub(crate) recipe: String,
+    pub(crate) progress: String,
 }
 
 #[derive(GodotClass)]
@@ -1591,6 +1627,21 @@ impl GameWorld {
     }
 
     #[func]
+    pub(crate) fn start_sawmill_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::Sawmill);
+    }
+
+    #[func]
+    pub(crate) fn start_stoneworks_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::Stoneworks);
+    }
+
+    #[func]
+    pub(crate) fn start_kitchen_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::Kitchen);
+    }
+
+    #[func]
     pub(crate) fn start_farm_blueprint_placement(&mut self) {
         self.start_build_mode(BuildingKind::Farm);
     }
@@ -1924,6 +1975,10 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
                         || world.get::<AiHarvestField>(entity).is_some()
                         || world.get::<AiSeedTreePlot>(entity).is_some()
                         || world.get::<AiCutTreePlot>(entity).is_some(),
+                    refining_animation: world
+                        .get::<AiRefineResource>(entity)
+                        .filter(|work| work.is_actively_processing())
+                        .map(|work| NpcRefiningAnimation::from_recipe(work.recipe())),
                 })
                 .collect()
         })
@@ -1941,7 +1996,17 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
                     Some(TaskTableRow {
                         entity_id,
                         task_type: ProgressBuildingConstruction::label().to_string(),
-                        details: format_construction_task_details(world, construction.blueprint()),
+                        assignment: em_dash(),
+                        worker: em_dash(),
+                        building: format_construction_task_building(
+                            world,
+                            construction.blueprint(),
+                        ),
+                        recipe: em_dash(),
+                        progress: format_construction_task_progress(
+                            world,
+                            construction.blueprint(),
+                        ),
                     })
                 })
                 .collect::<Vec<_>>()
@@ -1954,7 +2019,11 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
             Some(TaskTableRow {
                 entity_id,
                 task_type: SeedField::label().to_string(),
-                details: format_plot_task_details(world, "Field", seed.field()),
+                assignment: em_dash(),
+                worker: em_dash(),
+                building: format_plot_task_building(world, "Field", seed.field()),
+                recipe: em_dash(),
+                progress: em_dash(),
             })
         }));
     }
@@ -1965,7 +2034,11 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
             Some(TaskTableRow {
                 entity_id,
                 task_type: HarvestField::label().to_string(),
-                details: format_plot_task_details(world, "Field", harvest.field()),
+                assignment: em_dash(),
+                worker: em_dash(),
+                building: format_plot_task_building(world, "Field", harvest.field()),
+                recipe: em_dash(),
+                progress: em_dash(),
             })
         }));
     }
@@ -1976,7 +2049,11 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
             Some(TaskTableRow {
                 entity_id,
                 task_type: SeedTreePlot::label().to_string(),
-                details: format_plot_task_details(world, "Tree Plot", seed.tree_plot()),
+                assignment: em_dash(),
+                worker: em_dash(),
+                building: format_plot_task_building(world, "Tree Plot", seed.tree_plot()),
+                recipe: em_dash(),
+                progress: em_dash(),
             })
         }));
     }
@@ -1987,16 +2064,38 @@ fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
             Some(TaskTableRow {
                 entity_id,
                 task_type: CutTreePlot::label().to_string(),
-                details: format_plot_task_details(world, "Tree Plot", cut.tree_plot()),
+                assignment: em_dash(),
+                worker: em_dash(),
+                building: format_plot_task_building(world, "Tree Plot", cut.tree_plot()),
+                recipe: em_dash(),
+                progress: em_dash(),
             })
         }));
+    }
+
+    if let Some(mut query) = world.try_query::<(Entity, &RefiningTask, Option<&TaskAssignment>)>() {
+        rows.extend(
+            query
+                .iter(world)
+                .filter_map(|(entity, refining, assignment)| {
+                    let entity_id = encode_entity_id(entity)?;
+                    Some(refining_task_table_row(
+                        world,
+                        entity_id,
+                        refining.refinery(),
+                        assignment
+                            .copied()
+                            .unwrap_or_else(TaskAssignment::unassigned),
+                    ))
+                }),
+        );
     }
 
     rows.sort_by_key(|row| row.entity_id);
     rows
 }
 
-fn format_construction_task_details(world: &World, blueprint: Entity) -> String {
+fn format_construction_task_building(world: &World, blueprint: Entity) -> String {
     let blueprint_id = encode_entity_id(blueprint)
         .map(|id| id.to_string())
         .unwrap_or_else(|| "unknown".to_string());
@@ -2004,25 +2103,31 @@ fn format_construction_task_details(world: &World, blueprint: Entity) -> String 
     let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
         return format!("Blueprint {blueprint_id}: unavailable");
     };
-    let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
-        return format!("Blueprint {blueprint_id}: unavailable");
-    };
 
     let origin = blueprint_data.footprint.origin();
     format!(
-        "Blueprint {}: {} at ({}, {}), progress {}",
-        blueprint_id,
+        "{} Blueprint {} at ({}, {})",
         blueprint_data.kind.label(),
+        blueprint_id,
         origin.x(),
-        origin.y(),
-        format_deposited_over_required(
-            progress.deposited(),
-            blueprint_data.kind.definition().construction_cost()
-        )
+        origin.y()
     )
 }
 
-fn format_plot_task_details(world: &World, label: &str, plot: Entity) -> String {
+fn format_construction_task_progress(world: &World, blueprint: Entity) -> String {
+    let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
+        return em_dash();
+    };
+    let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
+        return em_dash();
+    };
+    format_deposited_over_required(
+        progress.deposited(),
+        blueprint_data.kind.definition().construction_cost(),
+    )
+}
+
+fn format_plot_task_building(world: &World, label: &str, plot: Entity) -> String {
     let plot_id = encode_entity_id(plot)
         .map(|id| id.to_string())
         .unwrap_or_else(|| "unknown".to_string());
@@ -2030,7 +2135,71 @@ fn format_plot_task_details(world: &World, label: &str, plot: Entity) -> String 
         return format!("{label} {plot_id}: unavailable");
     };
     let origin = building.footprint.origin();
-    format!("{label} {plot_id}: at ({}, {})", origin.x(), origin.y())
+    format!("{label} {plot_id} at ({}, {})", origin.x(), origin.y())
+}
+
+fn refining_task_table_row(
+    world: &World,
+    entity_id: i64,
+    refinery: Entity,
+    assignment: TaskAssignment,
+) -> TaskTableRow {
+    let assigned_worker = assignment.worker();
+    let production = world
+        .get::<RefineryProduction>(refinery)
+        .copied()
+        .unwrap_or_default();
+    let recipe = production.recipe().or_else(|| {
+        assigned_worker
+            .and_then(|worker| world.get::<AiRefineResource>(worker))
+            .map(|work| work.recipe())
+    });
+    let building = world
+        .get::<Building>(refinery)
+        .map_or_else(em_dash, |building| {
+            let id = encode_entity_id(refinery)
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("{} {id}", building.kind.label())
+        });
+    let progress = if production.recipe().is_some() {
+        format!(
+            "{}/{} ({} remaining)",
+            production.progress_ticks(),
+            REFINING_TICKS_PER_UNIT,
+            production.remaining_ticks()
+        )
+    } else {
+        em_dash()
+    };
+
+    TaskTableRow {
+        entity_id,
+        task_type: RefiningTask::label().to_string(),
+        assignment: if assigned_worker.is_some() {
+            "Assigned".to_string()
+        } else {
+            "Unassigned".to_string()
+        },
+        worker: assigned_worker.map_or_else(em_dash, |worker| format_worker(world, worker)),
+        building,
+        recipe: recipe.map_or_else(em_dash, |recipe| recipe.label().to_string()),
+        progress,
+    }
+}
+
+fn format_worker(world: &World, worker: Entity) -> String {
+    let id = encode_entity_id(worker)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    world.get::<NpcName>(worker).map_or_else(
+        || format!("NPC {id}"),
+        |name| format!("{} ({id})", name.as_str()),
+    )
+}
+
+fn em_dash() -> String {
+    "—".to_string()
 }
 
 fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
@@ -2079,6 +2248,10 @@ fn set_npc_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
 }
 
 fn npc_animation_name(npc: NpcRenderInfo) -> &'static str {
+    if let Some(refining_animation) = npc.refining_animation {
+        return refining_animation.animation_name();
+    }
+
     if npc.is_gathering {
         return "gather";
     }
@@ -2124,6 +2297,9 @@ fn building_asset_path(kind: BuildingKind) -> &'static str {
     match kind {
         BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
         BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
+        BuildingKind::Sawmill => BUILDING_SAWMILL_PATH,
+        BuildingKind::Stoneworks => BUILDING_STONEWORKS_PATH,
+        BuildingKind::Kitchen => BUILDING_KITCHEN_PATH,
         BuildingKind::Farm => BUILDING_FARM_PATH,
         BuildingKind::Field => BUILDING_FIELD_PATH,
         BuildingKind::ForesterLodge => BUILDING_FORESTER_LODGE_PATH,
@@ -2234,6 +2410,75 @@ mod tests {
     }
 
     #[test]
+    fn npc_animation_name_maps_refining_activities() {
+        for (recipe, expected) in [
+            (RecipeKind::SawWood, "saw"),
+            (RecipeKind::CutStone, "stonecut"),
+            (RecipeKind::CookCrops, "cook"),
+            (RecipeKind::CookWildBerries, "cook"),
+        ] {
+            let mut npc = npc_render_info_with(Velocity::ZERO, MovementFacing::South, false);
+            npc.refining_animation = Some(NpcRefiningAnimation::from_recipe(recipe));
+
+            assert_eq!(npc_animation_name(npc), expected);
+        }
+    }
+
+    #[test]
+    fn npc_animation_name_prefers_active_refining_over_other_states() {
+        let mut npc = npc_render_info_with(Velocity::new(1, 0), MovementFacing::East, true);
+        npc.refining_animation = Some(NpcRefiningAnimation::Cook);
+
+        assert_eq!(npc_animation_name(npc), "cook");
+    }
+
+    #[test]
+    fn npc_scenes_define_every_refining_animation() {
+        let scenes = [
+            (
+                "botanist",
+                include_str!("../../../../godot/world/npc_botanist.tscn"),
+            ),
+            (
+                "colonist",
+                include_str!("../../../../godot/world/npc_colonist.tscn"),
+            ),
+            (
+                "engineer",
+                include_str!("../../../../godot/world/npc_engineer.tscn"),
+            ),
+            (
+                "miner",
+                include_str!("../../../../godot/world/npc_miner.tscn"),
+            ),
+            (
+                "scout",
+                include_str!("../../../../godot/world/npc_scout.tscn"),
+            ),
+        ];
+
+        for (appearance, scene) in scenes {
+            for activity in ["saw", "stonecut", "cook"] {
+                let asset_path =
+                    format!("res://assets/generated/npc_{appearance}_{activity}_sheet.png");
+                assert!(scene.contains(asset_path.as_str()));
+                assert!(scene.contains(format!("\"name\": &\"{activity}\"").as_str()));
+                assert_eq!(
+                    scene
+                        .matches(
+                            format!(
+                                "[sub_resource type=\"AtlasTexture\" id=\"AtlasTexture_{activity}_"
+                            )
+                            .as_str()
+                        )
+                        .count(),
+                    4
+                );
+            }
+        }
+    }
+
+    #[test]
     fn npc_animation_name_returns_idle_when_stationary_and_not_gathering() {
         let npc = npc_render_info_with(Velocity::ZERO, MovementFacing::South, false);
 
@@ -2330,10 +2575,14 @@ mod tests {
             vec![TaskTableRow {
                 entity_id: encode_entity_id(task).expect("task entity id should encode"),
                 task_type: "ProgressBuildingConstruction".to_string(),
-                details: format!(
-                    "Blueprint {}: Warehouse at (4, 7), progress Wood: 0/40, Stone: 0/20",
+                assignment: em_dash(),
+                worker: em_dash(),
+                building: format!(
+                    "Warehouse Blueprint {} at (4, 7)",
                     encode_entity_id(blueprint).expect("blueprint entity id should encode")
                 ),
+                recipe: em_dash(),
+                progress: "Planks: 0/40, Stone Blocks: 0/20".to_string(),
             }]
         );
     }
@@ -2369,18 +2618,26 @@ mod tests {
         assert!(rows.contains(&TaskTableRow {
             entity_id: encode_entity_id(seed_task).expect("task entity id should encode"),
             task_type: "SeedField".to_string(),
-            details: format!(
-                "Field {}: at (3, 1)",
+            assignment: em_dash(),
+            worker: em_dash(),
+            building: format!(
+                "Field {} at (3, 1)",
                 encode_entity_id(field).expect("field entity id should encode")
             ),
+            recipe: em_dash(),
+            progress: em_dash(),
         }));
         assert!(rows.contains(&TaskTableRow {
             entity_id: encode_entity_id(harvest_task).expect("task entity id should encode"),
             task_type: "HarvestField".to_string(),
-            details: format!(
-                "Field {}: at (3, 1)",
+            assignment: em_dash(),
+            worker: em_dash(),
+            building: format!(
+                "Field {} at (3, 1)",
                 encode_entity_id(field).expect("field entity id should encode")
             ),
+            recipe: em_dash(),
+            progress: em_dash(),
         }));
     }
 
@@ -2415,19 +2672,64 @@ mod tests {
         assert!(rows.contains(&TaskTableRow {
             entity_id: encode_entity_id(seed_task).expect("task entity id should encode"),
             task_type: "SeedTreePlot".to_string(),
-            details: format!(
-                "Tree Plot {}: at (3, 1)",
+            assignment: em_dash(),
+            worker: em_dash(),
+            building: format!(
+                "Tree Plot {} at (3, 1)",
                 encode_entity_id(tree_plot).expect("tree plot entity id should encode")
             ),
+            recipe: em_dash(),
+            progress: em_dash(),
         }));
         assert!(rows.contains(&TaskTableRow {
             entity_id: encode_entity_id(cut_task).expect("task entity id should encode"),
             task_type: "CutTreePlot".to_string(),
-            details: format!(
-                "Tree Plot {}: at (3, 1)",
+            assignment: em_dash(),
+            worker: em_dash(),
+            building: format!(
+                "Tree Plot {} at (3, 1)",
                 encode_entity_id(tree_plot).expect("tree plot entity id should encode")
             ),
+            recipe: em_dash(),
+            progress: em_dash(),
         }));
+    }
+
+    #[test]
+    fn task_table_rows_include_refining_assignment_and_building() {
+        let mut world = World::new();
+        let refinery = world
+            .spawn((
+                Building::new(
+                    BuildingKind::Sawmill,
+                    BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+                ),
+                RefineryProduction::default(),
+            ))
+            .id();
+        let task = world
+            .spawn((
+                Task,
+                TaskAssignment::unassigned(),
+                RefiningTask::new(refinery),
+            ))
+            .id();
+
+        assert_eq!(
+            query_task_table_rows(&world),
+            vec![TaskTableRow {
+                entity_id: encode_entity_id(task).expect("task entity id should encode"),
+                task_type: "RefineResource".to_string(),
+                assignment: "Unassigned".to_string(),
+                worker: em_dash(),
+                building: format!(
+                    "Sawmill {}",
+                    encode_entity_id(refinery).expect("refinery id should encode")
+                ),
+                recipe: em_dash(),
+                progress: em_dash(),
+            }]
+        );
     }
 
     #[test]
@@ -2511,6 +2813,22 @@ mod tests {
         assert_eq!(
             building_asset_path(BuildingKind::Field),
             "res://assets/generated/building_field.png"
+        );
+    }
+
+    #[test]
+    fn building_asset_paths_include_refinery_assets() {
+        assert_eq!(
+            building_asset_path(BuildingKind::Sawmill),
+            "res://assets/generated/building_sawmill.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::Stoneworks),
+            "res://assets/generated/building_stoneworks.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::Kitchen),
+            "res://assets/generated/building_kitchen.png"
         );
     }
 
@@ -2980,6 +3298,7 @@ mod tests {
             velocity,
             facing,
             is_gathering,
+            refining_animation: None,
         }
     }
 

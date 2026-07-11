@@ -16,6 +16,7 @@ use crate::forestry::{
 };
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
+use crate::refining::{refinery_status, RefineryStatus, ReservationLedger};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{resource_overview, ResourceHistory, ResourceOverview};
 use crate::systems::build_surface_schedule;
@@ -83,6 +84,7 @@ impl SurfaceRuntime {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(world_date_time);
+        world.insert_resource(ReservationLedger::default());
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
@@ -269,6 +271,14 @@ impl GameSimulation {
 
     pub fn resource_history(&self, surface_id: SurfaceId) -> &ResourceHistory {
         self.surface(surface_id).world.resource::<ResourceHistory>()
+    }
+
+    pub fn refinery_status(
+        &self,
+        surface_id: SurfaceId,
+        refinery: Entity,
+    ) -> Option<RefineryStatus> {
+        refinery_status(&self.surface(surface_id).world, refinery)
     }
 
     pub fn place_building_blueprint(

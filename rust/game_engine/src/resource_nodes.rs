@@ -44,12 +44,7 @@ pub fn spawn_initial_resource_nodes(
 }
 
 fn resource_kind_for_hash(hash: u64) -> ResourceKind {
-    match (hash >> 32) % ResourceKind::ALL.len() as u64 {
-        0 => ResourceKind::Wood,
-        1 => ResourceKind::Stone,
-        2 => ResourceKind::Food,
-        _ => ResourceKind::Gold,
-    }
+    ResourceKind::NATURAL[((hash >> 32) % ResourceKind::NATURAL.len() as u64) as usize]
 }
 
 fn resource_quantity_for_hash(hash: u64) -> u32 {
@@ -70,4 +65,22 @@ fn placement_hash(size: GridSize, coord: CellCoord) -> u64 {
     value ^= value >> 27;
     value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
     value ^ (value >> 31)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn natural_resource_bucket_order_is_stable() {
+        let bucket_hash = |bucket: u64| bucket << 32;
+
+        assert_eq!(resource_kind_for_hash(bucket_hash(0)), ResourceKind::Wood);
+        assert_eq!(resource_kind_for_hash(bucket_hash(1)), ResourceKind::Stone);
+        assert_eq!(
+            resource_kind_for_hash(bucket_hash(2)),
+            ResourceKind::WildBerries
+        );
+        assert_eq!(resource_kind_for_hash(bucket_hash(3)), ResourceKind::Gold);
+    }
 }

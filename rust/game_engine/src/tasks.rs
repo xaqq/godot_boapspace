@@ -6,6 +6,29 @@ use std::collections::HashSet;
 pub struct Task;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct TaskAssignment {
+    worker: Option<Entity>,
+}
+
+impl TaskAssignment {
+    pub const fn unassigned() -> Self {
+        Self { worker: None }
+    }
+
+    pub const fn worker(self) -> Option<Entity> {
+        self.worker
+    }
+
+    pub const fn assign(&mut self, worker: Entity) {
+        self.worker = Some(worker);
+    }
+
+    pub const fn clear(&mut self) {
+        self.worker = None;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ProgressBuildingConstruction {
     blueprint: Entity,
 }

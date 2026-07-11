@@ -3,7 +3,7 @@
 [node name="TaskListPanel" type="TaskListPanel" node_paths=PackedStringArray("close_button", "row_container")]
 close_button = NodePath("MarginContainer/VBoxContainer/Header/CloseButton")
 row_container = NodePath("MarginContainer/VBoxContainer/TableScroll/RowsGrid")
-custom_minimum_size = Vector2(520, 320)
+custom_minimum_size = Vector2(900, 320)
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -44,6 +44,6 @@ size_flags_vertical = 3
 [node name="RowsGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/TableScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
-columns = 3
+columns = 7
 theme_override_constants/h_separation = 14
 theme_override_constants/v_separation = 6

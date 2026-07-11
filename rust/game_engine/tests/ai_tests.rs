@@ -2,26 +2,29 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use game_engine::ai::{
     system_assign_construction_work, system_deposit_construction_resources, system_gather_resource,
-    system_keep_enough_food_in_inventory, system_npc_idle, system_route_construction_work,
-    system_search_for_food, AiConstructBuilding, AiGatherResource, AiIdleRoam,
-    AiKeepEnoughFoodInInventory, AiSearchForFood, CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE,
-    DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INVENTORY_TARGET,
-    DEFAULT_NPC_IDLE_DWELL_TICKS, DEFAULT_NPC_IDLE_ROAM_RADIUS, RESOURCE_GATHER_TICKS_PER_UNIT,
+    system_npc_idle, system_route_construction_work, AiConstructBuilding, AiGatherResource,
+    AiIdleRoam, AiKeepEnoughFoodInInventory, AiSearchForFood,
+    CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE, DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD,
+    DEFAULT_NPC_FOOD_INVENTORY_TARGET, DEFAULT_NPC_IDLE_DWELL_TICKS, DEFAULT_NPC_IDLE_ROAM_RADIUS,
+    RESOURCE_GATHER_TICKS_PER_UNIT,
 };
 use game_engine::buildings::{
     system_complete_building_construction, Building, BuildingBlueprint, BuildingFootprint,
-    BuildingKind, ConstructionProgress,
+    BuildingKind, ConstructionProgress, WarehouseInventory,
 };
 use game_engine::components::{
-    MaxVelocity, MovementFacing, MovementTarget, NpcInventory, ResourceNode, Tile, TilePosition,
-    Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+    MaxVelocity, MovementFacing, MovementTarget, NpcInventory, ResourceNode, TerrainKind, Tile,
+    TilePosition, Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, Grid};
+use game_engine::logistics::manage_food_logistics;
+use game_engine::navigation::NpcRoute;
 use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
 use game_engine::systems::build_surface_schedule;
 use game_engine::tasks::maintain_construction_tasks;
+use game_engine::tile::{TileBundle, TileIndex};
 
 #[test]
 fn test_initial_npc_has_keep_food_goal() {
@@ -49,11 +52,12 @@ fn test_initial_npc_has_keep_food_goal() {
 
 #[test]
 fn test_keep_enough_food_adds_search_when_at_start_threshold() {
-    let mut world = World::new();
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     let npc = world
         .spawn((
             Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 0,
                 0,
@@ -71,11 +75,12 @@ fn test_keep_enough_food_adds_search_when_at_start_threshold() {
 
 #[test]
 fn test_keep_enough_food_does_not_search_inside_food_buffer() {
-    let mut world = World::new();
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     let npc = world
         .spawn((
             Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 0,
                 0,
@@ -93,11 +98,12 @@ fn test_keep_enough_food_does_not_search_inside_food_buffer() {
 
 #[test]
 fn test_keep_enough_food_does_not_search_when_inventory_is_full() {
-    let mut world = World::new();
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     let npc = world
         .spawn((
             Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 DEFAULT_NPC_INVENTORY_MAX_SIZE,
                 0,
@@ -115,11 +121,12 @@ fn test_keep_enough_food_does_not_search_when_inventory_is_full() {
 
 #[test]
 fn test_keep_enough_food_does_not_add_search_when_at_target() {
-    let mut world = World::new();
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     let npc = world
         .spawn((
             Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 0,
                 0,
@@ -137,11 +144,11 @@ fn test_keep_enough_food_does_not_add_search_when_at_target() {
 
 #[test]
 fn test_keep_enough_food_removes_active_search_when_target_is_reached() {
-    let mut world = World::new();
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
     let npc = world
         .spawn((
             Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 0,
                 0,
@@ -162,9 +169,14 @@ fn test_keep_enough_food_removes_active_search_when_target_is_reached() {
 
 #[test]
 fn test_keep_enough_food_does_not_search_when_no_food_exists() {
-    let mut world = World::new();
+    let mut world = construction_world();
     let npc = world
-        .spawn((Npc, NpcInventory::empty(), default_keep_food_goal()))
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            NpcInventory::empty(),
+            default_keep_food_goal(),
+        ))
         .id();
 
     run_keep_enough_food(&mut world);
@@ -234,10 +246,10 @@ fn test_idle_roam_sets_deterministic_target_after_dwell() {
 
     run_idle(&mut world);
 
-    let target = world
-        .get::<MovementTarget>(npc)
-        .expect("idle roam should set movement target")
-        .coord;
+    let route = world
+        .get::<NpcRoute>(npc)
+        .expect("idle roam should queue a route");
+    let target = route.goals()[0];
     let idle = idle_roam(&world, npc).expect("idle roam should remain active");
     assert_eq!(target, CellCoord::new(4, 3));
     assert_eq!(idle.dwell_ticks_remaining(), DEFAULT_NPC_IDLE_DWELL_TICKS);
@@ -264,9 +276,9 @@ fn test_idle_roam_skips_current_target_near_edge() {
 
     assert_eq!(
         world
-            .get::<MovementTarget>(npc)
-            .expect("idle roam should choose a valid target")
-            .coord,
+            .get::<NpcRoute>(npc)
+            .expect("idle roam should choose a valid route")
+            .goals()[0],
         CellCoord::new(0, 1)
     );
 }
@@ -376,8 +388,8 @@ fn test_idle_roam_is_suppressed_by_construction_work() {
 #[test]
 fn test_idle_roam_yields_to_keep_food_goal_below_target() {
     let origin = CellCoord::new(3, 3);
-    let mut world = idle_world(8, 8);
-    spawn_resource_node(&mut world, CellCoord::new(1, 1), ResourceKind::Food, 10);
+    let mut world = construction_world();
+    spawn_food_warehouse(&mut world, CellCoord::new(5, 3), 10);
     let npc = world
         .spawn((
             Npc,
@@ -389,6 +401,7 @@ fn test_idle_roam_yields_to_keep_food_goal_below_target() {
         ))
         .id();
 
+    run_keep_enough_food(&mut world);
     run_idle(&mut world);
 
     assert!(world.get::<AiIdleRoam>(npc).is_none());
@@ -454,30 +467,42 @@ fn test_idle_roam_restarts_with_current_position_after_interruption() {
 }
 
 #[test]
-fn test_search_for_food_sets_target_to_nearest_food_node() {
-    let mut world = World::new();
+fn test_food_logistics_routes_to_nearest_cooked_food_inventory() {
+    let mut world = construction_world();
     let npc = spawn_searching_npc(&mut world, CellCoord::new(1, 1));
-    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Wood, 10);
-    spawn_resource_node(&mut world, CellCoord::new(1, 3), ResourceKind::Food, 10);
-    spawn_resource_node(&mut world, CellCoord::new(3, 1), ResourceKind::Food, 10);
+    spawn_resource_node(
+        &mut world,
+        CellCoord::new(1, 2),
+        ResourceKind::WildBerries,
+        10,
+    );
+    spawn_food_warehouse(&mut world, CellCoord::new(6, 5), 10);
+    let nearest = spawn_food_warehouse(&mut world, CellCoord::new(4, 1), 10);
 
     run_search_for_food(&mut world);
 
+    let route = world
+        .get::<NpcRoute>(npc)
+        .expect("food logistics should queue a collision-aware route");
+    assert!(route.goals().contains(&CellCoord::new(3, 1)));
+    assert!(!route.goals().contains(&CellCoord::new(4, 1)));
     assert_eq!(
-        world
-            .get::<MovementTarget>(npc)
-            .expect("search should set movement target")
-            .coord,
-        CellCoord::new(3, 1)
+        world.get::<Building>(nearest).unwrap().kind,
+        BuildingKind::Warehouse
     );
     assert!(world.get::<AiSearchForFood>(npc).is_some());
 }
 
 #[test]
 fn test_search_for_food_stops_when_no_food_exists() {
-    let mut world = World::new();
+    let mut world = construction_world();
     let npc = spawn_searching_npc(&mut world, CellCoord::new(1, 1));
-    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Wood, 10);
+    spawn_resource_node(
+        &mut world,
+        CellCoord::new(1, 2),
+        ResourceKind::WildBerries,
+        10,
+    );
 
     run_search_for_food(&mut world);
 
@@ -487,7 +512,7 @@ fn test_search_for_food_stops_when_no_food_exists() {
 
 #[test]
 fn test_search_for_food_stops_when_inventory_is_full() {
-    let mut world = World::new();
+    let mut world = construction_world();
     let npc = world
         .spawn((
             Npc,
@@ -503,7 +528,7 @@ fn test_search_for_food_stops_when_inventory_is_full() {
             MovementTarget::new(CellCoord::new(2, 1)),
         ))
         .id();
-    spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 10);
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
 
     run_search_for_food(&mut world);
 
@@ -512,62 +537,73 @@ fn test_search_for_food_stops_when_inventory_is_full() {
 }
 
 #[test]
-fn test_search_for_food_starts_gathering_at_resource_tile() {
-    let mut world = World::new();
+fn test_food_logistics_withdraws_immediately_from_adjacent_warehouse() {
+    let mut world = construction_world();
     let npc = spawn_searching_npc(&mut world, CellCoord::new(2, 1));
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 10);
+    let warehouse = spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 20);
 
     run_search_for_food(&mut world);
 
-    assert!(world.get::<AiSearchForFood>(npc).is_some());
+    assert_eq!(npc_food(&world, npc), DEFAULT_NPC_FOOD_INVENTORY_TARGET);
+    assert!(world.get::<AiSearchForFood>(npc).is_none());
     assert_eq!(
         world
-            .get::<AiGatherResource>(npc)
-            .expect("search should start gathering")
-            .target(),
-        resource
+            .get::<WarehouseInventory>(warehouse)
+            .unwrap()
+            .contents()
+            .get(ResourceKind::Food),
+        0
     );
 }
 
 #[test]
-fn test_search_for_food_preserves_existing_gather_progress_for_same_target() {
-    let mut world = World::new();
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 10);
+fn test_raw_wild_berries_do_not_interrupt_existing_gather_work_for_food() {
+    let mut world = construction_world();
+    let resource = spawn_resource_node(
+        &mut world,
+        CellCoord::new(2, 1),
+        ResourceKind::WildBerries,
+        10,
+    );
     let mut gather = AiGatherResource::new(resource);
     gather.advance_tick();
     gather.advance_tick();
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(2, 1)),
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::empty(),
             default_keep_food_goal(),
-            AiSearchForFood,
             gather,
         ))
         .id();
 
-    run_search_for_food(&mut world);
+    run_keep_enough_food(&mut world);
 
     let gather = *world
         .get::<AiGatherResource>(npc)
         .expect("gather should be preserved");
     assert_eq!(gather.target(), resource);
     assert_eq!(gather.progress_ticks(), 2);
-    assert!(world.get::<AiSearchForFood>(npc).is_some());
+    assert!(world.get::<AiSearchForFood>(npc).is_none());
 }
 
 #[test]
 fn test_gather_resource_completes_after_sixty_valid_ticks() {
     let mut world = World::new();
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 2);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+    let resource = spawn_resource_node(
+        &mut world,
+        CellCoord::new(2, 1),
+        ResourceKind::WildBerries,
+        2,
+    );
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
     for _ in 0..(RESOURCE_GATHER_TICKS_PER_UNIT - 1) {
         run_gather_resource(&mut world);
     }
 
-    assert_eq!(npc_food(&world, npc), 0);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::WildBerries), 0);
     assert_eq!(
         world
             .get::<AiGatherResource>(npc)
@@ -579,7 +615,7 @@ fn test_gather_resource_completes_after_sixty_valid_ticks() {
 
     run_gather_resource(&mut world);
 
-    assert_eq!(npc_food(&world, npc), 1);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::WildBerries), 1);
     assert_eq!(npc_skill(&world, npc, SkillKind::Forager), 1);
     assert!(world.get::<AiGatherResource>(npc).is_none());
     assert_eq!(resource_quantity(&world, resource), Some(1));
@@ -590,14 +626,14 @@ fn test_successful_gathers_increment_only_matching_skill() {
     let cases = [
         (ResourceKind::Wood, SkillKind::Lumberjack),
         (ResourceKind::Stone, SkillKind::Quarryman),
-        (ResourceKind::Food, SkillKind::Forager),
+        (ResourceKind::WildBerries, SkillKind::Forager),
         (ResourceKind::Gold, SkillKind::Prospector),
     ];
 
     for (resource_kind, expected_skill) in cases {
         let mut world = World::new();
         let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), resource_kind, 1);
-        let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+        let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
         for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
             run_gather_resource(&mut world);
@@ -618,7 +654,7 @@ fn test_successful_gathers_increment_only_matching_skill() {
 fn test_partial_gather_progress_awards_no_skill_xp() {
     let mut world = World::new();
     let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Wood, 1);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
     for _ in 0..(RESOURCE_GATHER_TICKS_PER_UNIT - 1) {
         run_gather_resource(&mut world);
@@ -629,12 +665,11 @@ fn test_partial_gather_progress_awards_no_skill_xp() {
 }
 
 #[test]
-fn test_food_refill_keeps_search_until_target() {
-    let mut world = World::new();
-    spawn_resource_node(
+fn test_food_refill_withdraws_cooked_food_to_target_in_one_atomic_transfer() {
+    let mut world = construction_world();
+    spawn_food_warehouse(
         &mut world,
-        CellCoord::new(2, 1),
-        ResourceKind::Food,
+        CellCoord::new(3, 1),
         DEFAULT_NPC_FOOD_INVENTORY_TARGET,
     );
     let npc = world
@@ -648,44 +683,32 @@ fn test_food_refill_keeps_search_until_target() {
                 0,
             )),
             default_keep_food_goal(),
-            AiSearchForFood,
         ))
         .id();
 
-    for expected_food in
-        (DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD + 1)..=DEFAULT_NPC_FOOD_INVENTORY_TARGET
-    {
-        run_search_for_food(&mut world);
-        assert!(
-            world.get::<AiGatherResource>(npc).is_some(),
-            "food refill should gather the next unit"
-        );
+    run_keep_enough_food(&mut world);
 
-        for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
-            run_gather_resource(&mut world);
-        }
-
-        assert_eq!(npc_food(&world, npc), expected_food);
-        assert!(world.get::<AiGatherResource>(npc).is_none());
-        if expected_food < DEFAULT_NPC_FOOD_INVENTORY_TARGET {
-            assert!(world.get::<AiSearchForFood>(npc).is_some());
-        } else {
-            assert!(world.get::<AiSearchForFood>(npc).is_none());
-        }
-    }
+    assert_eq!(npc_food(&world, npc), DEFAULT_NPC_FOOD_INVENTORY_TARGET);
+    assert!(world.get::<AiSearchForFood>(npc).is_none());
+    assert!(world.get::<AiGatherResource>(npc).is_none());
 }
 
 #[test]
 fn test_gather_resource_removes_depleted_resource_node_not_tile() {
     let mut world = World::new();
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 1);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+    let resource = spawn_resource_node(
+        &mut world,
+        CellCoord::new(2, 1),
+        ResourceKind::WildBerries,
+        1,
+    );
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
     for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
         run_gather_resource(&mut world);
     }
 
-    assert_eq!(npc_food(&world, npc), 1);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::WildBerries), 1);
     assert!(world.get::<ResourceNode>(resource).is_none());
     assert!(world.get::<TilePosition>(resource).is_some());
     assert!(world.get::<Tile>(resource).is_some());
@@ -694,11 +717,16 @@ fn test_gather_resource_removes_depleted_resource_node_not_tile() {
 #[test]
 fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full() {
     let mut world = World::new();
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 2);
+    let resource = spawn_resource_node(
+        &mut world,
+        CellCoord::new(2, 1),
+        ResourceKind::WildBerries,
+        2,
+    );
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(2, 1)),
+            NpcPosition::new(CellCoord::new(1, 1)),
             NpcInventory::new(ResourceAmounts::new(
                 DEFAULT_NPC_INVENTORY_MAX_SIZE,
                 0,
@@ -724,7 +752,7 @@ fn test_gather_resource_stops_without_depleting_resource_when_inventory_is_full(
 fn test_gather_resource_collects_target_node_kind() {
     let mut world = World::new();
     let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Wood, 1);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
     for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
         run_gather_resource(&mut world);
@@ -753,8 +781,13 @@ fn test_gather_resource_removes_invalid_target_without_awarding_food() {
 #[test]
 fn test_gather_resource_removes_moved_away_gather_without_awarding_food() {
     let mut world = World::new();
-    let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Food, 1);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(3, 1), resource);
+    let resource = spawn_resource_node(
+        &mut world,
+        CellCoord::new(2, 1),
+        ResourceKind::WildBerries,
+        1,
+    );
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(4, 1), resource);
 
     run_gather_resource(&mut world);
 
@@ -768,7 +801,7 @@ fn test_gather_resource_removes_moved_away_gather_without_awarding_food() {
 fn test_gather_resource_removes_depleted_target_without_skill_xp() {
     let mut world = World::new();
     let resource = spawn_resource_node(&mut world, CellCoord::new(2, 1), ResourceKind::Stone, 0);
-    let npc = spawn_gathering_npc(&mut world, CellCoord::new(2, 1), resource);
+    let npc = spawn_gathering_npc(&mut world, CellCoord::new(1, 1), resource);
 
     run_gather_resource(&mut world);
 
@@ -787,7 +820,7 @@ fn test_assign_construction_work_targets_carried_resource_blueprint() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10)),
         ))
         .id();
 
@@ -804,9 +837,9 @@ fn test_assign_construction_work_targets_carried_resource_blueprint() {
 
 #[test]
 fn test_assign_construction_work_yields_to_food_need() {
-    let mut world = World::new();
+    let mut world = construction_world();
     spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
-    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Food, 10);
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     world
         .run_system_once(maintain_construction_tasks)
         .expect("task maintenance should run");
@@ -814,11 +847,12 @@ fn test_assign_construction_work_yields_to_food_need() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10)),
             default_keep_food_goal(),
         ))
         .id();
 
+    run_keep_enough_food(&mut world);
     run_assign_construction(&mut world);
 
     assert!(world.get::<AiConstructBuilding>(npc).is_none());
@@ -826,9 +860,9 @@ fn test_assign_construction_work_yields_to_food_need() {
 
 #[test]
 fn test_assign_construction_work_ignores_food_buffer_above_start_threshold() {
-    let mut world = World::new();
+    let mut world = construction_world();
     let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
-    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Food, 10);
+    spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     world
         .run_system_once(maintain_construction_tasks)
         .expect("task maintenance should run");
@@ -836,11 +870,9 @@ fn test_assign_construction_work_ignores_food_buffer_above_start_threshold() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::new(ResourceAmounts::new(
-                10,
-                0,
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10).with(
+                ResourceKind::Food,
                 DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD + 1,
-                0,
             )),
             default_keep_food_goal(),
         ))
@@ -868,7 +900,7 @@ fn test_assign_construction_work_continues_when_food_is_low_but_unavailable() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10)),
             default_keep_food_goal(),
         ))
         .id();
@@ -888,25 +920,25 @@ fn test_assign_construction_work_continues_when_food_is_low_but_unavailable() {
 fn test_route_construction_moves_to_blueprint_before_gathering_when_carrying_needed_resource() {
     let mut world = construction_world();
     let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
-    spawn_resource_node(&mut world, CellCoord::new(1, 2), ResourceKind::Wood, 10);
     let npc = world
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::new(ResourceAmounts::new(10, 0, 0, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10)),
             AiConstructBuilding::new(blueprint),
         ))
         .id();
 
     run_route_construction(&mut world);
 
-    assert_eq!(
-        world
-            .get::<MovementTarget>(npc)
-            .expect("NPC should move to blueprint")
-            .coord,
-        CellCoord::new(4, 4)
-    );
+    let route = world
+        .get::<NpcRoute>(npc)
+        .expect("NPC should route to an exterior blueprint interaction cell");
+    assert!(route
+        .goals()
+        .iter()
+        .all(|goal| !BuildingFootprint::new(CellCoord::new(4, 4), 2, 2).contains(*goal)));
+    assert!(route.goals().contains(&CellCoord::new(4, 3)));
     assert!(world.get::<AiGatherResource>(npc).is_none());
 }
 
@@ -917,8 +949,8 @@ fn test_deposit_construction_resources_clamps_to_batch_size() {
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(0, 0)),
-            NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            NpcPosition::new(CellCoord::new(2, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 20)),
             NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
@@ -927,10 +959,10 @@ fn test_deposit_construction_resources_clamps_to_batch_size() {
     run_deposit_construction(&mut world);
 
     assert_eq!(
-        construction_progress(&world, blueprint).get(ResourceKind::Wood),
+        construction_progress(&world, blueprint).get(ResourceKind::Planks),
         CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE
     );
-    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 10);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Planks), 10);
     assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
     assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
@@ -941,13 +973,13 @@ fn test_deposit_construction_resources_clamps_to_remaining_cost() {
     let blueprint = spawn_construction_blueprint_with_progress(
         &mut world,
         CellCoord::new(0, 0),
-        ResourceAmounts::new(35, 0, 0, 0),
+        ResourceAmounts::of(ResourceKind::Planks, 35),
     );
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(0, 0)),
-            NpcInventory::new(ResourceAmounts::new(20, 0, 0, 0)),
+            NpcPosition::new(CellCoord::new(2, 0)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 20)),
             NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
@@ -956,10 +988,10 @@ fn test_deposit_construction_resources_clamps_to_remaining_cost() {
     run_deposit_construction(&mut world);
 
     assert_eq!(
-        construction_progress(&world, blueprint).get(ResourceKind::Wood),
+        construction_progress(&world, blueprint).get(ResourceKind::Planks),
         40
     );
-    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 15);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Planks), 15);
     assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
     assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
@@ -971,8 +1003,10 @@ fn test_deposit_construction_resources_deposits_multiple_needed_kinds() {
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(0, 0)),
-            NpcInventory::new(ResourceAmounts::new(10, 10, 0, 0)),
+            NpcPosition::new(CellCoord::new(2, 0)),
+            NpcInventory::new(
+                ResourceAmounts::of(ResourceKind::Planks, 10).with(ResourceKind::StoneBlocks, 10),
+            ),
             NpcSkills::default(),
             AiConstructBuilding::new(blueprint),
         ))
@@ -981,10 +1015,10 @@ fn test_deposit_construction_resources_deposits_multiple_needed_kinds() {
     run_deposit_construction(&mut world);
 
     let progress = construction_progress(&world, blueprint);
-    assert_eq!(progress.get(ResourceKind::Wood), 10);
-    assert_eq!(progress.get(ResourceKind::Stone), 10);
-    assert_eq!(npc_resource(&world, npc, ResourceKind::Wood), 0);
-    assert_eq!(npc_resource(&world, npc, ResourceKind::Stone), 0);
+    assert_eq!(progress.get(ResourceKind::Planks), 10);
+    assert_eq!(progress.get(ResourceKind::StoneBlocks), 10);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::Planks), 0);
+    assert_eq!(npc_resource(&world, npc, ResourceKind::StoneBlocks), 0);
     assert_eq!(npc_skill(&world, npc, SkillKind::Builder), 0);
     assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
@@ -996,7 +1030,7 @@ fn test_building_completion_does_not_award_builder_or_farmer_xp() {
     let blueprint = spawn_construction_blueprint_with_progress(
         &mut world,
         CellCoord::new(0, 0),
-        ResourceAmounts::new(40, 20, 0, 0),
+        BuildingKind::Warehouse.definition().construction_cost(),
     );
 
     world
@@ -1009,15 +1043,27 @@ fn test_building_completion_does_not_award_builder_or_farmer_xp() {
 }
 
 #[test]
-fn test_npc_gathers_and_completes_warehouse_construction() {
+fn test_npc_hauls_refined_materials_and_completes_warehouse_construction() {
     let mut world = construction_world();
     let blueprint = spawn_construction_blueprint(&mut world, CellCoord::new(0, 0));
-    spawn_resource_node(&mut world, CellCoord::new(2, 0), ResourceKind::Wood, 40);
-    spawn_resource_node(&mut world, CellCoord::new(0, 2), ResourceKind::Stone, 20);
+    let source = world
+        .spawn((
+            Building::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(5, 5), 2, 2),
+            ),
+            WarehouseInventory::empty(),
+        ))
+        .id();
+    {
+        let mut inventory = world.get_mut::<WarehouseInventory>(source).unwrap();
+        assert!(inventory.add(ResourceKind::Planks, 40));
+        assert!(inventory.add(ResourceKind::StoneBlocks, 20));
+    }
     let npc = world
         .spawn((
             Npc,
-            NpcPosition::new(CellCoord::new(0, 0)),
+            NpcPosition::new(CellCoord::new(4, 5)),
             Velocity::ZERO,
             MaxVelocity::default(),
             MovementFacing::default(),
@@ -1115,20 +1161,39 @@ fn spawn_construction_blueprint_with_progress(
 
 fn construction_world() -> World {
     let mut world = World::new();
-    world.insert_resource(Grid::new(8, 8));
+    let grid = Grid::new(8, 8);
+    let mut tile_index = TileIndex::new(grid.size());
+    for coord in grid.size().iter_coords() {
+        let tile = world
+            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+            .id();
+        assert!(tile_index.set(coord, tile));
+    }
+    world.insert_resource(grid);
+    world.insert_resource(tile_index);
     world
+}
+
+fn spawn_food_warehouse(world: &mut World, origin: CellCoord, amount: u32) -> Entity {
+    let mut inventory = WarehouseInventory::empty();
+    assert!(inventory.add(ResourceKind::Food, amount));
+    world
+        .spawn((
+            Building::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(origin, 2, 2),
+            ),
+            inventory,
+        ))
+        .id()
 }
 
 fn run_keep_enough_food(world: &mut World) {
-    world
-        .run_system_once(system_keep_enough_food_in_inventory)
-        .expect("keep-enough-food system should run");
+    manage_food_logistics(world);
 }
 
 fn run_search_for_food(world: &mut World) {
-    world
-        .run_system_once(system_search_for_food)
-        .expect("search-for-food system should run");
+    manage_food_logistics(world);
 }
 
 fn run_gather_resource(world: &mut World) {

@@ -1,8 +1,11 @@
-[gd_scene load_steps=44 format=3 uid="uid://npc_botanist_scene"]
+[gd_scene load_steps=59 format=3 uid="uid://npc_botanist_scene"]
 
 [ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_idle_sheet.png" id="1_idle_sheet"]
 [ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_walk_sheet.png" id="2_walk_sheet"]
 [ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_gather_sheet.png" id="3_gather_sheet"]
+[ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_saw_sheet.png" id="4_saw_sheet"]
+[ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_stonecut_sheet.png" id="5_stonecut_sheet"]
+[ext_resource type="Texture2D" path="res://assets/generated/npc_botanist_cook_sheet.png" id="6_cook_sheet"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_idle_0"]
 atlas = ExtResource("1_idle_sheet")
@@ -34,6 +37,54 @@ region = Rect2(128, 0, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_gather_3"]
 atlas = ExtResource("3_gather_sheet")
+region = Rect2(192, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_saw_0"]
+atlas = ExtResource("4_saw_sheet")
+region = Rect2(0, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_saw_1"]
+atlas = ExtResource("4_saw_sheet")
+region = Rect2(64, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_saw_2"]
+atlas = ExtResource("4_saw_sheet")
+region = Rect2(128, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_saw_3"]
+atlas = ExtResource("4_saw_sheet")
+region = Rect2(192, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_stonecut_0"]
+atlas = ExtResource("5_stonecut_sheet")
+region = Rect2(0, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_stonecut_1"]
+atlas = ExtResource("5_stonecut_sheet")
+region = Rect2(64, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_stonecut_2"]
+atlas = ExtResource("5_stonecut_sheet")
+region = Rect2(128, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_stonecut_3"]
+atlas = ExtResource("5_stonecut_sheet")
+region = Rect2(192, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_cook_0"]
+atlas = ExtResource("6_cook_sheet")
+region = Rect2(0, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_cook_1"]
+atlas = ExtResource("6_cook_sheet")
+region = Rect2(64, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_cook_2"]
+atlas = ExtResource("6_cook_sheet")
+region = Rect2(128, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_cook_3"]
+atlas = ExtResource("6_cook_sheet")
 region = Rect2(192, 0, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_walk_n_0"]
@@ -198,6 +249,57 @@ animations = [{
 }],
 "loop": true,
 "name": &"gather",
+"speed": 6.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_saw_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_saw_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_saw_2")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_saw_3")
+}],
+"loop": true,
+"name": &"saw",
+"speed": 6.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_stonecut_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_stonecut_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_stonecut_2")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_stonecut_3")
+}],
+"loop": true,
+"name": &"stonecut",
+"speed": 6.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_cook_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_cook_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_cook_2")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_cook_3")
+}],
+"loop": true,
+"name": &"cook",
 "speed": 6.0
 }, {
 "frames": [{

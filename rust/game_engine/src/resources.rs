@@ -6,6 +6,7 @@ use crate::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInvento
 use crate::components::NpcInventory;
 use crate::farming::FarmInventory;
 use crate::forestry::ForesterLodgeInventory;
+use crate::refining::RefineryInventory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, GodotConvert, Var, Export)]
 #[godot(via = i64)]
@@ -14,10 +15,24 @@ pub enum ResourceKind {
     Stone = 1,
     Food = 2,
     Gold = 3,
+    Crops = 4,
+    WildBerries = 5,
+    Planks = 6,
+    StoneBlocks = 7,
 }
 
 impl ResourceKind {
-    pub const ALL: [Self; 4] = [Self::Wood, Self::Stone, Self::Food, Self::Gold];
+    pub const ALL: [Self; 8] = [
+        Self::Wood,
+        Self::Stone,
+        Self::Food,
+        Self::Gold,
+        Self::Crops,
+        Self::WildBerries,
+        Self::Planks,
+        Self::StoneBlocks,
+    ];
+    pub const NATURAL: [Self; 4] = [Self::Wood, Self::Stone, Self::WildBerries, Self::Gold];
 
     pub const fn label(self) -> &'static str {
         match self {
@@ -25,6 +40,10 @@ impl ResourceKind {
             ResourceKind::Stone => "Stone",
             ResourceKind::Food => "Food",
             ResourceKind::Gold => "Gold",
+            ResourceKind::Crops => "Crops",
+            ResourceKind::WildBerries => "Wild Berries",
+            ResourceKind::Planks => "Planks",
+            ResourceKind::StoneBlocks => "Stone Blocks",
         }
     }
 
@@ -38,6 +57,10 @@ impl ResourceKind {
             }
             ResourceKind::Food => "Essential supplies that keep colonists fed and productive.",
             ResourceKind::Gold => "Valuable currency used for advanced construction and trade.",
+            ResourceKind::Crops => "Farm-grown ingredients that can be cooked into Food.",
+            ResourceKind::WildBerries => "Foraged ingredients that can be cooked into Food.",
+            ResourceKind::Planks => "Refined timber used for construction.",
+            ResourceKind::StoneBlocks => "Refined stone used for construction.",
         }
     }
 }
@@ -96,9 +119,10 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
         Query<&WarehouseInventory>,
         Query<&FarmInventory>,
         Query<&ForesterLodgeInventory>,
+        Query<&RefineryInventory>,
         Query<(&BuildingBlueprint, &ConstructionProgress)>,
     )> = SystemState::new(world);
-    let (npcs, warehouses, farms, lodges, blueprints) = state
+    let (npcs, warehouses, farms, lodges, refineries, blueprints) = state
         .get(world)
         .expect("resource overview queries should be compatible");
 
@@ -113,6 +137,10 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
     }
     for inventory in lodges.iter() {
         overview.usable.add_amounts(inventory.contents());
+    }
+    for inventory in refineries.iter() {
+        overview.usable.add_amounts(inventory.input_contents());
+        overview.usable.add_amounts(inventory.output_contents());
     }
     for (blueprint, progress) in blueprints.iter() {
         let cost = blueprint.kind.definition().construction_cost();
@@ -204,14 +232,30 @@ pub struct ResourceAmounts {
 }
 
 impl ResourceAmounts {
+    /// Compatibility constructor for the original four resource kinds. New
+    /// code should prefer `zero`, `of`, and `with` so additions remain
+    /// explicit and independent of enum position.
     pub const fn new(wood: u32, stone: u32, food: u32, gold: u32) -> Self {
-        Self {
-            amounts: [wood, stone, food, gold],
-        }
+        Self::zero()
+            .with(ResourceKind::Wood, wood)
+            .with(ResourceKind::Stone, stone)
+            .with(ResourceKind::Food, food)
+            .with(ResourceKind::Gold, gold)
     }
 
     pub const fn zero() -> Self {
-        Self::new(0, 0, 0, 0)
+        Self {
+            amounts: [0; ResourceKind::ALL.len()],
+        }
+    }
+
+    pub const fn of(kind: ResourceKind, amount: u32) -> Self {
+        Self::zero().with(kind, amount)
+    }
+
+    pub const fn with(mut self, kind: ResourceKind, amount: u32) -> Self {
+        self.amounts[kind as usize] = amount;
+        self
     }
 
     pub const fn get(self, kind: ResourceKind) -> u32 {
@@ -219,10 +263,13 @@ impl ResourceAmounts {
     }
 
     pub const fn total(self) -> u32 {
-        self.amounts[0]
-            .saturating_add(self.amounts[1])
-            .saturating_add(self.amounts[2])
-            .saturating_add(self.amounts[3])
+        let mut total = 0u32;
+        let mut index = 0;
+        while index < self.amounts.len() {
+            total = total.saturating_add(self.amounts[index]);
+            index += 1;
+        }
+        total
     }
 
     pub fn set(&mut self, kind: ResourceKind, amount: u32) {
@@ -321,7 +368,7 @@ mod tests {
         world.spawn(warehouse);
 
         let mut farm = FarmInventory::empty();
-        assert!(farm.add_food(14));
+        assert!(farm.add_crops(14));
         world.spawn(farm);
 
         let mut lodge = ForesterLodgeInventory::empty();
@@ -336,8 +383,9 @@ mod tests {
         let overview = resource_overview(&mut world);
         assert_eq!(overview.usable().get(ResourceKind::Wood), 26);
         assert_eq!(overview.usable().get(ResourceKind::Stone), 13);
-        assert_eq!(overview.usable().get(ResourceKind::Food), 29);
+        assert_eq!(overview.usable().get(ResourceKind::Food), 15);
         assert_eq!(overview.usable().get(ResourceKind::Gold), 17);
+        assert_eq!(overview.usable().get(ResourceKind::Crops), 14);
         assert_eq!(overview.committed(), ResourceTotals::zero());
     }
 

@@ -3,13 +3,15 @@ pub use crate::components::{
     MovementTarget, Npc, NpcAppearance, NpcHunger, NpcInventory, NpcName, NpcPosition,
     SubtileOffset, Velocity,
 };
-pub use crate::skills::{skill_percent, NpcSkills, SkillKind, SkillRank, MAX_SKILL_VALUE};
+pub use crate::skills::{
+    skill_percent, Cook, NpcSkills, Sawyer, SkillKind, SkillRank, Stonemason, MAX_SKILL_VALUE,
+};
 
 use crate::ai::{DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INVENTORY_TARGET};
 use crate::farming::Farmer;
 use crate::forestry::Forester;
 use crate::grid::{CellCoord, Grid};
-use crate::resources::ResourceAmounts;
+use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::time::{DAYS_PER_YEAR, SECONDS_PER_DAY};
 use bevy_ecs::prelude::*;
 use std::time::Duration;
@@ -125,6 +127,9 @@ pub struct InitialNpcBundle {
     skills: NpcSkills,
     farmer: Farmer,
     forester: Forester,
+    sawyer: Sawyer,
+    stonemason: Stonemason,
+    cook: Cook,
     keep_food_in_inventory: AiKeepEnoughFoodInInventory,
 }
 
@@ -144,10 +149,13 @@ impl InitialNpcBundle {
             max_velocity: MaxVelocity::default(),
             movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
-            inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
+            inventory: NpcInventory::new(ResourceAmounts::of(ResourceKind::Food, 20)),
             skills: NpcSkills::default(),
             farmer: Farmer,
             forester: Forester,
+            sawyer: Sawyer,
+            stonemason: Stonemason,
+            cook: Cook,
             keep_food_in_inventory: AiKeepEnoughFoodInInventory::new(
                 DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD,
                 DEFAULT_NPC_FOOD_INVENTORY_TARGET,
@@ -273,5 +281,17 @@ mod tests {
             world.get::<NpcAppearance>(npc).copied(),
             Some(NpcAppearance::Colonist)
         );
+    }
+
+    #[test]
+    fn initial_npc_bundle_includes_every_refining_eligibility_tag() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(0, 0)))
+            .id();
+
+        assert!(world.get::<Sawyer>(npc).is_some());
+        assert!(world.get::<Stonemason>(npc).is_some());
+        assert!(world.get::<Cook>(npc).is_some());
     }
 }

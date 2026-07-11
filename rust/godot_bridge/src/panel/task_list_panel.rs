@@ -91,16 +91,33 @@ impl TaskListPanel {
         }
 
         let mut row_container = self.row_container.clone();
-        self.add_row(&mut row_container, "Entity", "Type", "Details");
+        self.add_row(
+            &mut row_container,
+            [
+                "Entity",
+                "Type",
+                "Assignment",
+                "Worker",
+                "Building",
+                "Recipe",
+                "Progress",
+            ],
+        );
         if rows.is_empty() {
-            self.add_row(&mut row_container, "", "No tasks", "");
+            self.add_row(&mut row_container, ["", "No tasks", "", "", "", "", ""]);
         } else {
             for row in &rows {
                 self.add_row(
                     &mut row_container,
-                    row.entity_id.to_string().as_str(),
-                    row.task_type.as_str(),
-                    row.details.as_str(),
+                    [
+                        row.entity_id.to_string().as_str(),
+                        row.task_type.as_str(),
+                        row.assignment.as_str(),
+                        row.worker.as_str(),
+                        row.building.as_str(),
+                        row.recipe.as_str(),
+                        row.progress.as_str(),
+                    ],
                 );
             }
         }
@@ -108,14 +125,8 @@ impl TaskListPanel {
         self.cached_rows = Some(rows);
     }
 
-    fn add_row(
-        &mut self,
-        row_container: &mut Gd<GridContainer>,
-        entity: &str,
-        task_type: &str,
-        details: &str,
-    ) {
-        for text in [entity, task_type, details] {
+    fn add_row(&mut self, row_container: &mut Gd<GridContainer>, cells: [&str; 7]) {
+        for text in cells {
             let mut label = Label::new_alloc();
             label.set_text(text);
             label.set_h_size_flags(control::SizeFlags::EXPAND_FILL);

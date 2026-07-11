@@ -12,6 +12,10 @@ const RESOURCE_WOOD_PATH: &str = "res://assets/generated/resource_wood.png";
 const RESOURCE_STONE_PATH: &str = "res://assets/generated/resource_stone.png";
 const RESOURCE_FOOD_PATH: &str = "res://assets/generated/resource_food.png";
 const RESOURCE_GOLD_PATH: &str = "res://assets/generated/resource_gold.png";
+const RESOURCE_CROPS_PATH: &str = "res://assets/generated/resource_crops.png";
+const RESOURCE_WILD_BERRIES_PATH: &str = "res://assets/generated/resource_wild_berries.png";
+const RESOURCE_PLANKS_PATH: &str = "res://assets/generated/resource_planks.png";
+const RESOURCE_STONE_BLOCKS_PATH: &str = "res://assets/generated/resource_stone_blocks.png";
 const NPC_COLONIST_SCENE_PATH: &str = "res://world/npc_colonist.tscn";
 const NPC_ENGINEER_SCENE_PATH: &str = "res://world/npc_engineer.tscn";
 const NPC_BOTANIST_SCENE_PATH: &str = "res://world/npc_botanist.tscn";
@@ -33,6 +37,10 @@ pub(crate) fn resource_asset_path(kind: ResourceKind) -> &'static str {
         ResourceKind::Stone => RESOURCE_STONE_PATH,
         ResourceKind::Food => RESOURCE_FOOD_PATH,
         ResourceKind::Gold => RESOURCE_GOLD_PATH,
+        ResourceKind::Crops => RESOURCE_CROPS_PATH,
+        ResourceKind::WildBerries => RESOURCE_WILD_BERRIES_PATH,
+        ResourceKind::Planks => RESOURCE_PLANKS_PATH,
+        ResourceKind::StoneBlocks => RESOURCE_STONE_BLOCKS_PATH,
     }
 }
 
@@ -131,6 +139,22 @@ mod tests {
         assert_eq!(
             resource_asset_path(ResourceKind::Gold),
             "res://assets/generated/resource_gold.png"
+        );
+        assert_eq!(
+            resource_asset_path(ResourceKind::Crops),
+            "res://assets/generated/resource_crops.png"
+        );
+        assert_eq!(
+            resource_asset_path(ResourceKind::WildBerries),
+            "res://assets/generated/resource_wild_berries.png"
+        );
+        assert_eq!(
+            resource_asset_path(ResourceKind::Planks),
+            "res://assets/generated/resource_planks.png"
+        );
+        assert_eq!(
+            resource_asset_path(ResourceKind::StoneBlocks),
+            "res://assets/generated/resource_stone_blocks.png"
         );
     }
 

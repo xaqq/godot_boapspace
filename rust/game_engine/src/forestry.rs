@@ -64,6 +64,10 @@ impl ForesterLodgeInventory {
     pub fn consume_wood(&mut self, amount: u32) -> bool {
         self.inventory.consume(ResourceKind::Wood, amount)
     }
+
+    pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        self.inventory.consume(kind, amount)
+    }
 }
 
 impl Default for ForesterLodgeInventory {

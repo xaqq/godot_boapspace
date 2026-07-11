@@ -1,13 +1,24 @@
 use super::npc_details::{
-    configure_satiation_progress_bar, details_button_enabled, npc_details, update_inventory,
+    configure_satiation_progress_bar, details_button_enabled, inventory_header_text, npc_details,
     update_satiation, NpcDetails,
 };
 use super::resource_quantity::ResourceQuantity;
+use crate::assets::load_packed_scene;
 use crate::world::game_world::GameWorld;
 use game_engine::npcs::NpcHunger;
-use godot::classes::{Button, IPanelContainer, Label, PanelContainer, ProgressBar, VBoxContainer};
+use game_engine::resources::ResourceKind;
+use godot::classes::{
+    Button, IPanelContainer, Label, PackedScene, PanelContainer, ProgressBar, VBoxContainer,
+};
 use godot::obj::OnEditor;
 use godot::prelude::*;
+
+const RESOURCE_QUANTITY_SCENE_PATH: &str = "res://panel/resource_quantity.tscn";
+
+struct InventoryRowControl {
+    kind: ResourceKind,
+    node: Gd<ResourceQuantity>,
+}
 
 #[derive(GodotClass)]
 #[class(base = PanelContainer)]
@@ -40,16 +51,7 @@ pub(crate) struct NpcInfoPanel {
     inventory_label: OnEditor<Gd<Label>>,
 
     #[export]
-    wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    stone_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    food_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    inventory_rows_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
     details_button: OnEditor<Gd<Button>>,
@@ -58,6 +60,8 @@ pub(crate) struct NpcInfoPanel {
     game_world: OnEditor<Gd<GameWorld>>,
 
     selected_npc_entity_id: Option<i64>,
+    resource_quantity_scene: Option<Gd<PackedScene>>,
+    inventory_rows: Vec<InventoryRowControl>,
     base: Base<PanelContainer>,
 }
 
@@ -74,18 +78,20 @@ impl IPanelContainer for NpcInfoPanel {
             satiation_progress_bar: OnEditor::default(),
             inventory_container: OnEditor::default(),
             inventory_label: OnEditor::default(),
-            wood_inventory_quantity: OnEditor::default(),
-            stone_inventory_quantity: OnEditor::default(),
-            food_inventory_quantity: OnEditor::default(),
-            gold_inventory_quantity: OnEditor::default(),
+            inventory_rows_container: OnEditor::default(),
             details_button: OnEditor::default(),
             game_world: OnEditor::default(),
             selected_npc_entity_id: None,
+            resource_quantity_scene: None,
+            inventory_rows: Vec::new(),
             base,
         }
     }
 
     fn ready(&mut self) {
+        self.resource_quantity_scene =
+            load_packed_scene(RESOURCE_QUANTITY_SCENE_PATH, "NpcInfoPanel");
+
         let game_world = self.game_world.clone();
         game_world
             .signals()
@@ -152,10 +158,6 @@ impl NpcInfoPanel {
         let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut inventory_label = self.inventory_label.clone();
-        let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
-        let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
-        let mut food_inventory_quantity = self.food_inventory_quantity.clone();
-        let mut gold_inventory_quantity = self.gold_inventory_quantity.clone();
 
         let name_text = format!("Name: {}", info.name);
         let age_text = format!("Age: {}", info.age_years);
@@ -173,15 +175,11 @@ impl NpcInfoPanel {
             info.satiation_level,
             info.max_satiation_level,
         );
-        update_inventory(
-            &mut inventory_container,
-            &mut inventory_label,
-            &mut wood_inventory_quantity,
-            &mut stone_inventory_quantity,
-            &mut food_inventory_quantity,
-            &mut gold_inventory_quantity,
-            info.inventory,
+        inventory_label.set_text(
+            inventory_header_text(info.inventory.used_size(), info.inventory.max_size()).as_str(),
         );
+        inventory_container.show();
+        self.sync_inventory_rows(info.inventory);
     }
 
     fn clear_and_hide(&mut self) {
@@ -207,6 +205,7 @@ impl NpcInfoPanel {
         satiation_container.hide();
         inventory_label.set_text("Inventory:");
         inventory_container.hide();
+        self.sync_inventory_rows(game_engine::npcs::NpcInventory::empty());
         self.set_details_button_enabled(false);
         self.base_mut().hide();
     }
@@ -219,5 +218,45 @@ impl NpcInfoPanel {
             None
         };
         details_button.set_disabled(!details_button_enabled(selected));
+    }
+
+    fn sync_inventory_rows(&mut self, inventory: game_engine::npcs::NpcInventory) {
+        let Some(scene) = self.resource_quantity_scene.as_ref() else {
+            return;
+        };
+        let contents = inventory.contents();
+        let kinds = ResourceKind::ALL
+            .into_iter()
+            .filter(|kind| contents.get(*kind) > 0)
+            .collect::<Vec<_>>();
+        if self
+            .inventory_rows
+            .iter()
+            .map(|row| row.kind)
+            .collect::<Vec<_>>()
+            != kinds
+        {
+            for mut row in self.inventory_rows.drain(..) {
+                row.node.queue_free();
+            }
+            let mut container = self.inventory_rows_container.clone();
+            for kind in &kinds {
+                let Some(node) = scene.instantiate() else {
+                    godot_error!("NpcInfoPanel: failed to instantiate inventory row");
+                    return;
+                };
+                let Ok(mut node) = node.try_cast::<ResourceQuantity>() else {
+                    godot_error!("NpcInfoPanel: inventory row has unexpected root type");
+                    return;
+                };
+                node.bind_mut().set_resource_kind(*kind);
+                container.add_child(&node);
+                self.inventory_rows
+                    .push(InventoryRowControl { kind: *kind, node });
+            }
+        }
+        for row in &mut self.inventory_rows {
+            row.node.bind_mut().set_amount(contents.get(row.kind));
+        }
     }
 }

@@ -1,5 +1,6 @@
 use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
+use crate::assets::load_packed_scene;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
@@ -17,10 +18,28 @@ use game_engine::forestry::{
 };
 use game_engine::housing::housing_snapshot;
 use game_engine::npcs::NpcName;
+use game_engine::refining::{refinery_status, RecipeKind, RefineryStatus, REFINING_TICKS_PER_UNIT};
+#[cfg(test)]
+use game_engine::refining::{RefineryInventory, RefineryProduction};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use godot::classes::{control, Button, IPanelContainer, Label, PanelContainer, VBoxContainer};
+use godot::classes::{
+    control, Button, IPanelContainer, Label, PackedScene, PanelContainer, VBoxContainer,
+};
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
+
+const RESOURCE_QUANTITY_SCENE_PATH: &str = "res://panel/resource_quantity.tscn";
+const RESOURCE_QUANTITY_PROGRESS_SCENE_PATH: &str = "res://panel/resource_quantity_progress.tscn";
+
+struct QuantityRowControl {
+    kind: ResourceKind,
+    node: Gd<ResourceQuantity>,
+}
+
+struct ConstructionRowControl {
+    kind: ResourceKind,
+    node: Gd<ResourceQuantityProgress>,
+}
 
 #[derive(GodotClass)]
 #[class(base = PanelContainer)]
@@ -44,16 +63,7 @@ pub(crate) struct BuildingInfoPanel {
     construction_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
-    wood_construction_progress: OnEditor<Gd<ResourceQuantityProgress>>,
-
-    #[export]
-    stone_construction_progress: OnEditor<Gd<ResourceQuantityProgress>>,
-
-    #[export]
-    food_construction_progress: OnEditor<Gd<ResourceQuantityProgress>>,
-
-    #[export]
-    gold_construction_progress: OnEditor<Gd<ResourceQuantityProgress>>,
+    construction_rows_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
     inventory_container: OnEditor<Gd<VBoxContainer>>,
@@ -62,16 +72,34 @@ pub(crate) struct BuildingInfoPanel {
     inventory_label: OnEditor<Gd<Label>>,
 
     #[export]
-    wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    inventory_rows_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
-    stone_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    refinery_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
-    food_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    refinery_input_label: OnEditor<Gd<Label>>,
 
     #[export]
-    gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    refinery_input_rows_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    refinery_output_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    refinery_output_rows_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    refinery_recipe_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    refinery_progress_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    refinery_worker_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    refinery_blocked_label: OnEditor<Gd<Label>>,
 
     #[export]
     housing_container: OnEditor<Gd<VBoxContainer>>,
@@ -86,6 +114,12 @@ pub(crate) struct BuildingInfoPanel {
     game_world: OnEditor<Gd<GameWorld>>,
 
     selected_building_entity_id: Option<i64>,
+    resource_quantity_scene: Option<Gd<PackedScene>>,
+    resource_quantity_progress_scene: Option<Gd<PackedScene>>,
+    construction_rows: Vec<ConstructionRowControl>,
+    inventory_rows: Vec<QuantityRowControl>,
+    refinery_input_rows: Vec<QuantityRowControl>,
+    refinery_output_rows: Vec<QuantityRowControl>,
     housing_row_labels: Vec<Gd<Label>>,
     cached_housing: Option<Option<HousingInfo>>,
     base: Base<PanelContainer>,
@@ -101,21 +135,30 @@ impl IPanelContainer for BuildingInfoPanel {
             fields_button: OnEditor::default(),
             tree_plots_button: OnEditor::default(),
             construction_container: OnEditor::default(),
-            wood_construction_progress: OnEditor::default(),
-            stone_construction_progress: OnEditor::default(),
-            food_construction_progress: OnEditor::default(),
-            gold_construction_progress: OnEditor::default(),
+            construction_rows_container: OnEditor::default(),
             inventory_container: OnEditor::default(),
             inventory_label: OnEditor::default(),
-            wood_inventory_quantity: OnEditor::default(),
-            stone_inventory_quantity: OnEditor::default(),
-            food_inventory_quantity: OnEditor::default(),
-            gold_inventory_quantity: OnEditor::default(),
+            inventory_rows_container: OnEditor::default(),
+            refinery_container: OnEditor::default(),
+            refinery_input_label: OnEditor::default(),
+            refinery_input_rows_container: OnEditor::default(),
+            refinery_output_label: OnEditor::default(),
+            refinery_output_rows_container: OnEditor::default(),
+            refinery_recipe_label: OnEditor::default(),
+            refinery_progress_label: OnEditor::default(),
+            refinery_worker_label: OnEditor::default(),
+            refinery_blocked_label: OnEditor::default(),
             housing_container: OnEditor::default(),
             housing_occupancy_label: OnEditor::default(),
             housing_rows: OnEditor::default(),
             game_world: OnEditor::default(),
             selected_building_entity_id: None,
+            resource_quantity_scene: None,
+            resource_quantity_progress_scene: None,
+            construction_rows: Vec::new(),
+            inventory_rows: Vec::new(),
+            refinery_input_rows: Vec::new(),
+            refinery_output_rows: Vec::new(),
             housing_row_labels: Vec::new(),
             cached_housing: None,
             base,
@@ -123,6 +166,11 @@ impl IPanelContainer for BuildingInfoPanel {
     }
 
     fn ready(&mut self) {
+        self.resource_quantity_scene =
+            load_packed_scene(RESOURCE_QUANTITY_SCENE_PATH, "BuildingInfoPanel");
+        self.resource_quantity_progress_scene =
+            load_packed_scene(RESOURCE_QUANTITY_PROGRESS_SCENE_PATH, "BuildingInfoPanel");
+
         let game_world = self.game_world.clone();
         game_world
             .signals()
@@ -196,17 +244,6 @@ impl BuildingInfoPanel {
         let mut farming_info_label = self.farming_info_label.clone();
         let mut fields_button = self.fields_button.clone();
         let mut tree_plots_button = self.tree_plots_button.clone();
-        let mut construction_container = self.construction_container.clone();
-        let mut wood_construction_progress = self.wood_construction_progress.clone();
-        let mut stone_construction_progress = self.stone_construction_progress.clone();
-        let mut food_construction_progress = self.food_construction_progress.clone();
-        let mut gold_construction_progress = self.gold_construction_progress.clone();
-        let mut inventory_container = self.inventory_container.clone();
-        let mut inventory_label = self.inventory_label.clone();
-        let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
-        let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
-        let mut food_inventory_quantity = self.food_inventory_quantity.clone();
-        let mut gold_inventory_quantity = self.gold_inventory_quantity.clone();
 
         name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
         footprint_label.set_text(format_footprint(info.footprint).as_str());
@@ -218,35 +255,9 @@ impl BuildingInfoPanel {
             info.farming,
             info.forestry,
         );
-        match info.construction {
-            Some(construction) => update_construction_progress(
-                &mut construction_container,
-                &mut wood_construction_progress,
-                &mut stone_construction_progress,
-                &mut food_construction_progress,
-                &mut gold_construction_progress,
-                construction.progress,
-                construction.cost,
-            ),
-            None => update_construction_progress(
-                &mut construction_container,
-                &mut wood_construction_progress,
-                &mut stone_construction_progress,
-                &mut food_construction_progress,
-                &mut gold_construction_progress,
-                ResourceAmounts::zero(),
-                ResourceAmounts::zero(),
-            ),
-        };
-        update_inventory(
-            &mut inventory_container,
-            &mut inventory_label,
-            &mut wood_inventory_quantity,
-            &mut stone_inventory_quantity,
-            &mut food_inventory_quantity,
-            &mut gold_inventory_quantity,
-            info.inventory,
-        );
+        self.update_construction(info.construction);
+        self.update_inventory(info.inventory);
+        self.update_refinery(info.refinery);
         self.update_housing(info.housing);
     }
 
@@ -260,6 +271,7 @@ impl BuildingInfoPanel {
         let mut construction_container = self.construction_container.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut inventory_label = self.inventory_label.clone();
+        let mut refinery_container = self.refinery_container.clone();
         let mut housing_container = self.housing_container.clone();
 
         clear_building_labels(
@@ -271,11 +283,152 @@ impl BuildingInfoPanel {
             &mut construction_container,
             &mut inventory_container,
             &mut inventory_label,
+            &mut refinery_container,
             &mut housing_container,
         );
+        self.sync_construction_rows(&[]);
+        self.sync_inventory_rows(&[], ResourceAmounts::zero());
+        self.sync_refinery_input_rows(&[], ResourceAmounts::zero());
+        self.sync_refinery_output_rows(&[], ResourceAmounts::zero());
         self.clear_housing_rows();
         self.cached_housing = None;
         self.base_mut().hide();
+    }
+
+    fn update_construction(&mut self, construction: Option<BuildingConstructionInfo>) {
+        let rows = construction.map_or_else(Vec::new, |construction| {
+            construction_progress_rows(construction.progress, construction.cost)
+        });
+        self.sync_construction_rows(&rows);
+        if rows.is_empty() {
+            self.construction_container.clone().hide();
+        } else {
+            self.construction_container.clone().show();
+        }
+    }
+
+    fn update_inventory(&mut self, inventory: Option<BuildingInventoryInfo>) {
+        let mut inventory_container = self.inventory_container.clone();
+        let mut inventory_label = self.inventory_label.clone();
+        if let Some(inventory) = inventory {
+            inventory_label
+                .set_text(inventory_header_text(inventory.used_size, inventory.max_size).as_str());
+            let kinds = relevant_resource_kinds(&inventory.visible_kinds, inventory.contents);
+            self.sync_inventory_rows(&kinds, inventory.contents);
+            inventory_container.show();
+        } else {
+            self.sync_inventory_rows(&[], ResourceAmounts::zero());
+            inventory_container.hide();
+        }
+    }
+
+    fn update_refinery(&mut self, refinery: Option<RefineryInfo>) {
+        let mut container = self.refinery_container.clone();
+        let Some(refinery) = refinery else {
+            self.sync_refinery_input_rows(&[], ResourceAmounts::zero());
+            self.sync_refinery_output_rows(&[], ResourceAmounts::zero());
+            container.hide();
+            return;
+        };
+
+        let status = refinery.status;
+        let input_kinds =
+            refinery_buffer_kinds(&status.supported_recipes, true, status.input_contents);
+        let output_kinds =
+            refinery_buffer_kinds(&status.supported_recipes, false, status.output_contents);
+        self.sync_refinery_input_rows(&input_kinds, status.input_contents);
+        self.sync_refinery_output_rows(&output_kinds, status.output_contents);
+
+        self.refinery_input_label.clone().set_text(
+            format!(
+                "Input Buffer: {}/{}",
+                status.input_contents.total(),
+                status.input_capacity
+            )
+            .as_str(),
+        );
+        self.refinery_output_label.clone().set_text(
+            format!(
+                "Output Buffer: {}/{}",
+                status.output_contents.total(),
+                status.output_capacity
+            )
+            .as_str(),
+        );
+        self.refinery_recipe_label
+            .clone()
+            .set_text(refinery_recipe_text(&status).as_str());
+        self.refinery_progress_label
+            .clone()
+            .set_text(refinery_progress_text(&status).as_str());
+        self.refinery_worker_label.clone().set_text(
+            refinery
+                .assigned_worker
+                .as_deref()
+                .map_or("Worker: Unassigned".to_string(), |worker| {
+                    format!("Worker: {worker}")
+                })
+                .as_str(),
+        );
+        let mut blocked_label = self.refinery_blocked_label.clone();
+        if let Some(reason) = status.blocked_reason {
+            blocked_label.set_text(format!("Blocked: {}", reason.label()).as_str());
+            blocked_label.show();
+        } else {
+            blocked_label.set_text("");
+            blocked_label.hide();
+        }
+        container.show();
+    }
+
+    fn sync_construction_rows(&mut self, rows: &[ConstructionProgressRow]) {
+        let Some(scene) = self.resource_quantity_progress_scene.as_ref() else {
+            return;
+        };
+        let mut container = self.construction_rows_container.clone();
+        sync_construction_row_controls(scene, &mut container, &mut self.construction_rows, rows);
+    }
+
+    fn sync_inventory_rows(&mut self, kinds: &[ResourceKind], contents: ResourceAmounts) {
+        let Some(scene) = self.resource_quantity_scene.as_ref() else {
+            return;
+        };
+        let mut container = self.inventory_rows_container.clone();
+        sync_quantity_row_controls(
+            scene,
+            &mut container,
+            &mut self.inventory_rows,
+            kinds,
+            contents,
+        );
+    }
+
+    fn sync_refinery_input_rows(&mut self, kinds: &[ResourceKind], contents: ResourceAmounts) {
+        let Some(scene) = self.resource_quantity_scene.as_ref() else {
+            return;
+        };
+        let mut container = self.refinery_input_rows_container.clone();
+        sync_quantity_row_controls(
+            scene,
+            &mut container,
+            &mut self.refinery_input_rows,
+            kinds,
+            contents,
+        );
+    }
+
+    fn sync_refinery_output_rows(&mut self, kinds: &[ResourceKind], contents: ResourceAmounts) {
+        let Some(scene) = self.resource_quantity_scene.as_ref() else {
+            return;
+        };
+        let mut container = self.refinery_output_rows_container.clone();
+        sync_quantity_row_controls(
+            scene,
+            &mut container,
+            &mut self.refinery_output_rows,
+            kinds,
+            contents,
+        );
     }
 
     fn update_housing(&mut self, housing: Option<HousingInfo>) {
@@ -319,6 +472,7 @@ struct BuildingInfo {
     footprint: BuildingFootprint,
     construction: Option<BuildingConstructionInfo>,
     inventory: Option<BuildingInventoryInfo>,
+    refinery: Option<RefineryInfo>,
     farming: Option<FarmingInfo>,
     forestry: Option<ForestryInfo>,
     housing: Option<HousingInfo>,
@@ -336,11 +490,18 @@ struct BuildingConstructionInfo {
     progress: ResourceAmounts,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct BuildingInventoryInfo {
     contents: ResourceAmounts,
     used_size: u32,
     max_size: u32,
+    visible_kinds: Vec<ResourceKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RefineryInfo {
+    status: RefineryStatus,
+    assigned_worker: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,6 +550,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
                 progress: progress.deposited(),
             }),
             inventory,
+            refinery: None,
             farming: farming_info(world, entity, blueprint.kind),
             forestry: forestry_info(world, entity, blueprint.kind),
             housing: None,
@@ -401,6 +563,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
         footprint: building.footprint,
         construction: None,
         inventory,
+        refinery: refinery_info(world, entity),
         farming: farming_info(world, entity, building.kind),
         forestry: forestry_info(world, entity, building.kind),
         housing: housing_info(world, entity),
@@ -440,6 +603,7 @@ fn building_inventory_info(
             contents: inventory.contents(),
             used_size: inventory.used_size(),
             max_size: inventory.max_size(),
+            visible_kinds: ResourceKind::ALL.to_vec(),
         });
     }
     if let Some(inventory) = world.get::<FarmInventory>(entity).copied() {
@@ -447,6 +611,7 @@ fn building_inventory_info(
             contents: inventory.contents(),
             used_size: inventory.used_size(),
             max_size: inventory.max_size(),
+            visible_kinds: vec![ResourceKind::Crops],
         });
     }
     world
@@ -456,7 +621,23 @@ fn building_inventory_info(
             contents: inventory.contents(),
             used_size: inventory.used_size(),
             max_size: inventory.max_size(),
+            visible_kinds: vec![ResourceKind::Wood],
         })
+}
+
+fn refinery_info(world: &World, entity: Entity) -> Option<RefineryInfo> {
+    let status = refinery_status(world, entity)?;
+    let assigned_worker = status.assigned_worker.map(|worker| {
+        let id = worker.to_bits();
+        world.get::<NpcName>(worker).map_or_else(
+            || format!("NPC {id}"),
+            |name| format!("{} ({id})", name.as_str()),
+        )
+    });
+    Some(RefineryInfo {
+        status,
+        assigned_worker,
+    })
 }
 
 fn farming_info(
@@ -479,7 +660,7 @@ fn farming_info(
             let blocked_by_full_inventory = state == Some(FieldCropState::Grown)
                 && world
                     .get::<FarmInventory>(owner.farm())
-                    .is_some_and(|inventory| !inventory.has_food_capacity());
+                    .is_some_and(|inventory| !inventory.has_crops_capacity());
             Some(FarmingInfo::Field {
                 owner: owner.farm(),
                 crop,
@@ -542,7 +723,6 @@ struct ConstructionProgressRow {
     required: u32,
 }
 
-#[cfg(test)]
 fn construction_progress_rows(
     progress: ResourceAmounts,
     cost: ResourceAmounts,
@@ -566,47 +746,130 @@ fn construction_progress_row(
     })
 }
 
-fn update_construction_progress(
-    construction_container: &mut Gd<VBoxContainer>,
-    wood_progress: &mut Gd<ResourceQuantityProgress>,
-    stone_progress: &mut Gd<ResourceQuantityProgress>,
-    food_progress: &mut Gd<ResourceQuantityProgress>,
-    gold_progress: &mut Gd<ResourceQuantityProgress>,
-    progress: ResourceAmounts,
-    cost: ResourceAmounts,
+fn sync_construction_row_controls(
+    scene: &Gd<PackedScene>,
+    container: &mut Gd<VBoxContainer>,
+    controls: &mut Vec<ConstructionRowControl>,
+    rows: &[ConstructionProgressRow],
 ) {
-    let has_wood =
-        update_construction_progress_row(wood_progress, ResourceKind::Wood, progress, cost);
-    let has_stone =
-        update_construction_progress_row(stone_progress, ResourceKind::Stone, progress, cost);
-    let has_food =
-        update_construction_progress_row(food_progress, ResourceKind::Food, progress, cost);
-    let has_gold =
-        update_construction_progress_row(gold_progress, ResourceKind::Gold, progress, cost);
-
-    if has_wood || has_stone || has_food || has_gold {
-        construction_container.show();
-    } else {
-        construction_container.hide();
+    if controls.iter().map(|row| row.kind).collect::<Vec<_>>()
+        != rows.iter().map(|row| row.kind).collect::<Vec<_>>()
+    {
+        for mut control in controls.drain(..) {
+            control.node.queue_free();
+        }
+        for row in rows {
+            let Some(node) = scene.instantiate() else {
+                godot_error!("BuildingInfoPanel: failed to instantiate construction row");
+                return;
+            };
+            let Ok(mut node) = node.try_cast::<ResourceQuantityProgress>() else {
+                godot_error!("BuildingInfoPanel: construction row has unexpected root type");
+                return;
+            };
+            node.bind_mut().set_resource_kind(row.kind);
+            container.add_child(&node);
+            controls.push(ConstructionRowControl {
+                kind: row.kind,
+                node,
+            });
+        }
+    }
+    for (control, row) in controls.iter_mut().zip(rows) {
+        control
+            .node
+            .bind_mut()
+            .set_amounts(row.deposited, row.required);
     }
 }
 
-fn update_construction_progress_row(
-    progress_node: &mut Gd<ResourceQuantityProgress>,
-    kind: ResourceKind,
-    progress: ResourceAmounts,
-    cost: ResourceAmounts,
-) -> bool {
-    let Some(row) = construction_progress_row(kind, progress, cost) else {
-        progress_node.bind_mut().hide_progress();
-        return false;
-    };
+fn sync_quantity_row_controls(
+    scene: &Gd<PackedScene>,
+    container: &mut Gd<VBoxContainer>,
+    controls: &mut Vec<QuantityRowControl>,
+    kinds: &[ResourceKind],
+    contents: ResourceAmounts,
+) {
+    if controls.iter().map(|row| row.kind).collect::<Vec<_>>() != kinds {
+        for mut control in controls.drain(..) {
+            control.node.queue_free();
+        }
+        for kind in kinds {
+            let Some(node) = scene.instantiate() else {
+                godot_error!("BuildingInfoPanel: failed to instantiate resource row");
+                return;
+            };
+            let Ok(mut node) = node.try_cast::<ResourceQuantity>() else {
+                godot_error!("BuildingInfoPanel: resource row has unexpected root type");
+                return;
+            };
+            node.bind_mut().set_resource_kind(*kind);
+            container.add_child(&node);
+            controls.push(QuantityRowControl { kind: *kind, node });
+        }
+    }
+    for control in controls {
+        control
+            .node
+            .bind_mut()
+            .set_amount(contents.get(control.kind));
+    }
+}
 
-    let mut progress_node = progress_node.bind_mut();
-    progress_node.set_resource_kind(row.kind);
-    progress_node.set_amounts(row.deposited, row.required);
-    progress_node.show_progress();
-    true
+fn relevant_resource_kinds(
+    accepted: &[ResourceKind],
+    contents: ResourceAmounts,
+) -> Vec<ResourceKind> {
+    ResourceKind::ALL
+        .into_iter()
+        .filter(|kind| accepted.contains(kind) || contents.get(*kind) > 0)
+        .collect()
+}
+
+fn refinery_buffer_kinds(
+    recipes: &[RecipeKind],
+    input: bool,
+    contents: ResourceAmounts,
+) -> Vec<ResourceKind> {
+    let accepted = recipes
+        .iter()
+        .map(|recipe| {
+            let definition = recipe.definition();
+            if input {
+                definition.input()
+            } else {
+                definition.output()
+            }
+        })
+        .collect::<Vec<_>>();
+    relevant_resource_kinds(&accepted, contents)
+}
+
+fn refinery_recipe_text(status: &RefineryStatus) -> String {
+    status.current_recipe.map_or_else(
+        || {
+            format!(
+                "Recipes: {}",
+                status
+                    .supported_recipes
+                    .iter()
+                    .map(|recipe| recipe.label())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        },
+        |recipe| format!("Recipe: {}", recipe.label()),
+    )
+}
+
+fn refinery_progress_text(status: &RefineryStatus) -> String {
+    if status.current_recipe.is_none() {
+        return "Progress: —".to_string();
+    }
+    format!(
+        "Progress: {}/{} ({} ticks remaining)",
+        status.progress_ticks, REFINING_TICKS_PER_UNIT, status.remaining_ticks
+    )
 }
 
 fn update_farming_info(
@@ -713,37 +976,6 @@ fn format_forestry_info(info: ForestryInfo) -> String {
     }
 }
 
-fn update_inventory(
-    inventory_container: &mut Gd<VBoxContainer>,
-    inventory_label: &mut Gd<Label>,
-    wood_quantity: &mut Gd<ResourceQuantity>,
-    stone_quantity: &mut Gd<ResourceQuantity>,
-    food_quantity: &mut Gd<ResourceQuantity>,
-    gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: Option<BuildingInventoryInfo>,
-) {
-    if let Some(inventory) = inventory {
-        let contents = inventory.contents;
-        inventory_label
-            .set_text(inventory_header_text(inventory.used_size, inventory.max_size).as_str());
-        wood_quantity
-            .bind_mut()
-            .set_amount(contents.get(ResourceKind::Wood));
-        stone_quantity
-            .bind_mut()
-            .set_amount(contents.get(ResourceKind::Stone));
-        food_quantity
-            .bind_mut()
-            .set_amount(contents.get(ResourceKind::Food));
-        gold_quantity
-            .bind_mut()
-            .set_amount(contents.get(ResourceKind::Gold));
-        inventory_container.show();
-    } else {
-        inventory_container.hide();
-    }
-}
-
 fn clear_building_labels(
     name_label: &mut Gd<Label>,
     footprint_label: &mut Gd<Label>,
@@ -753,6 +985,7 @@ fn clear_building_labels(
     construction_container: &mut Gd<VBoxContainer>,
     inventory_container: &mut Gd<VBoxContainer>,
     inventory_label: &mut Gd<Label>,
+    refinery_container: &mut Gd<VBoxContainer>,
     housing_container: &mut Gd<VBoxContainer>,
 ) {
     name_label.set_text("Building: None");
@@ -764,6 +997,7 @@ fn clear_building_labels(
     construction_container.hide();
     inventory_label.set_text("Inventory:");
     inventory_container.hide();
+    refinery_container.hide();
     housing_container.hide();
 }
 
@@ -789,19 +1023,21 @@ mod tests {
 
     #[test]
     fn construction_progress_rows_show_deposited_over_required() {
-        let progress = ResourceAmounts::new(5, 0, 0, 0);
-        let cost = ResourceAmounts::new(40, 20, 0, 0);
+        let progress = ResourceAmounts::of(ResourceKind::Planks, 5);
+        let cost = ResourceAmounts::zero()
+            .with(ResourceKind::Planks, 40)
+            .with(ResourceKind::StoneBlocks, 20);
 
         assert_eq!(
             construction_progress_rows(progress, cost),
             vec![
                 ConstructionProgressRow {
-                    kind: ResourceKind::Wood,
+                    kind: ResourceKind::Planks,
                     deposited: 5,
                     required: 40,
                 },
                 ConstructionProgressRow {
-                    kind: ResourceKind::Stone,
+                    kind: ResourceKind::StoneBlocks,
                     deposited: 0,
                     required: 20,
                 },
@@ -890,13 +1126,16 @@ mod tests {
         assert!(world
             .get_mut::<FarmInventory>(entity)
             .expect("farm should have inventory")
-            .add_food(5));
+            .add_crops(5));
 
         let inventory = building_info_from_world(&world, entity)
             .expect("farm info should still exist")
             .inventory
             .expect("farm should still have inventory");
-        assert_eq!(inventory.contents, ResourceAmounts::new(0, 0, 5, 0));
+        assert_eq!(
+            inventory.contents,
+            ResourceAmounts::of(ResourceKind::Crops, 5)
+        );
         assert_eq!(inventory.used_size, 5);
     }
 
@@ -963,7 +1202,7 @@ mod tests {
             world
                 .get_mut::<ConstructionProgress>(entity)
                 .expect("blueprint should have construction progress")
-                .deposit(ResourceKind::Wood, 9, cost),
+                .deposit(ResourceKind::Planks, 9, cost),
             9
         );
 
@@ -973,7 +1212,76 @@ mod tests {
                 .construction
                 .expect("blueprint should still have construction info")
                 .progress,
-            ResourceAmounts::new(9, 0, 0, 0)
+            ResourceAmounts::of(ResourceKind::Planks, 9)
+        );
+    }
+
+    #[test]
+    fn building_info_exposes_engine_refinery_status() {
+        let mut world = World::new();
+        let refinery = world
+            .spawn((
+                Building::new(BuildingKind::Kitchen, footprint(BuildingKind::Kitchen)),
+                RefineryInventory::empty(),
+                RefineryProduction::default(),
+            ))
+            .id();
+
+        let info = building_info_from_world(&world, refinery).expect("refinery should be visible");
+        let refinery = info.refinery.expect("refinery status should be present");
+        assert_eq!(
+            refinery.status.supported_recipes,
+            vec![RecipeKind::CookCrops, RecipeKind::CookWildBerries]
+        );
+        assert_eq!(refinery.status.input_capacity, 100);
+        assert_eq!(refinery.status.output_capacity, 100);
+        assert_eq!(
+            refinery_recipe_text(&refinery.status),
+            "Recipes: Crops → Food; Wild Berries → Food"
+        );
+        assert_eq!(refinery_progress_text(&refinery.status), "Progress: —");
+    }
+
+    #[test]
+    fn relevant_inventory_rows_keep_accepted_zeroes_and_stored_resources() {
+        let contents = ResourceAmounts::of(ResourceKind::Gold, 2);
+        assert_eq!(
+            relevant_resource_kinds(&[ResourceKind::Crops], contents),
+            vec![ResourceKind::Gold, ResourceKind::Crops]
+        );
+    }
+
+    #[test]
+    fn refinery_formatting_shows_active_recipe_progress_and_buffer_kinds() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let status = RefineryStatus {
+            entity,
+            building_kind: BuildingKind::Kitchen,
+            input_contents: ResourceAmounts::of(ResourceKind::WildBerries, 3),
+            input_capacity: 100,
+            output_contents: ResourceAmounts::of(ResourceKind::Food, 2),
+            output_capacity: 100,
+            supported_recipes: vec![RecipeKind::CookCrops, RecipeKind::CookWildBerries],
+            current_recipe: Some(RecipeKind::CookWildBerries),
+            progress_ticks: 42,
+            remaining_ticks: 18,
+            assigned_worker: None,
+            blocked_reason: Some(game_engine::refining::RefineryBlockedReason::OutputFull),
+        };
+
+        assert_eq!(refinery_recipe_text(&status), "Recipe: Wild Berries → Food");
+        assert_eq!(
+            refinery_progress_text(&status),
+            "Progress: 42/60 (18 ticks remaining)"
+        );
+        assert_eq!(
+            refinery_buffer_kinds(&status.supported_recipes, true, status.input_contents),
+            vec![ResourceKind::Crops, ResourceKind::WildBerries]
+        );
+        assert_eq!(
+            refinery_buffer_kinds(&status.supported_recipes, false, status.output_contents),
+            vec![ResourceKind::Food]
         );
     }
 

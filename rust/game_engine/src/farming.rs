@@ -12,7 +12,7 @@ use bevy_ecs::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 pub const MAX_FIELDS_PER_FARM: usize = 200;
-pub const FARM_INVENTORY_MAX_FOOD: u32 = 200;
+pub const FARM_INVENTORY_MAX_CROPS: u32 = 200;
 pub const FIELD_SEEDING_TICKS: u32 = SIMULATION_TICKS_PER_DAY;
 pub const FIELD_GROWTH_TICKS: u32 = SIMULATION_TICKS_PER_YEAR;
 pub const FIELD_HARVEST_TICKS: u32 = RESOURCE_GATHER_TICKS_PER_UNIT;
@@ -28,7 +28,7 @@ pub struct FarmInventory {
 impl FarmInventory {
     pub const fn empty() -> Self {
         Self {
-            inventory: ResourceInventory::empty(FARM_INVENTORY_MAX_FOOD),
+            inventory: ResourceInventory::empty(FARM_INVENTORY_MAX_CROPS),
         }
     }
 
@@ -48,16 +48,20 @@ impl FarmInventory {
         self.inventory.free_size()
     }
 
-    pub const fn food(self) -> u32 {
-        self.inventory.contents().get(ResourceKind::Food)
+    pub const fn crops(self) -> u32 {
+        self.inventory.contents().get(ResourceKind::Crops)
     }
 
-    pub const fn has_food_capacity(self) -> bool {
+    pub const fn has_crops_capacity(self) -> bool {
         self.free_size() > 0
     }
 
-    pub fn add_food(&mut self, amount: u32) -> bool {
-        self.inventory.add(ResourceKind::Food, amount)
+    pub fn add_crops(&mut self, amount: u32) -> bool {
+        self.inventory.add(ResourceKind::Crops, amount)
+    }
+
+    pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        self.inventory.consume(kind, amount)
     }
 }
 
@@ -474,7 +478,7 @@ pub fn maintain_farming_tasks(
         if crop.is_seedable() {
             seedable_fields.insert(field_entity);
         }
-        if crop.is_grown() && inventory.has_food_capacity() {
+        if crop.is_grown() && inventory.has_crops_capacity() {
             harvestable_fields.insert(field_entity);
         }
     }
@@ -539,7 +543,7 @@ pub fn field_harvest_is_actionable(
     let Ok((farm, inventory)) = farms.get(owner.farm()) else {
         return None;
     };
-    (farm.kind == BuildingKind::Farm && inventory.has_food_capacity())
+    (farm.kind == BuildingKind::Farm && inventory.has_crops_capacity())
         .then_some(building.footprint.origin())
 }
 
@@ -663,7 +667,7 @@ pub fn system_harvest_fields(
             continue;
         }
 
-        if inventory.add_food(1) {
+        if inventory.add_crops(1) {
             crop.reset_after_harvest();
             if let Some(mut skills) = skills {
                 skills.add_xp(SkillKind::Farmer, 1);

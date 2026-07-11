@@ -19,8 +19,11 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(warehouse.kind(), BuildingKind::Warehouse);
     assert_eq!(warehouse.width(), 2);
     assert_eq!(warehouse.height(), 2);
-    assert_eq!(warehouse.construction_cost().get(ResourceKind::Wood), 40);
-    assert_eq!(warehouse.construction_cost().get(ResourceKind::Stone), 20);
+    assert_eq!(warehouse.construction_cost().get(ResourceKind::Planks), 40);
+    assert_eq!(
+        warehouse.construction_cost().get(ResourceKind::StoneBlocks),
+        20
+    );
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Gold), 0);
 
@@ -28,17 +31,37 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(town_hall.kind(), BuildingKind::TownHall);
     assert_eq!(town_hall.width(), 3);
     assert_eq!(town_hall.height(), 3);
-    assert_eq!(town_hall.construction_cost().get(ResourceKind::Wood), 80);
-    assert_eq!(town_hall.construction_cost().get(ResourceKind::Stone), 60);
+    assert_eq!(town_hall.construction_cost().get(ResourceKind::Planks), 80);
+    assert_eq!(
+        town_hall.construction_cost().get(ResourceKind::StoneBlocks),
+        60
+    );
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(town_hall.construction_cost().get(ResourceKind::Gold), 20);
+
+    for (kind, stone_cost) in [(BuildingKind::Sawmill, 10), (BuildingKind::Stoneworks, 20)] {
+        let definition = kind.definition();
+        assert_eq!((definition.width(), definition.height()), (2, 2));
+        assert_eq!(definition.construction_cost().get(ResourceKind::Wood), 20);
+        assert_eq!(
+            definition.construction_cost().get(ResourceKind::Stone),
+            stone_cost
+        );
+    }
+    let kitchen = BuildingKind::Kitchen.definition();
+    assert_eq!((kitchen.width(), kitchen.height()), (2, 2));
+    assert_eq!(kitchen.construction_cost().get(ResourceKind::Planks), 20);
+    assert_eq!(
+        kitchen.construction_cost().get(ResourceKind::StoneBlocks),
+        10
+    );
 
     let farm = BuildingKind::Farm.definition();
     assert_eq!(farm.kind(), BuildingKind::Farm);
     assert_eq!(farm.width(), 3);
     assert_eq!(farm.height(), 3);
-    assert_eq!(farm.construction_cost().get(ResourceKind::Wood), 20);
-    assert_eq!(farm.construction_cost().get(ResourceKind::Stone), 30);
+    assert_eq!(farm.construction_cost().get(ResourceKind::Planks), 20);
+    assert_eq!(farm.construction_cost().get(ResourceKind::StoneBlocks), 30);
     assert_eq!(farm.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(farm.construction_cost().get(ResourceKind::Gold), 0);
 
@@ -46,8 +69,8 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(field.kind(), BuildingKind::Field);
     assert_eq!(field.width(), 1);
     assert_eq!(field.height(), 1);
-    assert_eq!(field.construction_cost().get(ResourceKind::Wood), 5);
-    assert_eq!(field.construction_cost().get(ResourceKind::Stone), 1);
+    assert_eq!(field.construction_cost().get(ResourceKind::Planks), 5);
+    assert_eq!(field.construction_cost().get(ResourceKind::StoneBlocks), 1);
     assert_eq!(field.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(field.construction_cost().get(ResourceKind::Gold), 0);
 
@@ -56,21 +79,27 @@ fn test_building_definitions_include_dimensions_and_costs() {
             BuildingKind::SmallHouse,
             1,
             1,
-            ResourceAmounts::new(10, 5, 0, 0),
+            ResourceAmounts::zero()
+                .with(ResourceKind::Planks, 10)
+                .with(ResourceKind::StoneBlocks, 5),
             2,
         ),
         (
             BuildingKind::MediumHouse,
             2,
             2,
-            ResourceAmounts::new(30, 15, 0, 0),
+            ResourceAmounts::zero()
+                .with(ResourceKind::Planks, 30)
+                .with(ResourceKind::StoneBlocks, 15),
             4,
         ),
         (
             BuildingKind::LargeHouse,
             3,
             3,
-            ResourceAmounts::new(60, 30, 0, 0),
+            ResourceAmounts::zero()
+                .with(ResourceKind::Planks, 60)
+                .with(ResourceKind::StoneBlocks, 30),
             8,
         ),
     ] {
@@ -84,6 +113,9 @@ fn test_building_definitions_include_dimensions_and_costs() {
     for kind in [
         BuildingKind::Warehouse,
         BuildingKind::TownHall,
+        BuildingKind::Sawmill,
+        BuildingKind::Stoneworks,
+        BuildingKind::Kitchen,
         BuildingKind::Farm,
         BuildingKind::Field,
     ] {
@@ -250,7 +282,7 @@ fn test_completed_warehouse_blueprint_becomes_finished_building_with_inventory()
     let blueprint = spawn_blueprint_with_progress(
         &mut world,
         BuildingKind::Warehouse,
-        ResourceAmounts::new(40, 20, 0, 0),
+        BuildingKind::Warehouse.definition().construction_cost(),
     );
 
     world
@@ -272,7 +304,7 @@ fn test_completed_town_hall_does_not_get_warehouse_inventory() {
     let blueprint = spawn_blueprint_with_progress(
         &mut world,
         BuildingKind::TownHall,
-        ResourceAmounts::new(80, 60, 0, 20),
+        BuildingKind::TownHall.definition().construction_cost(),
     );
 
     world
@@ -289,7 +321,7 @@ fn test_completed_house_gets_capacity_and_blueprint_does_not() {
     let blueprint = spawn_blueprint_with_progress(
         &mut world,
         BuildingKind::MediumHouse,
-        ResourceAmounts::new(30, 15, 0, 0),
+        BuildingKind::MediumHouse.definition().construction_cost(),
     );
     assert!(world.get::<House>(blueprint).is_none());
 

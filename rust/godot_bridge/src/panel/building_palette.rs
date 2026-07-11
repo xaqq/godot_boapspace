@@ -13,6 +13,15 @@ pub(crate) struct BuildingPalette {
     town_hall_button: OnEditor<Gd<Button>>,
 
     #[export]
+    sawmill_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    stoneworks_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    kitchen_button: OnEditor<Gd<Button>>,
+
+    #[export]
     farm_button: OnEditor<Gd<Button>>,
 
     #[export]
@@ -39,6 +48,9 @@ impl IPanelContainer for BuildingPalette {
         Self {
             warehouse_button: OnEditor::default(),
             town_hall_button: OnEditor::default(),
+            sawmill_button: OnEditor::default(),
+            stoneworks_button: OnEditor::default(),
+            kitchen_button: OnEditor::default(),
             farm_button: OnEditor::default(),
             forester_lodge_button: OnEditor::default(),
             small_house_button: OnEditor::default(),
@@ -52,6 +64,9 @@ impl IPanelContainer for BuildingPalette {
     fn ready(&mut self) {
         let warehouse_button = self.warehouse_button.clone();
         let town_hall_button = self.town_hall_button.clone();
+        let sawmill_button = self.sawmill_button.clone();
+        let stoneworks_button = self.stoneworks_button.clone();
+        let kitchen_button = self.kitchen_button.clone();
         let farm_button = self.farm_button.clone();
         let forester_lodge_button = self.forester_lodge_button.clone();
         let small_house_button = self.small_house_button.clone();
@@ -70,6 +85,27 @@ impl IPanelContainer for BuildingPalette {
             &game_world,
             |game_world: &mut GameWorld| {
                 game_world.start_town_hall_blueprint_placement();
+            },
+        );
+
+        sawmill_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_sawmill_blueprint_placement();
+            },
+        );
+
+        stoneworks_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_stoneworks_blueprint_placement();
+            },
+        );
+
+        kitchen_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_kitchen_blueprint_placement();
             },
         );
 
@@ -107,5 +143,34 @@ impl IPanelContainer for BuildingPalette {
                 game_world.start_large_house_blueprint_placement();
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    const PALETTE_SCENE: &str = include_str!("../../../../godot/panel/building_palette.tscn");
+
+    #[test]
+    fn palette_scene_uses_the_specified_major_building_order() {
+        let button_names = [
+            "WarehouseButton",
+            "TownHallButton",
+            "SawmillButton",
+            "StoneworksButton",
+            "KitchenButton",
+            "FarmButton",
+            "ForesterLodgeButton",
+            "SmallHouseButton",
+            "MediumHouseButton",
+            "LargeHouseButton",
+        ];
+
+        let positions = button_names.map(|button_name| {
+            PALETTE_SCENE
+                .find(format!("[node name=\"{button_name}\"").as_str())
+                .unwrap_or_else(|| panic!("palette scene is missing {button_name}"))
+        });
+
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
     }
 }

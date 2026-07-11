@@ -22,7 +22,7 @@ use game_engine::forestry::{
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
-use game_engine::resources::ResourceAmounts;
+use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
 use game_engine::tile::{TileBundle, TileIndex};
 use game_engine::time::SIMULATION_TICKS_PER_YEAR;
@@ -33,12 +33,19 @@ fn forestry_building_definitions_and_durations_match_the_design() {
     assert_eq!((lodge.width(), lodge.height()), (3, 3));
     assert_eq!(
         lodge.construction_cost(),
-        ResourceAmounts::new(20, 30, 0, 0)
+        ResourceAmounts::zero()
+            .with(ResourceKind::Planks, 20)
+            .with(ResourceKind::StoneBlocks, 30)
     );
 
     let plot = BuildingKind::TreePlot.definition();
     assert_eq!((plot.width(), plot.height()), (1, 1));
-    assert_eq!(plot.construction_cost(), ResourceAmounts::new(5, 1, 0, 0));
+    assert_eq!(
+        plot.construction_cost(),
+        ResourceAmounts::zero()
+            .with(ResourceKind::Planks, 5)
+            .with(ResourceKind::StoneBlocks, 1)
+    );
 
     assert_eq!(TREE_PLOT_SEEDING_TICKS, FIELD_SEEDING_TICKS * 5);
     assert_eq!(TREE_PLOT_SEEDING_TICKS, 7_200);
@@ -126,13 +133,13 @@ fn completed_lodge_and_tree_plot_gain_forestry_components() {
         &mut world,
         BuildingKind::ForesterLodge,
         CellCoord::new(0, 0),
-        ResourceAmounts::new(20, 30, 0, 0),
+        BuildingKind::ForesterLodge.definition().construction_cost(),
     );
     let plot = spawn_blueprint_with_progress(
         &mut world,
         BuildingKind::TreePlot,
         CellCoord::new(3, 1),
-        ResourceAmounts::new(5, 1, 0, 0),
+        BuildingKind::TreePlot.definition().construction_cost(),
     );
     world.entity_mut(plot).insert(TreePlotOwner::new(lodge));
 

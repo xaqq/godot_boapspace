@@ -10,7 +10,7 @@ use game_engine::farming::{
     farm_field_counts, field_crop_state, maintain_farming_tasks, place_field_blueprint,
     place_field_blueprints, system_advance_field_growth, system_harvest_fields, system_seed_fields,
     AiHarvestField, AiSeedField, FarmInventory, Farmer, FieldCrop, FieldCropState, FieldOwner,
-    FieldPlacementError, HarvestField, SeedField, FARM_INVENTORY_MAX_FOOD, FIELD_GROWTH_TICKS,
+    FieldPlacementError, HarvestField, SeedField, FARM_INVENTORY_MAX_CROPS, FIELD_GROWTH_TICKS,
     FIELD_HARVEST_TICKS, FIELD_SEEDING_TICKS, MAX_FIELDS_PER_FARM,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
@@ -204,13 +204,13 @@ fn completed_farm_and_field_gain_farming_components() {
         &mut world,
         BuildingKind::Farm,
         CellCoord::new(0, 0),
-        ResourceAmounts::new(20, 30, 0, 0),
+        BuildingKind::Farm.definition().construction_cost(),
     );
     let field = spawn_blueprint_with_progress(
         &mut world,
         BuildingKind::Field,
         CellCoord::new(3, 1),
-        ResourceAmounts::new(5, 1, 0, 0),
+        BuildingKind::Field.definition().construction_cost(),
     );
     world.entity_mut(field).insert(FieldOwner::new(farm));
 
@@ -421,7 +421,7 @@ fn crop_growth_reaches_grown_state_after_growth_duration() {
 }
 
 #[test]
-fn harvest_adds_food_to_farm_inventory_and_resets_field() {
+fn harvest_adds_crops_to_farm_inventory_and_resets_field() {
     let mut world = farming_world();
     let farm = spawn_farm(&mut world, CellCoord::new(0, 0));
     let field = spawn_field(
@@ -448,7 +448,7 @@ fn harvest_adds_food_to_farm_inventory_and_resets_field() {
         world
             .get::<FarmInventory>(farm)
             .expect("farm should have inventory")
-            .food(),
+            .crops(),
         1
     );
     assert_eq!(
@@ -483,7 +483,7 @@ fn harvest_interruption_removes_work_without_consuming_crop() {
     run_harvest_fields(&mut world);
 
     assert_eq!(field_crop_state(&world, field), Some(FieldCropState::Grown));
-    assert_eq!(world.get::<FarmInventory>(farm).unwrap().food(), 0);
+    assert_eq!(world.get::<FarmInventory>(farm).unwrap().crops(), 0);
     assert!(world.get::<AiHarvestField>(npc).is_none());
     assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
 }
@@ -515,8 +515,8 @@ fn full_farm_inventory_does_not_destroy_grown_crop() {
 
     assert_eq!(field_crop_state(&world, field), Some(FieldCropState::Grown));
     assert_eq!(
-        world.get::<FarmInventory>(farm).unwrap().food(),
-        FARM_INVENTORY_MAX_FOOD
+        world.get::<FarmInventory>(farm).unwrap().crops(),
+        FARM_INVENTORY_MAX_CROPS
     );
     assert!(world.get::<AiHarvestField>(npc).is_none());
     assert_eq!(npc_skill(&world, npc, SkillKind::Farmer), 0);
@@ -649,8 +649,8 @@ fn fill_farm_inventory(world: &mut World, farm: Entity) {
     let mut inventory = world
         .get_mut::<FarmInventory>(farm)
         .expect("farm should have inventory");
-    for _ in 0..FARM_INVENTORY_MAX_FOOD {
-        assert!(inventory.add_food(1));
+    for _ in 0..FARM_INVENTORY_MAX_CROPS {
+        assert!(inventory.add_crops(1));
     }
 }
 

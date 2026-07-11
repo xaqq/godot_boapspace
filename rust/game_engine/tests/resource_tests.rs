@@ -23,12 +23,41 @@ fn test_resource_amounts_default_to_zero() {
 
 #[test]
 fn test_resource_amounts_get_matches_constructor() {
-    let amounts = ResourceAmounts::new(1, 2, 3, 4);
+    let amounts = ResourceAmounts::of(ResourceKind::Wood, 1)
+        .with(ResourceKind::Stone, 2)
+        .with(ResourceKind::Food, 3)
+        .with(ResourceKind::Gold, 4)
+        .with(ResourceKind::Crops, 5)
+        .with(ResourceKind::WildBerries, 6)
+        .with(ResourceKind::Planks, 7)
+        .with(ResourceKind::StoneBlocks, 8);
 
     assert_eq!(amounts.get(ResourceKind::Wood), 1);
     assert_eq!(amounts.get(ResourceKind::Stone), 2);
     assert_eq!(amounts.get(ResourceKind::Food), 3);
     assert_eq!(amounts.get(ResourceKind::Gold), 4);
+    assert_eq!(amounts.get(ResourceKind::Crops), 5);
+    assert_eq!(amounts.get(ResourceKind::WildBerries), 6);
+    assert_eq!(amounts.get(ResourceKind::Planks), 7);
+    assert_eq!(amounts.get(ResourceKind::StoneBlocks), 8);
+    assert_eq!(amounts.total(), 36);
+}
+
+#[test]
+fn test_resource_kind_discriminants_and_iteration_contracts_are_stable() {
+    assert_eq!(
+        ResourceKind::ALL.map(|kind| kind as i64),
+        [0, 1, 2, 3, 4, 5, 6, 7]
+    );
+    assert_eq!(
+        ResourceKind::NATURAL,
+        [
+            ResourceKind::Wood,
+            ResourceKind::Stone,
+            ResourceKind::WildBerries,
+            ResourceKind::Gold,
+        ]
+    );
 }
 
 #[test]

@@ -1,8 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3]
 
-[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
-
-[node name="NpcDetailsPanel" type="NpcDetailsPanel" node_paths=PackedStringArray("close_button", "details_container", "empty_state_label", "name_label", "age_label", "birth_day_label", "pos_label", "hunger_label", "satiation_container", "satiation_progress_bar", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity", "skills_grid")]
+[node name="NpcDetailsPanel" type="NpcDetailsPanel" node_paths=PackedStringArray("close_button", "details_container", "empty_state_label", "name_label", "age_label", "birth_day_label", "pos_label", "hunger_label", "satiation_container", "satiation_progress_bar", "inventory_container", "inventory_label", "inventory_rows_container", "skills_grid")]
 close_button = NodePath("MarginContainer/VBoxContainer/Header/CloseButton")
 details_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer")
 empty_state_label = NodePath("MarginContainer/VBoxContainer/EmptyStateLabel")
@@ -15,10 +13,7 @@ satiation_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer/S
 satiation_progress_bar = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SatiationContainer/SatiationProgressBar")
 inventory_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer")
 inventory_label = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryLabel")
-wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
-stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
-food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
-gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
+inventory_rows_container = NodePath("MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryRows")
 skills_grid = NodePath("MarginContainer/VBoxContainer/DetailsContainer/SkillsGrid")
 custom_minimum_size = Vector2(620, 420)
 anchors_preset = 15
@@ -104,27 +99,9 @@ theme_override_constants/separation = 4
 layout_mode = 2
 text = "Inventory:"
 
-[node name="InventoryGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer"]
+[node name="InventoryRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer"]
 layout_mode = 2
-columns = 2
-theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 4
-
-[node name="WoodInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
-layout_mode = 2
-kind = 0
-
-[node name="StoneInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
-layout_mode = 2
-kind = 1
-
-[node name="FoodInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
-layout_mode = 2
-kind = 2
-
-[node name="GoldInventoryQuantity" parent="MarginContainer/VBoxContainer/DetailsContainer/InventoryContainer/InventoryGrid" instance=ExtResource("1_resource_quantity")]
-layout_mode = 2
-kind = 3
+theme_override_constants/separation = 4
 
 [node name="SkillsSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer/DetailsContainer"]
 layout_mode = 2

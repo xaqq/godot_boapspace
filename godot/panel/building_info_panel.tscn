@@ -1,9 +1,6 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3]
 
-[ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
-[ext_resource type="PackedScene" path="res://panel/resource_quantity_progress.tscn" id="2_resource_quantity_progress"]
-
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity", "housing_container", "housing_occupancy_label", "housing_rows")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
 visible = false
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
@@ -11,16 +8,19 @@ farming_info_label = NodePath("MarginContainer/VBoxContainer/farming_info_label"
 fields_button = NodePath("MarginContainer/VBoxContainer/FieldsButton")
 tree_plots_button = NodePath("MarginContainer/VBoxContainer/TreePlotsButton")
 construction_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer")
-wood_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/WoodConstructionProgress")
-stone_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/StoneConstructionProgress")
-food_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/FoodConstructionProgress")
-gold_construction_progress = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows/GoldConstructionProgress")
+construction_rows_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows")
 inventory_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer")
 inventory_label = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryLabel")
-wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/WoodInventoryQuantity")
-stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
-food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
-gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
+inventory_rows_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryRows")
+refinery_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer")
+refinery_input_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/InputLabel")
+refinery_input_rows_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer/InputRows")
+refinery_output_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/OutputLabel")
+refinery_output_rows_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer/OutputRows")
+refinery_recipe_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/RecipeLabel")
+refinery_progress_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/ProgressLabel")
+refinery_worker_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/WorkerLabel")
+refinery_blocked_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/BlockedLabel")
 housing_container = NodePath("MarginContainer/VBoxContainer/HousingContainer")
 housing_occupancy_label = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingOccupancyLabel")
 housing_rows = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingRows")
@@ -85,22 +85,6 @@ text = "Construction:"
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="WoodConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271525 instance=ExtResource("2_resource_quantity_progress")]
-layout_mode = 2
-kind = 0
-
-[node name="StoneConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271526 instance=ExtResource("2_resource_quantity_progress")]
-layout_mode = 2
-kind = 1
-
-[node name="FoodConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271527 instance=ExtResource("2_resource_quantity_progress")]
-layout_mode = 2
-kind = 2
-
-[node name="GoldConstructionProgress" parent="MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows" unique_id=1173271528 instance=ExtResource("2_resource_quantity_progress")]
-layout_mode = 2
-kind = 3
-
 [node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
 visible = false
 layout_mode = 2
@@ -110,27 +94,48 @@ theme_override_constants/separation = 4
 layout_mode = 2
 text = "Inventory:"
 
-[node name="InventoryGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271519]
+[node name="InventoryRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271519]
 layout_mode = 2
-columns = 2
-theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 4
+theme_override_constants/separation = 4
 
-[node name="WoodInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271520 instance=ExtResource("1_resource_quantity")]
+[node name="RefineryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+visible = false
 layout_mode = 2
-kind = 0
+theme_override_constants/separation = 4
 
-[node name="StoneInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271521 instance=ExtResource("1_resource_quantity")]
+[node name="InputLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
-kind = 1
+text = "Input Buffer: 0/100"
 
-[node name="FoodInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271522 instance=ExtResource("1_resource_quantity")]
+[node name="InputRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
-kind = 2
+theme_override_constants/separation = 4
 
-[node name="GoldInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271523 instance=ExtResource("1_resource_quantity")]
+[node name="OutputLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
-kind = 3
+text = "Output Buffer: 0/100"
+
+[node name="OutputRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="RecipeLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+layout_mode = 2
+text = "Recipes:"
+autowrap_mode = 2
+
+[node name="ProgressLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+layout_mode = 2
+text = "Progress: —"
+
+[node name="WorkerLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+layout_mode = 2
+text = "Worker: Unassigned"
+
+[node name="BlockedLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+visible = false
+layout_mode = 2
+text = ""
 
 [node name="HousingContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 visible = false

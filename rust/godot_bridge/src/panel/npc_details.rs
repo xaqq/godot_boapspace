@@ -1,4 +1,5 @@
 use super::resource_quantity::ResourceQuantity;
+use crate::assets::load_packed_scene;
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
@@ -10,11 +11,18 @@ use game_engine::npcs::{
 use game_engine::resources::ResourceKind;
 use game_engine::time::SECONDS_PER_DAY;
 use godot::classes::{
-    control, Button, GridContainer, IPanelContainer, Label, PanelContainer, ProgressBar,
-    VBoxContainer,
+    control, Button, GridContainer, IPanelContainer, Label, PackedScene, PanelContainer,
+    ProgressBar, VBoxContainer,
 };
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
+
+const RESOURCE_QUANTITY_SCENE_PATH: &str = "res://panel/resource_quantity.tscn";
+
+struct InventoryRowControl {
+    kind: ResourceKind,
+    node: Gd<ResourceQuantity>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NpcDetails {
@@ -121,35 +129,15 @@ pub(crate) fn satiation_progress_value(satiation_level: u32, max_satiation_level
     f64::from(satiation_level.min(max_satiation_level))
 }
 
-pub(crate) fn update_inventory(
-    inventory_container: &mut Gd<VBoxContainer>,
-    inventory_label: &mut Gd<Label>,
-    wood_quantity: &mut Gd<ResourceQuantity>,
-    stone_quantity: &mut Gd<ResourceQuantity>,
-    food_quantity: &mut Gd<ResourceQuantity>,
-    gold_quantity: &mut Gd<ResourceQuantity>,
-    inventory: NpcInventory,
-) {
-    let contents = inventory.contents();
-    inventory_label
-        .set_text(inventory_header_text(inventory.used_size(), inventory.max_size()).as_str());
-    wood_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Wood));
-    stone_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Stone));
-    food_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Food));
-    gold_quantity
-        .bind_mut()
-        .set_amount(contents.get(ResourceKind::Gold));
-    inventory_container.show();
-}
-
 pub(crate) fn inventory_header_text(used_size: u32, max_size: u32) -> String {
     format!("Inventory: {used_size}/{max_size}")
+}
+
+fn nonzero_resource_kinds(contents: game_engine::resources::ResourceAmounts) -> Vec<ResourceKind> {
+    ResourceKind::ALL
+        .into_iter()
+        .filter(|kind| contents.get(*kind) > 0)
+        .collect()
 }
 
 pub(crate) fn skill_percent_text(percent: u32) -> String {
@@ -218,22 +206,15 @@ pub(crate) struct NpcDetailsPanel {
     inventory_label: OnEditor<Gd<Label>>,
 
     #[export]
-    wood_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    stone_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    food_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
-
-    #[export]
-    gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
+    inventory_rows_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
     skills_grid: OnEditor<Gd<GridContainer>>,
 
     selected_npc_entity_id: Option<i64>,
     cached_view: Option<DetailsView>,
+    resource_quantity_scene: Option<Gd<PackedScene>>,
+    inventory_rows: Vec<InventoryRowControl>,
     skill_labels: Vec<Gd<Label>>,
     skill_progress_bars: Vec<Gd<ProgressBar>>,
     base: Base<PanelContainer>,
@@ -257,13 +238,12 @@ impl IPanelContainer for NpcDetailsPanel {
             satiation_progress_bar: OnEditor::default(),
             inventory_container: OnEditor::default(),
             inventory_label: OnEditor::default(),
-            wood_inventory_quantity: OnEditor::default(),
-            stone_inventory_quantity: OnEditor::default(),
-            food_inventory_quantity: OnEditor::default(),
-            gold_inventory_quantity: OnEditor::default(),
+            inventory_rows_container: OnEditor::default(),
             skills_grid: OnEditor::default(),
             selected_npc_entity_id: None,
             cached_view: None,
+            resource_quantity_scene: None,
+            inventory_rows: Vec::new(),
             skill_labels: Vec::new(),
             skill_progress_bars: Vec::new(),
             base,
@@ -271,6 +251,9 @@ impl IPanelContainer for NpcDetailsPanel {
     }
 
     fn ready(&mut self) {
+        self.resource_quantity_scene =
+            load_packed_scene(RESOURCE_QUANTITY_SCENE_PATH, "NpcDetailsPanel");
+
         let close_button = self.close_button.clone();
         close_button
             .signals()
@@ -377,6 +360,7 @@ impl NpcDetailsPanel {
         let mut details_container = self.details_container.clone();
         empty_state_label.show();
         details_container.hide();
+        self.sync_inventory_rows(NpcInventory::empty());
         self.clear_skill_rows();
     }
 
@@ -395,10 +379,6 @@ impl NpcDetailsPanel {
         let mut satiation_progress_bar = self.satiation_progress_bar.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut inventory_label = self.inventory_label.clone();
-        let mut wood_inventory_quantity = self.wood_inventory_quantity.clone();
-        let mut stone_inventory_quantity = self.stone_inventory_quantity.clone();
-        let mut food_inventory_quantity = self.food_inventory_quantity.clone();
-        let mut gold_inventory_quantity = self.gold_inventory_quantity.clone();
 
         name_label.set_text(format!("Name: {}", details.name).as_str());
         age_label.set_text(format!("Age: {}", details.age_years).as_str());
@@ -413,16 +393,50 @@ impl NpcDetailsPanel {
             details.satiation_level,
             details.max_satiation_level,
         );
-        update_inventory(
-            &mut inventory_container,
-            &mut inventory_label,
-            &mut wood_inventory_quantity,
-            &mut stone_inventory_quantity,
-            &mut food_inventory_quantity,
-            &mut gold_inventory_quantity,
-            details.inventory,
+        inventory_label.set_text(
+            inventory_header_text(details.inventory.used_size(), details.inventory.max_size())
+                .as_str(),
         );
+        inventory_container.show();
+        self.sync_inventory_rows(details.inventory);
         self.rebuild_skill_rows(&details.skills);
+    }
+
+    fn sync_inventory_rows(&mut self, inventory: NpcInventory) {
+        let Some(scene) = self.resource_quantity_scene.as_ref() else {
+            return;
+        };
+        let contents = inventory.contents();
+        let kinds = nonzero_resource_kinds(contents);
+        if self
+            .inventory_rows
+            .iter()
+            .map(|row| row.kind)
+            .collect::<Vec<_>>()
+            != kinds
+        {
+            for mut row in self.inventory_rows.drain(..) {
+                row.node.queue_free();
+            }
+            let mut container = self.inventory_rows_container.clone();
+            for kind in &kinds {
+                let Some(node) = scene.instantiate() else {
+                    godot_error!("NpcDetailsPanel: failed to instantiate inventory row");
+                    return;
+                };
+                let Ok(mut node) = node.try_cast::<ResourceQuantity>() else {
+                    godot_error!("NpcDetailsPanel: inventory row has unexpected root type");
+                    return;
+                };
+                node.bind_mut().set_resource_kind(*kind);
+                container.add_child(&node);
+                self.inventory_rows
+                    .push(InventoryRowControl { kind: *kind, node });
+            }
+        }
+        for row in &mut self.inventory_rows {
+            row.node.bind_mut().set_amount(contents.get(row.kind));
+        }
     }
 
     fn clear_skill_rows(&mut self) {
@@ -501,7 +515,7 @@ mod tests {
                 BirthDate::new(Duration::from_secs(35 * SECONDS_PER_DAY)),
                 NpcHunger::new(12),
                 NpcInventory::new(ResourceAmounts::new(1, 2, 3, 4)),
-                NpcSkills::new([0, 0, 123, 2500, 5000, 10_000]),
+                NpcSkills::new([0, 0, 123, 2500, 5000, 10_000, 0, 0, 0]),
             ))
             .id();
 
@@ -562,6 +576,23 @@ mod tests {
         assert_eq!(skill_percent_text(42), "42%");
         assert_eq!(skill_percent_text(142), "100%");
         assert_eq!(skill_raw_value_tooltip_text(12_000), "10000/10000");
+    }
+
+    #[test]
+    fn inventory_rows_include_only_nonzero_resources_in_stable_order() {
+        let contents = ResourceAmounts::zero()
+            .with(ResourceKind::Food, 3)
+            .with(ResourceKind::WildBerries, 2)
+            .with(ResourceKind::StoneBlocks, 1);
+
+        assert_eq!(
+            nonzero_resource_kinds(contents),
+            vec![
+                ResourceKind::Food,
+                ResourceKind::WildBerries,
+                ResourceKind::StoneBlocks,
+            ]
+        );
     }
 
     #[test]

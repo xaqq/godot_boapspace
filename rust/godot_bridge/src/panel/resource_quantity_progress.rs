@@ -68,14 +68,6 @@ impl ResourceQuantityProgress {
         progress_bar.set_tooltip_text(tooltip.as_str());
     }
 
-    pub(crate) fn show_progress(&mut self) {
-        self.base_mut().show();
-    }
-
-    pub(crate) fn hide_progress(&mut self) {
-        self.base_mut().hide();
-    }
-
     fn refresh_resource_kind(&mut self) {
         let mut deposited_quantity = self.deposited_quantity.clone();
         deposited_quantity.bind_mut().set_resource_kind(self.kind);

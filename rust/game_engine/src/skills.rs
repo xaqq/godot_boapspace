@@ -2,7 +2,7 @@ use crate::resources::ResourceKind;
 use bevy_ecs::prelude::Component;
 
 pub const MAX_SKILL_VALUE: u32 = 10_000;
-pub const SKILL_KIND_COUNT: usize = 6;
+pub const SKILL_KIND_COUNT: usize = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(usize)]
@@ -13,6 +13,9 @@ pub enum SkillKind {
     Quarryman = 3,
     Forager = 4,
     Prospector = 5,
+    Sawyer = 6,
+    Stonemason = 7,
+    Cook = 8,
 }
 
 impl SkillKind {
@@ -23,6 +26,9 @@ impl SkillKind {
         Self::Quarryman,
         Self::Forager,
         Self::Prospector,
+        Self::Sawyer,
+        Self::Stonemason,
+        Self::Cook,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -33,18 +39,43 @@ impl SkillKind {
             Self::Quarryman => "Quarryman",
             Self::Forager => "Forager",
             Self::Prospector => "Prospector",
+            Self::Sawyer => "Sawyer",
+            Self::Stonemason => "Stonemason",
+            Self::Cook => "Cook",
         }
     }
 
-    pub const fn for_gathered_resource(kind: ResourceKind) -> Self {
+    pub const fn try_for_gathered_resource(kind: ResourceKind) -> Option<Self> {
         match kind {
-            ResourceKind::Wood => Self::Lumberjack,
-            ResourceKind::Stone => Self::Quarryman,
-            ResourceKind::Food => Self::Forager,
-            ResourceKind::Gold => Self::Prospector,
+            ResourceKind::Wood => Some(Self::Lumberjack),
+            ResourceKind::Stone => Some(Self::Quarryman),
+            ResourceKind::WildBerries => Some(Self::Forager),
+            ResourceKind::Gold => Some(Self::Prospector),
+            ResourceKind::Food
+            | ResourceKind::Crops
+            | ResourceKind::Planks
+            | ResourceKind::StoneBlocks => None,
+        }
+    }
+
+    /// Compatibility helper for gathering systems whose target is already
+    /// constrained to a natural resource node.
+    pub const fn for_gathered_resource(kind: ResourceKind) -> Self {
+        match Self::try_for_gathered_resource(kind) {
+            Some(skill) => skill,
+            None => panic!("gathered-resource skills are defined only for natural resources"),
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Sawyer;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Stonemason;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct Cook;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillRank {
@@ -166,6 +197,9 @@ mod tests {
                 "Quarryman",
                 "Forager",
                 "Prospector",
+                "Sawyer",
+                "Stonemason",
+                "Cook",
             ]
         );
     }
@@ -181,13 +215,23 @@ mod tests {
             SkillKind::Quarryman
         );
         assert_eq!(
-            SkillKind::for_gathered_resource(ResourceKind::Food),
+            SkillKind::for_gathered_resource(ResourceKind::WildBerries),
             SkillKind::Forager
         );
         assert_eq!(
             SkillKind::for_gathered_resource(ResourceKind::Gold),
             SkillKind::Prospector
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "only for natural resources")]
+    fn non_natural_resources_have_no_gathering_skill() {
+        assert_eq!(
+            SkillKind::try_for_gathered_resource(ResourceKind::Food),
+            None
+        );
+        let _ = SkillKind::for_gathered_resource(ResourceKind::Food);
     }
 
     #[test]
@@ -230,7 +274,7 @@ mod tests {
 
     #[test]
     fn xp_saturates_at_max_value() {
-        let mut skills = NpcSkills::new([0, 0, 9_999, 0, 0, 0]);
+        let mut skills = NpcSkills::new([0, 0, 9_999, 0, 0, 0, 0, 0, 0]);
 
         skills.add_xp(SkillKind::Lumberjack, 10);
 
