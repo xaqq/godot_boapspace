@@ -103,7 +103,7 @@ impl IPanelContainer for NpcInfoPanel {
             &mut satiation_progress_bar,
             NpcHunger::MAX_SATIATION_LEVEL,
         );
-        self.set_details_button_enabled(false);
+        self.clear_and_hide();
 
         self.base_mut().set_process(true);
     }
@@ -120,8 +120,7 @@ impl NpcInfoPanel {
     }
 
     fn deselect_npc(&mut self) {
-        self.selected_npc_entity_id = None;
-        self.clear_npc_labels();
+        self.clear_and_hide();
     }
 
     fn refresh_selected_npc(&mut self) {
@@ -134,13 +133,13 @@ impl NpcInfoPanel {
         };
 
         let Some(info) = info else {
-            self.selected_npc_entity_id = None;
-            self.clear_npc_labels();
+            self.clear_and_hide();
             return;
         };
 
         self.update_npc_labels(info);
         self.set_details_button_enabled(true);
+        self.base_mut().show();
     }
 
     fn update_npc_labels(&mut self, info: NpcDetails) {
@@ -185,7 +184,9 @@ impl NpcInfoPanel {
         );
     }
 
-    fn clear_npc_labels(&mut self) {
+    fn clear_and_hide(&mut self) {
+        self.selected_npc_entity_id = None;
+
         let mut name_label = self.name_label.clone();
         let mut age_label = self.age_label.clone();
         let mut birth_day_label = self.birth_day_label.clone();
@@ -207,6 +208,7 @@ impl NpcInfoPanel {
         inventory_label.set_text("Inventory:");
         inventory_container.hide();
         self.set_details_button_enabled(false);
+        self.base_mut().hide();
     }
 
     fn set_details_button_enabled(&mut self, enabled: bool) {

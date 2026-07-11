@@ -136,6 +136,7 @@ impl IPanelContainer for BuildingInfoPanel {
             },
         );
 
+        self.clear_selection_and_hide();
         self.base_mut().set_process(true);
     }
 
@@ -151,8 +152,7 @@ impl BuildingInfoPanel {
     }
 
     fn deselect_building(&mut self) {
-        self.selected_building_entity_id = None;
-        self.clear_building_labels();
+        self.clear_selection_and_hide();
     }
 
     fn refresh_selected_building(&mut self) {
@@ -165,12 +165,12 @@ impl BuildingInfoPanel {
         };
 
         let Some(info) = info else {
-            self.selected_building_entity_id = None;
-            self.clear_building_labels();
+            self.clear_selection_and_hide();
             return;
         };
 
         self.update_building_labels(info);
+        self.base_mut().show();
     }
 
     fn update_building_labels(&mut self, info: BuildingInfo) {
@@ -230,7 +230,8 @@ impl BuildingInfoPanel {
         self.update_housing(info.housing);
     }
 
-    fn clear_building_labels(&mut self) {
+    fn clear_selection_and_hide(&mut self) {
+        self.selected_building_entity_id = None;
         let mut name_label = self.name_label.clone();
         let mut footprint_label = self.footprint_label.clone();
         let mut farming_info_label = self.farming_info_label.clone();
@@ -252,6 +253,7 @@ impl BuildingInfoPanel {
         );
         self.clear_housing_rows();
         self.cached_housing = None;
+        self.base_mut().hide();
     }
 
     fn update_housing(&mut self, housing: Option<HousingInfo>) {
