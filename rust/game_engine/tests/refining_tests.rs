@@ -13,7 +13,7 @@ use game_engine::refining::{
     REFINERY_OUTPUT_CAPACITY, REFINING_TICKS_PER_UNIT,
 };
 use game_engine::resources::ResourceKind;
-use game_engine::skills::{NpcSkills, Sawyer, SkillKind};
+use game_engine::skills::{Cook, NpcSkills, Sawyer, SkillKind};
 use game_engine::tile::{TileBundle, TileIndex};
 
 #[test]
@@ -73,6 +73,75 @@ fn refinery_buffers_are_separate_and_capacity_limited() {
     assert!(!inventory.add_output(BuildingKind::Kitchen, ResourceKind::Food, 1));
     assert_eq!(inventory.input_contents().get(ResourceKind::Crops), 100);
     assert_eq!(inventory.output_contents().get(ResourceKind::Food), 100);
+}
+
+#[test]
+fn empty_kitchen_waits_without_assigning_cooks_until_input_arrives() {
+    let mut world = navigation_world();
+    let kitchen = world
+        .spawn((
+            Building::new(
+                BuildingKind::Kitchen,
+                BuildingFootprint::new(CellCoord::new(3, 3), 2, 2),
+            ),
+            RefineryInventory::empty(),
+            RefineryProduction::default(),
+        ))
+        .id();
+    let cooks = [
+        world
+            .spawn((
+                Npc,
+                Cook,
+                NpcPosition::new(CellCoord::new(2, 3)),
+                CarriedResource::empty(),
+            ))
+            .id(),
+        world
+            .spawn((
+                Npc,
+                Cook,
+                NpcPosition::new(CellCoord::new(2, 4)),
+                CarriedResource::empty(),
+            ))
+            .id(),
+    ];
+    world.run_system_once(maintain_refining_tasks).unwrap();
+
+    for _ in 0..3 {
+        assign_refining_work(&mut world);
+    }
+
+    assert!(cooks
+        .iter()
+        .all(|cook| world.get::<AiRefineResource>(*cook).is_none()));
+    assert!(world.resource::<ReservationLedger>().claims().is_empty());
+    assert_eq!(
+        world
+            .get::<RefineryProduction>(kitchen)
+            .unwrap()
+            .assigned_worker(),
+        None
+    );
+
+    assert!(world
+        .get_mut::<RefineryInventory>(kitchen)
+        .unwrap()
+        .add_input(BuildingKind::Kitchen, ResourceKind::Crops, 1));
+    assign_refining_work(&mut world);
+
+    let assigned = cooks
+        .iter()
+        .filter_map(|cook| {
+            world
+                .get::<AiRefineResource>(*cook)
+                .map(|work| (*cook, *work))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(assigned.len(), 1);
+    assert_eq!(assigned[0].1.refinery(), kitchen);
+    assert_eq!(assigned[0].1.recipe(), RecipeKind::CookCrops);
+    assert_eq!(world.resource::<ReservationLedger>().claims().len(), 1);
 }
 
 #[test]

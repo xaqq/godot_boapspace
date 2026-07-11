@@ -432,6 +432,15 @@ impl RefiningTaskBundle {
     }
 }
 
+#[derive(Debug)]
+struct RefiningOpportunity {
+    task: Entity,
+    refinery: Entity,
+    building_kind: BuildingKind,
+    recipe: RecipeKind,
+    goals: Vec<crate::grid::CellCoord>,
+}
+
 pub fn maintain_refining_tasks(
     mut commands: Commands,
     refineries: Query<(Entity, &Building), With<RefineryInventory>>,
@@ -470,6 +479,20 @@ pub fn assign_refining_work(world: &mut World) {
         return;
     };
 
+    let claimed_refineries = world
+        .resource::<ReservationLedger>()
+        .claims()
+        .iter()
+        .filter_map(|claim| match claim.sink {
+            SinkEndpoint::RefineryOutput(entity) => Some(entity),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let opportunities = refining_opportunities(world, &snapshot, &claimed_refineries);
+    if opportunities.is_empty() {
+        return;
+    }
+
     let mut worker_query = world.query_filtered::<(
         Entity,
         &NpcPosition,
@@ -492,55 +515,22 @@ pub fn assign_refining_work(world: &mut World) {
         })
         .collect::<Vec<_>>();
     workers.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
-
-    let claimed_refineries = world
-        .resource::<ReservationLedger>()
-        .claims()
-        .iter()
-        .filter_map(|claim| match claim.sink {
-            SinkEndpoint::RefineryOutput(entity) => Some(entity),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
-
-    let mut task_query = world.query::<(Entity, &RefiningTask)>();
-    let tasks = task_query
-        .iter(world)
-        .map(|(entity, task)| (entity, *task))
-        .collect::<Vec<_>>();
     let mut newly_claimed = claimed_refineries;
 
     for (worker, position, sawyer, stonemason, cook) in workers {
         let mut distances = None;
         let mut candidates = Vec::new();
-        for (task_entity, task) in &tasks {
-            let refinery = task.refinery();
-            if newly_claimed.contains(&refinery) {
+        for opportunity in &opportunities {
+            if newly_claimed.contains(&opportunity.refinery) {
                 continue;
             }
-            let Some(building) = world.get::<Building>(refinery).copied() else {
-                continue;
-            };
-            if !world
-                .get::<BuildingActivity>(refinery)
-                .is_none_or(|activity| activity.is_active())
-            {
-                continue;
-            }
-            let Some(inventory) = world.get::<RefineryInventory>(refinery).copied() else {
-                continue;
-            };
-            let production = world
-                .get::<RefineryProduction>(refinery)
-                .copied()
-                .unwrap_or_default();
-            let eligible = match building.kind {
+            let eligible = match opportunity.building_kind {
                 BuildingKind::Sawmill => sawyer,
                 BuildingKind::Stoneworks => stonemason,
                 BuildingKind::Kitchen => cook,
                 _ => false,
             };
-            if !eligible || inventory.output_free_size() == 0 {
+            if !eligible {
                 continue;
             }
             let distances = distances
@@ -549,29 +539,20 @@ pub fn assign_refining_work(world: &mut World) {
             let Some(distances) = distances else {
                 continue;
             };
-            let goals = snapshot.exterior_interaction_cells(building.footprint);
-            let Some((_, refinery_distance)) = distances.closest_reachable(goals) else {
-                continue;
-            };
-            let recipe = production.recipe().or_else(|| {
-                recipes_for_building(building.kind)
-                    .iter()
-                    .copied()
-                    .find(|recipe| inventory.input_contents().get(recipe.definition().input()) > 0)
-            });
-            let Some(recipe) = recipe else {
+            let Some((_, refinery_distance)) =
+                distances.closest_reachable(opportunity.goals.iter().copied())
+            else {
                 continue;
             };
             candidates.push((
                 refinery_distance,
-                refinery.to_bits(),
-                *task_entity,
-                refinery,
-                recipe,
-                None,
+                opportunity.refinery.to_bits(),
+                opportunity.task,
+                opportunity.refinery,
+                opportunity.recipe,
             ));
         }
-        let Some((_, _, task, refinery, recipe, source)) = candidates
+        let Some((_, _, task, refinery, recipe)) = candidates
             .into_iter()
             .min_by_key(|candidate| (candidate.0, candidate.1))
         else {
@@ -580,7 +561,7 @@ pub fn assign_refining_work(world: &mut World) {
 
         let claim = Reservation {
             worker,
-            source,
+            source: None,
             sink: SinkEndpoint::RefineryOutput(refinery),
             kind: recipe.definition().output(),
             amount: 1,
@@ -605,6 +586,61 @@ pub fn assign_refining_work(world: &mut World) {
             assignment.assign(worker);
         }
     }
+}
+
+fn refining_opportunities(
+    world: &mut World,
+    snapshot: &NavigationSnapshot,
+    claimed_refineries: &HashSet<Entity>,
+) -> Vec<RefiningOpportunity> {
+    let mut task_query = world.query::<(Entity, &RefiningTask)>();
+    let mut tasks = task_query
+        .iter(world)
+        .map(|(entity, task)| (entity, *task))
+        .collect::<Vec<_>>();
+    tasks.sort_unstable_by_key(|(entity, _)| entity.to_bits());
+
+    tasks
+        .into_iter()
+        .filter_map(|(task, refining_task)| {
+            let refinery = refining_task.refinery();
+            if claimed_refineries.contains(&refinery) {
+                return None;
+            }
+            let building = world.get::<Building>(refinery).copied()?;
+            if !world
+                .get::<BuildingActivity>(refinery)
+                .is_none_or(|activity| activity.is_active())
+            {
+                return None;
+            }
+            let inventory = world.get::<RefineryInventory>(refinery).copied()?;
+            if inventory.output_free_size() == 0 {
+                return None;
+            }
+            let production = world
+                .get::<RefineryProduction>(refinery)
+                .copied()
+                .unwrap_or_default();
+            let recipe = production.recipe().or_else(|| {
+                recipes_for_building(building.kind)
+                    .iter()
+                    .copied()
+                    .find(|recipe| inventory.input_contents().get(recipe.definition().input()) > 0)
+            })?;
+            let goals = snapshot.exterior_interaction_cells(building.footprint);
+            if goals.is_empty() {
+                return None;
+            }
+            Some(RefiningOpportunity {
+                task,
+                refinery,
+                building_kind: building.kind,
+                recipe,
+                goals,
+            })
+        })
+        .collect()
 }
 
 pub fn route_and_advance_refining_work(world: &mut World) {
@@ -1202,6 +1238,57 @@ mod tests {
     use crate::buildings::BuildingFootprint;
     use crate::grid::{CellCoord, Grid, GridSize};
     use crate::tile::{TileBundle, TileIndex};
+    use bevy_ecs::system::RunSystemOnce;
+
+    #[test]
+    fn opportunity_discovery_filters_non_actionable_kitchens() {
+        let mut world = navigation_world();
+        let kitchen = world
+            .spawn((
+                Building::new(
+                    BuildingKind::Kitchen,
+                    BuildingFootprint::new(CellCoord::new(3, 3), 2, 2),
+                ),
+                RefineryInventory::empty(),
+                RefineryProduction::default(),
+                BuildingActivity::active(),
+            ))
+            .id();
+        world.run_system_once(maintain_refining_tasks).unwrap();
+        let snapshot = current_navigation_snapshot(&mut world).unwrap();
+        let claimed = HashSet::new();
+
+        assert!(refining_opportunities(&mut world, &snapshot, &claimed).is_empty());
+
+        assert!(world
+            .get_mut::<RefineryInventory>(kitchen)
+            .unwrap()
+            .add_input(BuildingKind::Kitchen, ResourceKind::Crops, 1));
+        let opportunities = refining_opportunities(&mut world, &snapshot, &claimed);
+        assert_eq!(opportunities.len(), 1);
+        assert_eq!(opportunities[0].refinery, kitchen);
+        assert_eq!(opportunities[0].recipe, RecipeKind::CookCrops);
+
+        world
+            .get_mut::<BuildingActivity>(kitchen)
+            .unwrap()
+            .set_active(false);
+        assert!(refining_opportunities(&mut world, &snapshot, &claimed).is_empty());
+
+        world
+            .get_mut::<BuildingActivity>(kitchen)
+            .unwrap()
+            .set_active(true);
+        assert!(world
+            .get_mut::<RefineryInventory>(kitchen)
+            .unwrap()
+            .add_output(
+                BuildingKind::Kitchen,
+                ResourceKind::Food,
+                REFINERY_OUTPUT_CAPACITY
+            ));
+        assert!(refining_opportunities(&mut world, &snapshot, &claimed).is_empty());
+    }
 
     #[test]
     fn source_selection_skips_unreachable_stock() {
