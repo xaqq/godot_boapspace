@@ -132,13 +132,6 @@ layout_mode = 2
 game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparator3" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709328]
-layout_mode = 2
-
-[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781408 node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
-layout_mode = 2
-
 [node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
 clip_contents = true
 layout_mode = 2
@@ -174,6 +167,9 @@ navigation_enabled = false
 navigation_enabled = false
 
 [node name="MapEntityTooltipPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("9_map_entity_tooltip_panel")]
+game_world = NodePath("../SubViewport/GameWorld")
+
+[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
 game_world = NodePath("../SubViewport/GameWorld")
 
 [node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]

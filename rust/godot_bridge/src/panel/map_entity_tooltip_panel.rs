@@ -6,7 +6,9 @@ use game_engine::buildings::{
 };
 use game_engine::components::{Tile, TilePosition};
 use game_engine::housing::housing_snapshot;
-use game_engine::npcs::{BirthDate, Npc, NpcInventory, NpcName, NpcPosition, WorldDateTime};
+use game_engine::npcs::{
+    BirthDate, CarriedResource, FoodPouch, Npc, NpcName, NpcPosition, WorldDateTime,
+};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{control, IPanelContainer, PanelContainer, RichTextLabel};
@@ -172,14 +174,16 @@ fn npc_tooltip_text(world: &World, entity: Entity) -> Option<String> {
     let position = world.get::<NpcPosition>(entity)?;
     let name = world.get::<NpcName>(entity)?;
     let birth_date = world.get::<BirthDate>(entity)?;
-    let inventory = world.get::<NpcInventory>(entity)?;
+    let food_pouch = world.get::<FoodPouch>(entity)?;
+    let carried_resource = world.get::<CarriedResource>(entity)?;
     let world_date_time = *world.resource::<WorldDateTime>();
 
     Some(format_npc_tooltip(
         name.as_str(),
         position.coord,
         world_date_time.age_years_since(*birth_date),
-        *inventory,
+        *food_pouch,
+        *carried_resource,
     ))
 }
 
@@ -233,17 +237,22 @@ fn format_npc_tooltip(
     name: &str,
     coord: game_engine::grid::CellCoord,
     age_years: u32,
-    inventory: NpcInventory,
+    food_pouch: FoodPouch,
+    carried_resource: CarriedResource,
 ) -> String {
+    let cargo = carried_resource.stack().map_or_else(
+        || "Empty".to_string(),
+        |stack| format!("{}: {}/5", stack.kind().label(), stack.amount()),
+    );
     format!(
-        "[b]{}[/b]\nNPC\nCell: ({}, {})\nAge: {}\nInventory: {}/{} ({})",
+        "[b]{}[/b]\nNPC\nCell: ({}, {})\nAge: {}\nFood Pouch: {}/{}\nCarried Resource: {}",
         name,
         coord.x(),
         coord.y(),
         age_years,
-        inventory.used_size(),
-        inventory.max_size(),
-        format_resource_amounts(inventory.contents())
+        food_pouch.amount(),
+        food_pouch.capacity(),
+        cargo,
     )
 }
 
@@ -262,18 +271,6 @@ fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmoun
         .filter_map(|kind| {
             let required = cost.get(kind);
             (required > 0).then(|| format!("{}: {}/{}", kind.label(), progress.get(kind), required))
-        })
-        .collect::<Vec<_>>();
-
-    format_parts_or_none(parts)
-}
-
-fn format_resource_amounts(amounts: ResourceAmounts) -> String {
-    let parts = ResourceKind::ALL
-        .into_iter()
-        .filter_map(|kind| {
-            let amount = amounts.get(kind);
-            (amount > 0).then(|| format!("{}: {}", kind.label(), amount))
         })
         .collect::<Vec<_>>();
 
@@ -342,22 +339,29 @@ mod tests {
             "Mara Voss",
             CellCoord::new(8, 9),
             32,
-            NpcInventory::new(ResourceAmounts::new(2, 0, 4, 0)),
+            FoodPouch::new(20),
+            CarriedResource::of(ResourceKind::Wood, 2),
         );
 
         assert_eq!(
             text,
-            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: 6/100 (Wood: 2, Food: 4)"
+            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nFood Pouch: 20/100\nCarried Resource: Wood: 2/5"
         );
     }
 
     #[test]
     fn npc_tooltip_formats_empty_inventory_as_none() {
-        let text = format_npc_tooltip("Mara Voss", CellCoord::new(8, 9), 32, NpcInventory::empty());
+        let text = format_npc_tooltip(
+            "Mara Voss",
+            CellCoord::new(8, 9),
+            32,
+            FoodPouch::empty(),
+            CarriedResource::empty(),
+        );
 
         assert_eq!(
             text,
-            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nInventory: 0/100 (None)"
+            "[b]Mara Voss[/b]\nNPC\nCell: (8, 9)\nAge: 32\nFood Pouch: 0/100\nCarried Resource: Empty"
         );
     }
 

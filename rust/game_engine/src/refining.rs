@@ -5,7 +5,7 @@ use bevy_ecs::prelude::*;
 use crate::ai::RESOURCE_GATHER_TICKS_PER_UNIT;
 use crate::buildings::{Building, BuildingKind, WarehouseInventory};
 use crate::components::{
-    AiConstructBuilding, AiGatherResource, AiSearchForFood, MovementTarget, Npc, NpcInventory,
+    AiConstructBuilding, AiGatherResource, AiSearchForFood, CarriedResource, MovementTarget, Npc,
     NpcPosition, ResourceNode, TilePosition,
 };
 use crate::farming::{AiHarvestField, AiSeedField, FarmInventory};
@@ -216,7 +216,7 @@ impl RefineryProduction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StockEndpoint {
     NaturalNode(Entity),
-    NpcInventory(Entity),
+    CarriedResource(Entity),
     Warehouse(Entity),
     Farm(Entity),
     ForesterLodge(Entity),
@@ -227,7 +227,7 @@ pub enum StockEndpoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SinkEndpoint {
     Blueprint(Entity),
-    NpcInventory(Entity),
+    FoodPouch(Entity),
     RefineryInput(Entity),
     RefineryOutput(Entity),
 }
@@ -626,7 +626,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
     let Some(snapshot) = current_navigation_snapshot(world) else {
         return;
     };
-    let mut query = world.query::<(Entity, &NpcPosition, &NpcInventory, &AiRefineResource)>();
+    let mut query = world.query::<(Entity, &NpcPosition, &CarriedResource, &AiRefineResource)>();
     let mut workers = query
         .iter(world)
         .map(|(entity, position, inventory, work)| (entity, *position, *inventory, *work))
@@ -653,7 +653,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                 if goals.is_empty() {
                     release_refining_worker(world, worker, work);
                 } else if goals.contains(&position.coord)
-                    || source == StockEndpoint::NpcInventory(worker)
+                    || source == StockEndpoint::CarriedResource(worker)
                 {
                     world.entity_mut(worker).remove::<NpcRoute>();
                     world.entity_mut(worker).remove::<MovementTarget>();
@@ -661,7 +661,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                         work.phase = RefiningPhase::Gathering { progress_ticks: 0 };
                     } else if withdraw_source(world, source, work.recipe.definition().input(), 1)
                         && world
-                            .get_mut::<NpcInventory>(worker)
+                            .get_mut::<CarriedResource>(worker)
                             .is_some_and(|mut inv| inv.add(work.recipe.definition().input(), 1))
                     {
                         work.phase = RefiningPhase::ToRefinery;
@@ -700,7 +700,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                 }
                 let kind = work.recipe.definition().input();
                 let added = world
-                    .get_mut::<NpcInventory>(worker)
+                    .get_mut::<CarriedResource>(worker)
                     .is_some_and(|mut inv| inv.add(kind, 1));
                 if !added {
                     release_refining_worker(world, worker, work);
@@ -752,7 +752,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                         .is_some_and(|inventory| inventory.input_free_size() > 0);
                     let withdrawn = can_accept
                         && world
-                            .get_mut::<NpcInventory>(worker)
+                            .get_mut::<CarriedResource>(worker)
                             .is_some_and(|mut inv| inv.consume(input, 1));
                     let deposited = withdrawn
                         && world
@@ -761,7 +761,7 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                     if !deposited {
                         if withdrawn {
                             let _ = world
-                                .get_mut::<NpcInventory>(worker)
+                                .get_mut::<CarriedResource>(worker)
                                 .is_some_and(|mut inventory| inventory.add(input, 1));
                         }
                         release_refining_worker(world, worker, work);
@@ -889,7 +889,7 @@ fn choose_recipe_and_source(
             if source_stock(world, source, kind).saturating_sub(reserved) == 0 {
                 continue;
             }
-            let distance = if source == StockEndpoint::NpcInventory(worker) {
+            let distance = if source == StockEndpoint::CarriedResource(worker) {
                 0
             } else {
                 let goals = source_interaction_cells(world, snapshot, source, worker);
@@ -921,10 +921,10 @@ pub(crate) fn stock_sources(
 ) -> Vec<StockEndpoint> {
     let mut sources = Vec::new();
     if world
-        .get::<NpcInventory>(worker)
+        .get::<CarriedResource>(worker)
         .is_some_and(|inv| inv.contents().get(kind) > 0)
     {
-        sources.push(StockEndpoint::NpcInventory(worker));
+        sources.push(StockEndpoint::CarriedResource(worker));
     }
     if let Some(mut query) = world.try_query::<(Entity, &ResourceNode)>() {
         sources.extend(query.iter(world).filter_map(|(entity, node)| {
@@ -975,7 +975,7 @@ pub(crate) fn source_interaction_cells(
     source: StockEndpoint,
     worker: Entity,
 ) -> Vec<crate::grid::CellCoord> {
-    if source == StockEndpoint::NpcInventory(worker) {
+    if source == StockEndpoint::CarriedResource(worker) {
         return world
             .get::<NpcPosition>(worker)
             .map(|position| vec![position.coord])
@@ -999,8 +999,8 @@ pub(crate) fn source_stock(world: &World, source: StockEndpoint, kind: ResourceK
             .get::<ResourceNode>(entity)
             .filter(|node| node.kind == kind)
             .map_or(0, |node| node.quantity),
-        StockEndpoint::NpcInventory(entity) => world
-            .get::<NpcInventory>(entity)
+        StockEndpoint::CarriedResource(entity) => world
+            .get::<CarriedResource>(entity)
             .map_or(0, |inv| inv.contents().get(kind)),
         StockEndpoint::Warehouse(entity) => world
             .get::<WarehouseInventory>(entity)
@@ -1028,8 +1028,8 @@ pub(crate) fn withdraw_source(
 ) -> bool {
     match source {
         StockEndpoint::NaturalNode(_) => false,
-        StockEndpoint::NpcInventory(entity) => world
-            .get_mut::<NpcInventory>(entity)
+        StockEndpoint::CarriedResource(entity) => world
+            .get_mut::<CarriedResource>(entity)
             .is_some_and(|mut inv| inv.consume(kind, amount)),
         StockEndpoint::Warehouse(entity) => world
             .get_mut::<WarehouseInventory>(entity)
@@ -1052,7 +1052,7 @@ pub(crate) fn withdraw_source(
 pub(crate) fn endpoint_entity(endpoint: StockEndpoint) -> Entity {
     match endpoint {
         StockEndpoint::NaturalNode(entity)
-        | StockEndpoint::NpcInventory(entity)
+        | StockEndpoint::CarriedResource(entity)
         | StockEndpoint::Warehouse(entity)
         | StockEndpoint::Farm(entity)
         | StockEndpoint::ForesterLodge(entity)
@@ -1064,7 +1064,7 @@ pub(crate) fn endpoint_entity(endpoint: StockEndpoint) -> Entity {
 fn endpoint_order(endpoint: StockEndpoint) -> u8 {
     match endpoint {
         StockEndpoint::NaturalNode(_) => 0,
-        StockEndpoint::NpcInventory(_) => 1,
+        StockEndpoint::CarriedResource(_) => 1,
         StockEndpoint::Warehouse(_) => 2,
         StockEndpoint::Farm(_) => 3,
         StockEndpoint::ForesterLodge(_) => 4,
@@ -1192,7 +1192,7 @@ mod tests {
         let worker = world
             .spawn((
                 NpcPosition::new(CellCoord::new(0, 0)),
-                NpcInventory::default(),
+                CarriedResource::default(),
             ))
             .id();
         let refinery = world.spawn_empty().id();
@@ -1239,7 +1239,7 @@ mod tests {
         let worker = world
             .spawn((
                 NpcPosition::new(CellCoord::new(4, 4)),
-                NpcInventory::default(),
+                CarriedResource::default(),
             ))
             .id();
         let refinery = world.spawn_empty().id();
@@ -1298,12 +1298,7 @@ mod tests {
             world.spawn_empty();
         }
 
-        let worker = world
-            .spawn(NpcInventory::new(ResourceAmounts::of(
-                ResourceKind::Wood,
-                1,
-            )))
-            .id();
+        let worker = world.spawn(CarriedResource::of(ResourceKind::Wood, 1)).id();
         let natural_node = world
             .spawn(ResourceNode {
                 kind: ResourceKind::Wood,
@@ -1327,7 +1322,7 @@ mod tests {
         world.spawn(WarehouseInventory::empty());
 
         let mut expected = vec![
-            StockEndpoint::NpcInventory(worker),
+            StockEndpoint::CarriedResource(worker),
             StockEndpoint::NaturalNode(natural_node),
             StockEndpoint::Warehouse(warehouse),
             StockEndpoint::ForesterLodge(lodge),
@@ -1347,7 +1342,7 @@ mod tests {
     #[test]
     fn stock_sources_query_farm_inventory_and_ignore_empty_inventory() {
         let mut world = World::new();
-        let worker = world.spawn(NpcInventory::default()).id();
+        let worker = world.spawn(CarriedResource::default()).id();
         let mut farm_inventory = FarmInventory::empty();
         assert!(farm_inventory.add_crops(12));
         let farm = world.spawn(farm_inventory).id();
@@ -1371,10 +1366,7 @@ mod tests {
         });
         world.spawn(warehouse_inventory(ResourceKind::Wood, 3));
         world.spawn(forester_inventory(4));
-        world.spawn(NpcInventory::new(ResourceAmounts::of(
-            ResourceKind::Wood,
-            100,
-        )));
+        world.spawn(CarriedResource::of(ResourceKind::Wood, 5));
         world.spawn(refinery_inventory(
             ResourceAmounts::of(ResourceKind::Wood, 5),
             ResourceAmounts::of(ResourceKind::Wood, 6),

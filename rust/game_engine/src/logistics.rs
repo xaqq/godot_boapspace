@@ -7,8 +7,8 @@ use crate::ai::{
 };
 use crate::buildings::{Building, BuildingBlueprint, ConstructionProgress};
 use crate::components::{
-    AiKeepEnoughFoodInInventory, MovementTarget, Npc, NpcInventory, NpcPosition, ResourceNode,
-    TilePosition,
+    AiKeepEnoughFoodInInventory, CarriedResource, FoodPouch, MovementTarget, Npc, NpcPosition,
+    ResourceNode, TilePosition,
 };
 use crate::farming::{AiHarvestField, AiSeedField};
 use crate::forestry::{AiCutTreePlot, AiSeedTreePlot};
@@ -88,18 +88,18 @@ pub fn manage_food_logistics(world: &mut World) {
     let mut query = world.query_filtered::<(
         Entity,
         &NpcPosition,
-        &NpcInventory,
+        &FoodPouch,
         Option<&AiKeepEnoughFoodInInventory>,
         Option<&AiSearchForFood>,
         Option<&AiFoodHaul>,
     ), With<Npc>>();
     let mut npcs = query
         .iter(world)
-        .map(|(entity, position, inventory, goal, search, haul)| {
+        .map(|(entity, position, food_pouch, goal, search, haul)| {
             (
                 entity,
                 *position,
-                *inventory,
+                *food_pouch,
                 goal.copied(),
                 search.is_some(),
                 haul.copied(),
@@ -108,13 +108,13 @@ pub fn manage_food_logistics(world: &mut World) {
         .collect::<Vec<_>>();
     npcs.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
-    for (npc, position, inventory, goal, searching, haul) in npcs {
+    for (npc, position, food_pouch, goal, searching, haul) in npcs {
         let start = goal.map_or(DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, |goal| {
             goal.start_threshold()
         });
         let target = goal.map_or(DEFAULT_NPC_FOOD_INVENTORY_TARGET, |goal| goal.target());
-        let carried = inventory.contents().get(ResourceKind::Food);
-        if searching && (carried >= target || inventory.free_size() == 0) {
+        let carried = food_pouch.amount();
+        if searching && (carried >= target || food_pouch.free_size() == 0) {
             clear_food_haul(world, npc);
             continue;
         }
@@ -123,6 +123,7 @@ pub fn manage_food_logistics(world: &mut World) {
         }
 
         let current = haul.filter(|haul| food_source_available(world, haul.source) >= haul.amount);
+        let continuing_existing_haul = current.is_some();
         let selected = current.or_else(|| {
             choose_food_source(
                 world,
@@ -130,7 +131,7 @@ pub fn manage_food_logistics(world: &mut World) {
                 &food_sources,
                 position.coord,
                 npc,
-                target.saturating_sub(carried).min(inventory.free_size()),
+                target.saturating_sub(carried).min(food_pouch.free_size()),
             )
         });
         let Some(haul) = selected else {
@@ -143,6 +144,8 @@ pub fn manage_food_logistics(world: &mut World) {
         if !searching {
             preempt_lower_priority_work(world, npc);
             world.entity_mut(npc).insert(AiSearchForFood);
+        }
+        if !continuing_existing_haul {
             world
                 .resource_mut::<ReservationLedger>()
                 .release_worker(npc);
@@ -151,7 +154,7 @@ pub fn manage_food_logistics(world: &mut World) {
                 .claim(Reservation {
                     worker: npc,
                     source: Some(haul.source),
-                    sink: SinkEndpoint::NpcInventory(npc),
+                    sink: SinkEndpoint::FoodPouch(npc),
                     kind: ResourceKind::Food,
                     amount: haul.amount,
                     task: npc,
@@ -162,15 +165,22 @@ pub fn manage_food_logistics(world: &mut World) {
         let goals = source_interaction_cells(world, &snapshot, haul.source, npc);
         if goals.contains(&position.coord) {
             let can_add = world
-                .get::<NpcInventory>(npc)
+                .get::<FoodPouch>(npc)
                 .is_some_and(|inv| inv.free_size() >= haul.amount);
             if can_add
                 && withdraw_source(world, haul.source, ResourceKind::Food, haul.amount)
                 && world
-                    .get_mut::<NpcInventory>(npc)
-                    .is_some_and(|mut inv| inv.add(ResourceKind::Food, haul.amount))
+                    .get_mut::<FoodPouch>(npc)
+                    .is_some_and(|mut pouch| pouch.add(haul.amount))
             {
-                clear_food_haul(world, npc);
+                if world
+                    .get::<FoodPouch>(npc)
+                    .is_some_and(|pouch| pouch.amount() >= target || pouch.free_size() == 0)
+                {
+                    clear_food_haul(world, npc);
+                } else {
+                    reset_food_haul_keep_searching(world, npc);
+                }
             } else {
                 clear_food_haul(world, npc);
             }
@@ -198,7 +208,7 @@ pub fn manage_construction_logistics(world: &mut World) {
     let mut npc_query = world.query_filtered::<(
         Entity,
         &NpcPosition,
-        &NpcInventory,
+        &CarriedResource,
         Option<&AiSearchForFood>,
         Option<&AiConstructBuilding>,
         Option<&AiRefineResource>,
@@ -249,7 +259,7 @@ pub fn manage_construction_logistics(world: &mut World) {
                     continue;
                 }
                 let amount = remaining
-                    .min(CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE)
+                    .min(crate::components::CARRIED_RESOURCE_CAPACITY)
                     .min(inventory.free_size().max(inventory.contents().get(kind)));
                 if amount == 0 {
                     continue;
@@ -303,7 +313,8 @@ pub fn manage_construction_logistics(world: &mut World) {
                     );
                     let source_batch_size = match source {
                         StockEndpoint::NaturalNode(_) => NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE,
-                        _ => CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE,
+                        _ => CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE
+                            .min(crate::components::CARRIED_RESOURCE_CAPACITY),
                     };
                     candidates.push((
                         distance,
@@ -383,7 +394,8 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     continue;
                 };
                 let goals = source_interaction_cells(world, snapshot, source, npc);
-                if !goals.contains(&position.coord) && source != StockEndpoint::NpcInventory(npc) {
+                if !goals.contains(&position.coord) && source != StockEndpoint::CarriedResource(npc)
+                {
                     if goals.is_empty() {
                         clear_construction_haul(world, npc);
                     } else {
@@ -395,11 +407,11 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     debug_assert_eq!(haul.amount, NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE);
                     haul.phase = ConstructionHaulPhase::Gathering { progress_ticks: 0 };
                 } else if world
-                    .get::<NpcInventory>(npc)
+                    .get::<CarriedResource>(npc)
                     .is_some_and(|inv| inv.free_size() >= haul.amount)
                     && withdraw_source(world, source, haul.kind, haul.amount)
                     && world
-                        .get_mut::<NpcInventory>(npc)
+                        .get_mut::<CarriedResource>(npc)
                         .is_some_and(|mut inv| inv.add(haul.kind, haul.amount))
                 {
                     haul.phase = ConstructionHaulPhase::ToBlueprint;
@@ -430,7 +442,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     continue;
                 }
                 if !world
-                    .get_mut::<NpcInventory>(npc)
+                    .get_mut::<CarriedResource>(npc)
                     .is_some_and(|mut inv| inv.add(haul.kind, 1))
                 {
                     clear_construction_haul(world, npc);
@@ -470,7 +482,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     continue;
                 }
                 let carried = world
-                    .get::<NpcInventory>(npc)
+                    .get::<CarriedResource>(npc)
                     .map_or(0, |inv| inv.contents().get(haul.kind));
                 let Some(progress) = world.get::<ConstructionProgress>(haul.blueprint).copied()
                 else {
@@ -482,7 +494,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                 );
                 if amount > 0
                     && world
-                        .get_mut::<NpcInventory>(npc)
+                        .get_mut::<CarriedResource>(npc)
                         .is_some_and(|mut inv| inv.consume(haul.kind, amount))
                 {
                     if let Some(mut progress) =
@@ -641,6 +653,17 @@ fn clear_food_haul(world: &mut World, npc: Entity) {
         .entity_mut(npc)
         .remove::<AiFoodHaul>()
         .remove::<AiSearchForFood>()
+        .remove::<NpcRoute>()
+        .remove::<MovementTarget>();
+}
+
+fn reset_food_haul_keep_searching(world: &mut World, npc: Entity) {
+    world
+        .resource_mut::<ReservationLedger>()
+        .release_worker(npc);
+    world
+        .entity_mut(npc)
+        .remove::<AiFoodHaul>()
         .remove::<NpcRoute>()
         .remove::<MovementTarget>();
 }

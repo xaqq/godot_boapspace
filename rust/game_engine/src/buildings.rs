@@ -10,6 +10,33 @@ use bevy_ecs::prelude::*;
 
 pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WarehouseResourceFilter {
+    allowed: [bool; ResourceKind::ALL.len()],
+}
+
+impl WarehouseResourceFilter {
+    pub const fn allow_all() -> Self {
+        Self {
+            allowed: [true; ResourceKind::ALL.len()],
+        }
+    }
+
+    pub const fn is_allowed(self, kind: ResourceKind) -> bool {
+        self.allowed[kind as usize]
+    }
+
+    pub fn set_allowed(&mut self, kind: ResourceKind, allowed: bool) {
+        self.allowed[kind as usize] = allowed;
+    }
+}
+
+impl Default for WarehouseResourceFilter {
+    fn default() -> Self {
+        Self::allow_all()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuildingKind {
     Warehouse,
@@ -374,12 +401,14 @@ impl BuildingBlueprintBundle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct WarehouseInventory {
     inventory: ResourceInventory,
+    filter: WarehouseResourceFilter,
 }
 
 impl WarehouseInventory {
     pub const fn empty() -> Self {
         Self {
             inventory: ResourceInventory::empty(DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE),
+            filter: WarehouseResourceFilter::allow_all(),
         }
     }
 
@@ -399,12 +428,20 @@ impl WarehouseInventory {
         self.inventory.free_size()
     }
 
+    pub const fn is_allowed(self, kind: ResourceKind) -> bool {
+        self.filter.is_allowed(kind)
+    }
+
+    pub fn set_allowed(&mut self, kind: ResourceKind, allowed: bool) {
+        self.filter.set_allowed(kind, allowed);
+    }
+
     pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
         self.inventory.consume(kind, amount)
     }
 
     pub fn add(&mut self, kind: ResourceKind, amount: u32) -> bool {
-        self.inventory.add(kind, amount)
+        self.is_allowed(kind) && self.inventory.add(kind, amount)
     }
 }
 

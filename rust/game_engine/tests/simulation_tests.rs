@@ -1,10 +1,10 @@
 use game_engine::components::{
-    Terrain, TerrainKind, Tile, TilePosition, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+    CarriedResource, FoodPouch, Terrain, TerrainKind, Tile, TilePosition, FOOD_POUCH_CAPACITY,
 };
 use game_engine::grid::{CellCoord, GridSize};
 use game_engine::npcs::{
-    BirthDate, HungerState, Npc, NpcAppearance, NpcHunger, NpcInventory, NpcName, NpcPosition,
-    WorldDateTime, INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, INITIAL_NPC_SPECS,
+    BirthDate, HungerState, Npc, NpcAppearance, NpcHunger, NpcName, NpcPosition, WorldDateTime,
+    INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, INITIAL_NPC_SPECS,
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::ResourceKind;
@@ -534,30 +534,27 @@ fn test_initial_npcs_have_identity_birth_date_age_appearance_and_cluster_positio
 }
 
 #[test]
-fn test_initial_npc_inventory_starts_with_food() {
+fn test_initial_npc_starts_with_food_pouch_and_empty_cargo() {
     let simulation = GameSimulation::new();
     let surface = simulation.default_surface_id();
 
-    let inventories = simulation
+    let containers = simulation
         .with_surface_world(surface, |world| {
-            let mut query = world.try_query::<(&NpcInventory, &Npc)>()?;
+            let mut query = world.try_query::<(&FoodPouch, &CarriedResource, &Npc)>()?;
             Some(
                 query
                     .iter(world)
-                    .map(|(inventory, _)| *inventory)
+                    .map(|(pouch, cargo, _)| (*pouch, *cargo))
                     .collect::<Vec<_>>(),
             )
         })
-        .expect("default NPCs should have inventory");
+        .expect("default NPCs should have split containers");
 
-    assert_eq!(inventories.len(), INITIAL_NPC_SPECS.len());
-    for inventory in inventories {
-        for kind in ResourceKind::ALL {
-            let expected = if kind == ResourceKind::Food { 20 } else { 0 };
-            assert_eq!(inventory.contents().get(kind), expected);
-        }
-        assert_eq!(inventory.used_size(), 20);
-        assert_eq!(inventory.max_size(), DEFAULT_NPC_INVENTORY_MAX_SIZE);
+    assert_eq!(containers.len(), INITIAL_NPC_SPECS.len());
+    for (pouch, cargo) in containers {
+        assert_eq!(pouch.amount(), 20);
+        assert_eq!(pouch.capacity(), FOOD_POUCH_CAPACITY);
+        assert_eq!(cargo.stack(), None);
     }
 }
 

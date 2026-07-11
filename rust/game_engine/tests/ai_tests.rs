@@ -13,8 +13,8 @@ use game_engine::buildings::{
     BuildingKind, ConstructionProgress, WarehouseInventory,
 };
 use game_engine::components::{
-    MaxVelocity, MovementFacing, MovementTarget, NpcInventory, ResourceNode, TerrainKind, Tile,
-    TilePosition, Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
+    CarriedResource, FoodPouch, MaxVelocity, MovementFacing, MovementTarget, NpcInventory,
+    ResourceNode, TerrainKind, Tile, TilePosition, Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, Grid};
 use game_engine::logistics::manage_food_logistics;
@@ -97,7 +97,7 @@ fn test_keep_enough_food_does_not_search_inside_food_buffer() {
 }
 
 #[test]
-fn test_keep_enough_food_does_not_search_when_inventory_is_full() {
+fn test_keep_enough_food_ignores_full_legacy_inventory() {
     let mut world = construction_world();
     spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 10);
     let npc = world
@@ -116,7 +116,7 @@ fn test_keep_enough_food_does_not_search_when_inventory_is_full() {
 
     run_keep_enough_food(&mut world);
 
-    assert!(world.get::<AiSearchForFood>(npc).is_none());
+    assert!(world.get::<AiSearchForFood>(npc).is_some());
 }
 
 #[test]
@@ -511,7 +511,7 @@ fn test_search_for_food_stops_when_no_food_exists() {
 }
 
 #[test]
-fn test_search_for_food_stops_when_inventory_is_full() {
+fn test_full_legacy_inventory_does_not_block_food_pouch_refill() {
     let mut world = construction_world();
     let npc = world
         .spawn((
@@ -532,15 +532,19 @@ fn test_search_for_food_stops_when_inventory_is_full() {
 
     run_search_for_food(&mut world);
 
-    assert!(world.get::<AiSearchForFood>(npc).is_none());
-    assert!(world.get::<MovementTarget>(npc).is_none());
+    assert!(world.get::<AiSearchForFood>(npc).is_some());
+    assert_eq!(npc_food(&world, npc), 0);
 }
 
 #[test]
 fn test_food_logistics_withdraws_immediately_from_adjacent_warehouse() {
     let mut world = construction_world();
     let npc = spawn_searching_npc(&mut world, CellCoord::new(2, 1));
-    let warehouse = spawn_food_warehouse(&mut world, CellCoord::new(3, 1), 20);
+    let warehouse = spawn_food_warehouse(
+        &mut world,
+        CellCoord::new(3, 1),
+        DEFAULT_NPC_FOOD_INVENTORY_TARGET,
+    );
 
     run_search_for_food(&mut world);
 
@@ -572,7 +576,8 @@ fn test_raw_wild_berries_do_not_interrupt_existing_gather_work_for_food() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(1, 1)),
-            NpcInventory::empty(),
+            FoodPouch::new(DEFAULT_NPC_FOOD_INVENTORY_TARGET),
+            CarriedResource::empty(),
             default_keep_food_goal(),
             gather,
         ))
@@ -1067,7 +1072,8 @@ fn test_npc_hauls_refined_materials_and_completes_warehouse_construction() {
             Velocity::ZERO,
             MaxVelocity::default(),
             MovementFacing::default(),
-            NpcInventory::empty(),
+            FoodPouch::new(DEFAULT_NPC_FOOD_INVENTORY_TARGET),
+            CarriedResource::empty(),
             NpcSkills::default(),
         ))
         .id();
@@ -1189,11 +1195,32 @@ fn spawn_food_warehouse(world: &mut World, origin: CellCoord, amount: u32) -> En
 }
 
 fn run_keep_enough_food(world: &mut World) {
+    ensure_live_npc_containers(world);
     manage_food_logistics(world);
 }
 
 fn run_search_for_food(world: &mut World) {
+    ensure_live_npc_containers(world);
     manage_food_logistics(world);
+}
+
+fn ensure_live_npc_containers(world: &mut World) {
+    let mut query = world.query::<(Entity, &NpcInventory)>();
+    let missing = query
+        .iter(world)
+        .filter(|(entity, _)| world.get::<FoodPouch>(*entity).is_none())
+        .map(|(entity, inventory)| {
+            (
+                entity,
+                FoodPouch::new(inventory.contents().get(ResourceKind::Food)),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (entity, pouch) in missing {
+        world
+            .entity_mut(entity)
+            .insert((pouch, CarriedResource::empty()));
+    }
 }
 
 fn run_gather_resource(world: &mut World) {
@@ -1235,7 +1262,10 @@ fn manhattan_distance(a: CellCoord, b: CellCoord) -> u32 {
 }
 
 fn npc_food(world: &World, npc: Entity) -> u32 {
-    npc_resource(world, npc, ResourceKind::Food)
+    world.get::<FoodPouch>(npc).map_or_else(
+        || npc_resource(world, npc, ResourceKind::Food),
+        |pouch| pouch.amount(),
+    )
 }
 
 fn npc_resource(world: &World, npc: Entity, kind: ResourceKind) -> u32 {

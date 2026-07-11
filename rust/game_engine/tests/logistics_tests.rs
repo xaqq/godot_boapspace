@@ -7,7 +7,7 @@ use game_engine::buildings::{
     BuildingKind, ConstructionProgress, WarehouseInventory,
 };
 use game_engine::components::{
-    Npc, NpcInventory, NpcPosition, ResourceNode, Terrain, TerrainKind, TilePosition,
+    CarriedResource, FoodPouch, Npc, NpcPosition, ResourceNode, Terrain, TerrainKind, TilePosition,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::logistics::{
@@ -42,14 +42,7 @@ fn hungry_npc_withdraws_only_cooked_food_from_a_warehouse() {
 
     manage_food_logistics(&mut world);
 
-    assert_eq!(
-        world
-            .get::<NpcInventory>(npc)
-            .unwrap()
-            .contents()
-            .get(ResourceKind::Food),
-        20
-    );
+    assert_eq!(world.get::<FoodPouch>(npc).unwrap().amount(), 20);
     let warehouse = world.get::<WarehouseInventory>(warehouse).unwrap();
     assert_eq!(warehouse.contents().get(ResourceKind::Food), 5);
     assert_eq!(warehouse.contents().get(ResourceKind::Crops), 30);
@@ -78,14 +71,7 @@ fn hungry_npc_can_withdraw_food_from_kitchen_output() {
 
     manage_food_logistics(&mut world);
 
-    assert_eq!(
-        world
-            .get::<NpcInventory>(npc)
-            .unwrap()
-            .contents()
-            .get(ResourceKind::Food),
-        20
-    );
+    assert_eq!(world.get::<FoodPouch>(npc).unwrap().amount(), 20);
     assert_eq!(
         world
             .get::<RefineryInventory>(kitchen)
@@ -127,7 +113,7 @@ fn food_source_selection_skips_fully_reserved_nearer_stock() {
         .claim(Reservation {
             worker: reserving_worker,
             source: Some(StockEndpoint::Warehouse(nearer)),
-            sink: SinkEndpoint::NpcInventory(reserving_worker),
+            sink: SinkEndpoint::FoodPouch(reserving_worker),
             kind: ResourceKind::Food,
             amount: 10,
             task,
@@ -195,7 +181,7 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
         .spawn((
             Npc,
             NpcPosition::new(CellCoord::new(0, 1)),
-            NpcInventory::default(),
+            CarriedResource::default(),
         ))
         .id();
 
@@ -210,7 +196,7 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
             .unwrap()
             .deposited()
             .get(ResourceKind::Planks),
-        10
+        5
     );
     assert_eq!(
         world
@@ -218,11 +204,11 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
             .unwrap()
             .contents()
             .get(ResourceKind::Planks),
-        0
+        5
     );
     assert_eq!(
         world
-            .get::<NpcInventory>(npc)
+            .get::<CarriedResource>(npc)
             .unwrap()
             .contents()
             .get(ResourceKind::Planks),
@@ -358,7 +344,8 @@ fn hungry_npc(world: &mut World, coord: CellCoord) -> Entity {
         .spawn((
             Npc,
             NpcPosition::new(coord),
-            NpcInventory::new(ResourceAmounts::of(ResourceKind::Food, 5)),
+            FoodPouch::new(5),
+            CarriedResource::empty(),
             AiKeepEnoughFoodInInventory::new(5, 20),
         ))
         .id()
@@ -405,7 +392,7 @@ fn spawn_resource_node(
 
 fn spawn_available_npc(world: &mut World, coord: CellCoord) -> Entity {
     world
-        .spawn((Npc, NpcPosition::new(coord), NpcInventory::default()))
+        .spawn((Npc, NpcPosition::new(coord), CarriedResource::default()))
         .id()
 }
 

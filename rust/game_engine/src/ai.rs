@@ -24,7 +24,7 @@ use crate::tasks::ProgressBuildingConstruction;
 use bevy_ecs::prelude::*;
 
 pub const DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD: u32 = 5;
-pub const DEFAULT_NPC_FOOD_INVENTORY_TARGET: u32 = 20;
+pub const DEFAULT_NPC_FOOD_INVENTORY_TARGET: u32 = 100;
 pub const DEFAULT_NPC_IDLE_ROAM_RADIUS: u32 = 3;
 pub const DEFAULT_NPC_IDLE_DWELL_TICKS: u32 = 180;
 pub const RESOURCE_GATHER_TICKS_PER_UNIT: u32 = 60;

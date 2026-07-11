@@ -5,8 +5,8 @@ use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::grid::CellCoord;
 use game_engine::npcs::{
-    BirthDate, HungerState, Npc, NpcHunger, NpcInventory, NpcName, NpcPosition, NpcSkills,
-    SkillKind, SkillRank, WorldDateTime, MAX_SKILL_VALUE,
+    BirthDate, CarriedResource, FoodPouch, HungerState, Npc, NpcHunger, NpcName, NpcPosition,
+    NpcSkills, SkillKind, SkillRank, WorldDateTime, MAX_SKILL_VALUE,
 };
 use game_engine::resources::ResourceKind;
 use game_engine::time::SECONDS_PER_DAY;
@@ -33,7 +33,8 @@ pub(crate) struct NpcDetails {
     pub(crate) hunger_state: HungerState,
     pub(crate) satiation_level: u32,
     pub(crate) max_satiation_level: u32,
-    pub(crate) inventory: NpcInventory,
+    pub(crate) food_pouch: FoodPouch,
+    pub(crate) carried_resource: CarriedResource,
     pub(crate) skills: Vec<NpcSkillDetails>,
 }
 
@@ -62,7 +63,8 @@ pub(crate) fn npc_details_from_world(world: &World, entity: Entity) -> Option<Np
     let name = world.get::<NpcName>(entity)?;
     let birth_date = world.get::<BirthDate>(entity)?;
     let hunger = world.get::<NpcHunger>(entity)?;
-    let inventory = world.get::<NpcInventory>(entity)?;
+    let food_pouch = world.get::<FoodPouch>(entity)?;
+    let carried_resource = world.get::<CarriedResource>(entity)?;
     let skills = world.get::<NpcSkills>(entity).copied().unwrap_or_default();
     let world_date_time = *world.resource::<WorldDateTime>();
 
@@ -74,7 +76,8 @@ pub(crate) fn npc_details_from_world(world: &World, entity: Entity) -> Option<Np
         hunger_state: hunger.state(),
         satiation_level: hunger.satiation_level(),
         max_satiation_level: NpcHunger::MAX_SATIATION_LEVEL,
-        inventory: *inventory,
+        food_pouch: *food_pouch,
+        carried_resource: *carried_resource,
         skills: skill_details(skills),
     })
 }
@@ -129,8 +132,19 @@ pub(crate) fn satiation_progress_value(satiation_level: u32, max_satiation_level
     f64::from(satiation_level.min(max_satiation_level))
 }
 
-pub(crate) fn inventory_header_text(used_size: u32, max_size: u32) -> String {
-    format!("Inventory: {used_size}/{max_size}")
+pub(crate) fn npc_resource_header_text(
+    food_pouch: FoodPouch,
+    carried_resource: CarriedResource,
+) -> String {
+    let cargo = carried_resource.stack().map_or_else(
+        || "Empty".to_string(),
+        |stack| format!("{}: {}/5", stack.kind().label(), stack.amount()),
+    );
+    format!(
+        "Food Pouch: {}/{}\nCarried Resource: {cargo}",
+        food_pouch.amount(),
+        food_pouch.capacity()
+    )
 }
 
 fn nonzero_resource_kinds(contents: game_engine::resources::ResourceAmounts) -> Vec<ResourceKind> {
@@ -360,7 +374,7 @@ impl NpcDetailsPanel {
         let mut details_container = self.details_container.clone();
         empty_state_label.show();
         details_container.hide();
-        self.sync_inventory_rows(NpcInventory::empty());
+        self.sync_inventory_rows(CarriedResource::empty());
         self.clear_skill_rows();
     }
 
@@ -394,19 +408,18 @@ impl NpcDetailsPanel {
             details.max_satiation_level,
         );
         inventory_label.set_text(
-            inventory_header_text(details.inventory.used_size(), details.inventory.max_size())
-                .as_str(),
+            npc_resource_header_text(details.food_pouch, details.carried_resource).as_str(),
         );
         inventory_container.show();
-        self.sync_inventory_rows(details.inventory);
+        self.sync_inventory_rows(details.carried_resource);
         self.rebuild_skill_rows(&details.skills);
     }
 
-    fn sync_inventory_rows(&mut self, inventory: NpcInventory) {
+    fn sync_inventory_rows(&mut self, carried_resource: CarriedResource) {
         let Some(scene) = self.resource_quantity_scene.as_ref() else {
             return;
         };
-        let contents = inventory.contents();
+        let contents = carried_resource.contents();
         let kinds = nonzero_resource_kinds(contents);
         if self
             .inventory_rows
@@ -514,7 +527,8 @@ mod tests {
                 NpcName::new("Iris"),
                 BirthDate::new(Duration::from_secs(35 * SECONDS_PER_DAY)),
                 NpcHunger::new(12),
-                NpcInventory::new(ResourceAmounts::new(1, 2, 3, 4)),
+                FoodPouch::new(20),
+                CarriedResource::of(ResourceKind::Stone, 2),
                 NpcSkills::new([0, 0, 123, 2500, 5000, 10_000, 0, 0, 0]),
             ))
             .id();
@@ -527,8 +541,8 @@ mod tests {
         assert_eq!(details.age_years, 1);
         assert_eq!(details.satiation_level, 12);
         assert_eq!(
-            details.inventory.contents(),
-            ResourceAmounts::new(1, 2, 3, 4)
+            details.carried_resource.contents(),
+            ResourceAmounts::of(ResourceKind::Stone, 2)
         );
         assert_eq!(details.skills.len(), SkillKind::ALL.len());
         assert_eq!(details.skills[0].kind, SkillKind::Builder);
@@ -550,7 +564,8 @@ mod tests {
                 NpcName::new("No Skills"),
                 BirthDate::new(Duration::ZERO),
                 NpcHunger::fed(),
-                NpcInventory::empty(),
+                FoodPouch::empty(),
+                CarriedResource::empty(),
             ))
             .id();
 
@@ -572,7 +587,13 @@ mod tests {
         );
         assert_eq!(satiation_progress_value(12, 48), 12.0);
         assert_eq!(satiation_progress_value(80, 48), 48.0);
-        assert_eq!(inventory_header_text(20, 100), "Inventory: 20/100");
+        assert_eq!(
+            npc_resource_header_text(
+                FoodPouch::new(20),
+                CarriedResource::of(ResourceKind::Wood, 3)
+            ),
+            "Food Pouch: 20/100\nCarried Resource: Wood: 3/5"
+        );
         assert_eq!(skill_percent_text(42), "42%");
         assert_eq!(skill_percent_text(142), "100%");
         assert_eq!(skill_raw_value_tooltip_text(12_000), "10000/10000");

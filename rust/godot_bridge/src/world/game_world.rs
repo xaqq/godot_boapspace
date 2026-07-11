@@ -7,8 +7,8 @@ use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
 };
 use game_engine::components::{
-    AiGatherResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind, Tile,
-    TilePosition, Velocity, SUBTILE_UNITS_PER_TILE,
+    AiGatherResource, CarriedResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind,
+    Tile, TilePosition, Velocity, SUBTILE_UNITS_PER_TILE,
 };
 use game_engine::farming::{
     field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState, HarvestField,
@@ -180,11 +180,14 @@ struct NpcRenderInfo {
     facing: MovementFacing,
     is_gathering: bool,
     refining_animation: Option<NpcRefiningAnimation>,
+    carried_kind: Option<ResourceKind>,
 }
 
 struct RenderedNpcSprite {
     appearance: NpcAppearance,
     sprite: Gd<AnimatedSprite2D>,
+    cargo_icon: Gd<Sprite2D>,
+    carried_kind: Option<ResourceKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -609,9 +612,13 @@ impl INode2D for GameWorld {
                 }
             }
             MouseButton::RIGHT => {
-                if mouse.is_pressed() && self.placement_mode.is_some() {
-                    self.cancel_placement_mode();
-                    self.mark_input_handled();
+                if mouse.is_pressed() {
+                    if self.placement_mode.is_some() {
+                        self.cancel_placement_mode();
+                        self.mark_input_handled();
+                    } else if self.handle_building_context_click() {
+                        self.mark_input_handled();
+                    }
                 }
             }
             MouseButton::WHEEL_UP => {
@@ -733,18 +740,20 @@ impl GameWorld {
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         ) {
-            let targets =
+            let mut targets =
                 self.with_rendered_surface_world(|world| click_selection_targets_at(world, coord));
             if targets.tile.is_none() {
                 godot_error!("GameWorld: selected tile entity unavailable");
                 self.disable_processing();
                 return;
             }
+            targets.building = None;
 
+            let mut ignored_building_selection = None;
             let events = apply_click_selection_targets(
                 &mut self.selected_cell,
                 &mut self.selected_npc,
-                &mut self.selected_building,
+                &mut ignored_building_selection,
                 targets,
             );
             self.base_mut().queue_redraw();
@@ -752,8 +761,30 @@ impl GameWorld {
         } else {
             self.clear_tile_selection();
             self.clear_npc_selection();
-            self.clear_building_selection();
         }
+    }
+
+    fn handle_building_context_click(&mut self) -> bool {
+        let mouse_pos = self.base().get_local_mouse_position();
+        let Some(coord) = Grid::world_to_cell(
+            WorldPosition::new(mouse_pos.x, mouse_pos.y),
+            self.grid_size(),
+        ) else {
+            return false;
+        };
+        let Some(building) =
+            self.with_rendered_surface_world(|world| selected_building_at(world, coord))
+        else {
+            return false;
+        };
+        self.selected_building = Some(building);
+        self.base_mut().queue_redraw();
+        let Some(entity_id) = encode_entity_id(building.entity) else {
+            godot_error!("GameWorld: building context entity id is too large for Godot");
+            return false;
+        };
+        self.signals().building_selected().emit(entity_id);
+        true
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
@@ -893,6 +924,7 @@ impl GameWorld {
         });
         self.clear_tile_selection();
         self.clear_npc_selection();
+        self.clear_building_selection();
         self.clear_hovered_map_entity();
         self.base_mut().queue_redraw();
     }
@@ -1235,12 +1267,22 @@ impl GameWorld {
                 };
                 sprite.set_position(position);
                 set_npc_animation(&mut sprite, npc);
+                let mut cargo_icon = Sprite2D::new_alloc();
+                cargo_icon.set_centered(true);
+                cargo_icon.set_position(Vector2::new(46.0, 12.0));
+                cargo_icon.set_scale(Vector2::new(0.35, 0.35));
+                cargo_icon.set_texture_filter(TextureFilter::NEAREST);
+                cargo_icon.set_z_index(1);
+                update_cargo_icon(&mut cargo_icon, npc.carried_kind);
+                sprite.add_child(&cargo_icon);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(
                     npc.entity,
                     RenderedNpcSprite {
                         appearance: npc.appearance,
                         sprite,
+                        cargo_icon,
+                        carried_kind: npc.carried_kind,
                     },
                 );
                 continue;
@@ -1249,6 +1291,10 @@ impl GameWorld {
             if let Some(rendered) = self.npc_sprites.get_mut(&npc.entity) {
                 rendered.sprite.set_position(position);
                 set_npc_animation(&mut rendered.sprite, npc);
+                if rendered.carried_kind != npc.carried_kind {
+                    update_cargo_icon(&mut rendered.cargo_icon, npc.carried_kind);
+                    rendered.carried_kind = npc.carried_kind;
+                }
             }
         }
 
@@ -1715,6 +1761,43 @@ impl GameWorld {
     }
 
     #[func]
+    pub(crate) fn close_building_context(&mut self) {
+        self.clear_building_selection();
+    }
+
+    pub(crate) fn warehouse_resource_allowed(
+        &self,
+        warehouse_entity_id: i64,
+        kind: ResourceKind,
+    ) -> Option<bool> {
+        let entity = decode_entity_id(warehouse_entity_id)?;
+        self.game
+            .warehouse_resource_allowed(self.rendered_surface, entity, kind)
+            .ok()
+    }
+
+    pub(crate) fn set_warehouse_resource_allowed(
+        &mut self,
+        warehouse_entity_id: i64,
+        kind: ResourceKind,
+        allowed: bool,
+    ) -> bool {
+        let Some(entity) = decode_entity_id(warehouse_entity_id) else {
+            return false;
+        };
+        match self
+            .game
+            .set_warehouse_resource_allowed(self.rendered_surface, entity, kind, allowed)
+        {
+            Ok(()) => true,
+            Err(error) => {
+                godot_warn!("GameWorld: warehouse filter update rejected: {error:?}");
+                false
+            }
+        }
+    }
+
+    #[func]
     pub(crate) fn cancel_building_blueprint_placement(&mut self) {
         self.cancel_placement_mode();
     }
@@ -1979,6 +2062,10 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
                         .get::<AiRefineResource>(entity)
                         .filter(|work| work.is_actively_processing())
                         .map(|work| NpcRefiningAnimation::from_recipe(work.recipe())),
+                    carried_kind: world
+                        .get::<CarriedResource>(entity)
+                        .and_then(|cargo| cargo.stack())
+                        .map(|stack| stack.kind()),
                 })
                 .collect()
         })
@@ -2244,6 +2331,20 @@ fn set_npc_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
     }
     if !sprite.is_playing() {
         sprite.play();
+    }
+}
+
+fn update_cargo_icon(icon: &mut Gd<Sprite2D>, kind: Option<ResourceKind>) {
+    let Some(kind) = kind else {
+        icon.set_texture(Gd::null_arg());
+        icon.hide();
+        return;
+    };
+    if let Some(texture) = load_texture(resource_asset_path(kind), "GameWorld cargo overlay") {
+        icon.set_texture(&texture);
+        icon.show();
+    } else {
+        icon.hide();
     }
 }
 
@@ -3299,6 +3400,7 @@ mod tests {
             facing,
             is_gathering,
             refining_animation: None,
+            carried_kind: None,
         }
     }
 

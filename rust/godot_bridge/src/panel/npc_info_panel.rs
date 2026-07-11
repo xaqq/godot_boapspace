@@ -1,6 +1,6 @@
 use super::npc_details::{
-    configure_satiation_progress_bar, details_button_enabled, inventory_header_text, npc_details,
-    update_satiation, NpcDetails,
+    configure_satiation_progress_bar, details_button_enabled, npc_details,
+    npc_resource_header_text, update_satiation, NpcDetails,
 };
 use super::resource_quantity::ResourceQuantity;
 use crate::assets::load_packed_scene;
@@ -175,11 +175,10 @@ impl NpcInfoPanel {
             info.satiation_level,
             info.max_satiation_level,
         );
-        inventory_label.set_text(
-            inventory_header_text(info.inventory.used_size(), info.inventory.max_size()).as_str(),
-        );
+        inventory_label
+            .set_text(npc_resource_header_text(info.food_pouch, info.carried_resource).as_str());
         inventory_container.show();
-        self.sync_inventory_rows(info.inventory);
+        self.sync_inventory_rows(info.carried_resource);
     }
 
     fn clear_and_hide(&mut self) {
@@ -203,9 +202,9 @@ impl NpcInfoPanel {
         satiation_progress_bar.set_value(0.0);
         satiation_progress_bar.set_tooltip_text("");
         satiation_container.hide();
-        inventory_label.set_text("Inventory:");
+        inventory_label.set_text("Food Pouch:\nCarried Resource: Empty");
         inventory_container.hide();
-        self.sync_inventory_rows(game_engine::npcs::NpcInventory::empty());
+        self.sync_inventory_rows(game_engine::npcs::CarriedResource::empty());
         self.set_details_button_enabled(false);
         self.base_mut().hide();
     }
@@ -220,7 +219,7 @@ impl NpcInfoPanel {
         details_button.set_disabled(!details_button_enabled(selected));
     }
 
-    fn sync_inventory_rows(&mut self, inventory: game_engine::npcs::NpcInventory) {
+    fn sync_inventory_rows(&mut self, inventory: game_engine::npcs::CarriedResource) {
         let Some(scene) = self.resource_quantity_scene.as_ref() else {
             return;
         };

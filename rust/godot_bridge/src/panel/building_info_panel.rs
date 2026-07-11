@@ -1,6 +1,6 @@
 use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
-use crate::assets::load_packed_scene;
+use crate::assets::{load_packed_scene, load_texture, resource_asset_path};
 use crate::world::game_world::{decode_entity_id, GameWorld};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
@@ -23,7 +23,8 @@ use game_engine::refining::{refinery_status, RecipeKind, RefineryStatus, REFININ
 use game_engine::refining::{RefineryInventory, RefineryProduction};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{
-    control, Button, IPanelContainer, Label, PackedScene, PanelContainer, VBoxContainer,
+    control, Button, CheckButton, IPanelContainer, InputEvent, InputEventMouseButton, Label,
+    PackedScene, PanelContainer, VBoxContainer,
 };
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
@@ -41,9 +42,17 @@ struct ConstructionRowControl {
     node: Gd<ResourceQuantityProgress>,
 }
 
+struct WarehouseFilterControl {
+    kind: ResourceKind,
+    button: Gd<CheckButton>,
+}
+
 #[derive(GodotClass)]
 #[class(base = PanelContainer)]
 pub(crate) struct BuildingInfoPanel {
+    #[export]
+    close_button: OnEditor<Gd<Button>>,
+
     #[export]
     name_label: OnEditor<Gd<Label>>,
 
@@ -73,6 +82,12 @@ pub(crate) struct BuildingInfoPanel {
 
     #[export]
     inventory_rows_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    warehouse_filter_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    warehouse_filter_rows: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
     refinery_container: OnEditor<Gd<VBoxContainer>>,
@@ -121,7 +136,9 @@ pub(crate) struct BuildingInfoPanel {
     refinery_input_rows: Vec<QuantityRowControl>,
     refinery_output_rows: Vec<QuantityRowControl>,
     housing_row_labels: Vec<Gd<Label>>,
+    warehouse_filter_controls: Vec<WarehouseFilterControl>,
     cached_housing: Option<Option<HousingInfo>>,
+    suppress_opening_mouse_press: bool,
     base: Base<PanelContainer>,
 }
 
@@ -129,6 +146,7 @@ pub(crate) struct BuildingInfoPanel {
 impl IPanelContainer for BuildingInfoPanel {
     fn init(base: Base<PanelContainer>) -> Self {
         Self {
+            close_button: OnEditor::default(),
             name_label: OnEditor::default(),
             footprint_label: OnEditor::default(),
             farming_info_label: OnEditor::default(),
@@ -139,6 +157,8 @@ impl IPanelContainer for BuildingInfoPanel {
             inventory_container: OnEditor::default(),
             inventory_label: OnEditor::default(),
             inventory_rows_container: OnEditor::default(),
+            warehouse_filter_container: OnEditor::default(),
+            warehouse_filter_rows: OnEditor::default(),
             refinery_container: OnEditor::default(),
             refinery_input_label: OnEditor::default(),
             refinery_input_rows_container: OnEditor::default(),
@@ -160,7 +180,9 @@ impl IPanelContainer for BuildingInfoPanel {
             refinery_input_rows: Vec::new(),
             refinery_output_rows: Vec::new(),
             housing_row_labels: Vec::new(),
+            warehouse_filter_controls: Vec::new(),
             cached_housing: None,
+            suppress_opening_mouse_press: false,
             base,
         }
     }
@@ -170,6 +192,12 @@ impl IPanelContainer for BuildingInfoPanel {
             load_packed_scene(RESOURCE_QUANTITY_SCENE_PATH, "BuildingInfoPanel");
         self.resource_quantity_progress_scene =
             load_packed_scene(RESOURCE_QUANTITY_PROGRESS_SCENE_PATH, "BuildingInfoPanel");
+
+        self.close_button
+            .clone()
+            .signals()
+            .pressed()
+            .connect_other(self, Self::close_panel);
 
         let game_world = self.game_world.clone();
         game_world
@@ -202,18 +230,67 @@ impl IPanelContainer for BuildingInfoPanel {
         );
 
         self.clear_selection_and_hide();
+        self.build_warehouse_filter_rows();
         self.base_mut().set_process(true);
+        self.base_mut().set_process_input(true);
     }
 
     fn process(&mut self, _delta: f64) {
         self.refresh_selected_building();
+    }
+
+    fn input(&mut self, event: Gd<InputEvent>) {
+        if !self.base().is_visible() {
+            return;
+        }
+        if event.is_action_pressed("menu_toggle") {
+            self.close_panel();
+            self.mark_input_handled();
+            return;
+        }
+        let Ok(mouse) = event.try_cast::<InputEventMouseButton>() else {
+            return;
+        };
+        if self.suppress_opening_mouse_press {
+            if !mouse.is_pressed() {
+                self.suppress_opening_mouse_press = false;
+            }
+            return;
+        }
+        let rect = self.base().get_global_rect();
+        let point = mouse.get_position();
+        let inside = point.x >= rect.position.x
+            && point.y >= rect.position.y
+            && point.x <= rect.position.x + rect.size.x
+            && point.y <= rect.position.y + rect.size.y;
+        if mouse.is_pressed() && !inside {
+            self.close_panel();
+            self.mark_input_handled();
+        }
     }
 }
 
 impl BuildingInfoPanel {
     fn select_building(&mut self, building_entity_id: i64) {
         self.selected_building_entity_id = Some(building_entity_id);
+        self.suppress_opening_mouse_press = true;
         self.refresh_selected_building();
+        let mouse_position = self.base().get_global_mouse_position();
+        let panel_size = self.base().get_size();
+        let viewport_size = self
+            .base()
+            .get_viewport()
+            .map(|viewport| viewport.get_visible_rect().size)
+            .unwrap_or(Vector2::new(1920.0, 1080.0));
+        let desired = mouse_position + Vector2::new(8.0, 8.0);
+        self.base_mut().set_global_position(Vector2::new(
+            desired
+                .x
+                .clamp(0.0, (viewport_size.x - panel_size.x).max(0.0)),
+            desired
+                .y
+                .clamp(0.0, (viewport_size.y - panel_size.y).max(0.0)),
+        ));
     }
 
     fn deselect_building(&mut self) {
@@ -257,6 +334,7 @@ impl BuildingInfoPanel {
         );
         self.update_construction(info.construction);
         self.update_inventory(info.inventory);
+        self.update_warehouse_filter(info.warehouse_filter);
         self.update_refinery(info.refinery);
         self.update_housing(info.housing);
     }
@@ -273,6 +351,7 @@ impl BuildingInfoPanel {
         let mut inventory_label = self.inventory_label.clone();
         let mut refinery_container = self.refinery_container.clone();
         let mut housing_container = self.housing_container.clone();
+        let mut warehouse_filter_container = self.warehouse_filter_container.clone();
 
         clear_building_labels(
             &mut name_label,
@@ -292,7 +371,84 @@ impl BuildingInfoPanel {
         self.sync_refinery_output_rows(&[], ResourceAmounts::zero());
         self.clear_housing_rows();
         self.cached_housing = None;
+        warehouse_filter_container.hide();
         self.base_mut().hide();
+    }
+
+    fn close_panel(&mut self) {
+        self.game_world.bind_mut().close_building_context();
+    }
+
+    fn mark_input_handled(&self) {
+        if let Some(mut viewport) = self.base().get_viewport() {
+            viewport.set_input_as_handled();
+        }
+    }
+
+    fn build_warehouse_filter_rows(&mut self) {
+        let mut container = self.warehouse_filter_rows.clone();
+        for kind in ResourceKind::ALL {
+            let mut button = CheckButton::new_alloc();
+            button.set_text(kind.label());
+            button.set_tooltip_text(format!("{}\n{}", kind.label(), kind.description()).as_str());
+            button.set_h_size_flags(control::SizeFlags::EXPAND_FILL);
+            if let Some(texture) = load_texture(resource_asset_path(kind), "BuildingInfoPanel") {
+                button.set_button_icon(&texture);
+                button.set_expand_icon(true);
+            }
+            button
+                .signals()
+                .toggled()
+                .connect_other(self, move |panel, allowed| {
+                    panel.set_warehouse_filter(kind, allowed)
+                });
+            container.add_child(&button);
+            self.warehouse_filter_controls
+                .push(WarehouseFilterControl { kind, button });
+        }
+    }
+
+    fn set_warehouse_filter(&mut self, kind: ResourceKind, allowed: bool) {
+        let Some(entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        if !self
+            .game_world
+            .bind_mut()
+            .set_warehouse_resource_allowed(entity_id, kind, allowed)
+        {
+            let current = self
+                .game_world
+                .bind()
+                .warehouse_resource_allowed(entity_id, kind);
+            if let Some(current) = current {
+                if let Some(control) = self
+                    .warehouse_filter_controls
+                    .iter_mut()
+                    .find(|control| control.kind == kind)
+                {
+                    control.button.set_pressed_no_signal(current);
+                }
+            } else {
+                self.close_panel();
+            }
+        }
+    }
+
+    fn update_warehouse_filter(&mut self, filter: Option<Vec<(ResourceKind, bool)>>) {
+        let mut container = self.warehouse_filter_container.clone();
+        let Some(filter) = filter else {
+            container.hide();
+            return;
+        };
+        for control in &mut self.warehouse_filter_controls {
+            let allowed = filter
+                .iter()
+                .find_map(|(kind, allowed)| (*kind == control.kind).then_some(*allowed))
+                .unwrap_or(true);
+            control.button.set_pressed_no_signal(allowed);
+        }
+        container.show();
     }
 
     fn update_construction(&mut self, construction: Option<BuildingConstructionInfo>) {
@@ -476,6 +632,7 @@ struct BuildingInfo {
     farming: Option<FarmingInfo>,
     forestry: Option<ForestryInfo>,
     housing: Option<HousingInfo>,
+    warehouse_filter: Option<Vec<(ResourceKind, bool)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -554,6 +711,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
             farming: farming_info(world, entity, blueprint.kind),
             forestry: forestry_info(world, entity, blueprint.kind),
             housing: None,
+            warehouse_filter: None,
         });
     }
 
@@ -567,6 +725,12 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
         farming: farming_info(world, entity, building.kind),
         forestry: forestry_info(world, entity, building.kind),
         housing: housing_info(world, entity),
+        warehouse_filter: world.get::<WarehouseInventory>(entity).map(|inventory| {
+            ResourceKind::ALL
+                .into_iter()
+                .map(|kind| (kind, inventory.is_allowed(kind)))
+                .collect()
+        }),
     })
 }
 
@@ -1102,6 +1266,21 @@ mod tests {
             .expect("warehouse should still have inventory");
         assert_eq!(inventory.contents, ResourceAmounts::new(7, 0, 0, 0));
         assert_eq!(inventory.used_size, 7);
+
+        world
+            .get_mut::<WarehouseInventory>(entity)
+            .unwrap()
+            .set_allowed(ResourceKind::Stone, false);
+        let filter = building_info_from_world(&world, entity)
+            .unwrap()
+            .warehouse_filter
+            .expect("completed warehouse should expose its filter");
+        assert_eq!(
+            filter
+                .iter()
+                .find_map(|(kind, allowed)| (*kind == ResourceKind::Stone).then_some(*allowed)),
+            Some(false)
+        );
     }
 
     #[test]

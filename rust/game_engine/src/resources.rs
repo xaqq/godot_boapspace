@@ -3,7 +3,7 @@ use bevy_ecs::system::SystemState;
 use godot::prelude::{Export, GodotConvert, Var};
 
 use crate::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
-use crate::components::NpcInventory;
+use crate::components::CarriedResource;
 use crate::farming::FarmInventory;
 use crate::forestry::ForesterLodgeInventory;
 use crate::refining::RefineryInventory;
@@ -115,7 +115,7 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
     // entity here makes UI refreshes and daily history recording scale with map
     // area rather than with the number of inventories.
     let mut state: SystemState<(
-        Query<&NpcInventory>,
+        Query<&CarriedResource>,
         Query<&WarehouseInventory>,
         Query<&FarmInventory>,
         Query<&ForesterLodgeInventory>,
@@ -126,8 +126,8 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
         .get(world)
         .expect("resource overview queries should be compatible");
 
-    for inventory in npcs.iter() {
-        overview.usable.add_amounts(inventory.contents());
+    for cargo in npcs.iter() {
+        overview.usable.add_amounts(cargo.contents());
     }
     for inventory in warehouses.iter() {
         overview.usable.add_amounts(inventory.contents());
@@ -340,7 +340,7 @@ mod tests {
         BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
         WarehouseInventory,
     };
-    use crate::components::{NpcInventory, ResourceNode};
+    use crate::components::{CarriedResource, ResourceNode};
     use crate::farming::FarmInventory;
     use crate::forestry::ForesterLodgeInventory;
     use godot::prelude::{FromGodot, ToGodot};
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn resource_overview_sums_every_owned_inventory_and_excludes_natural_nodes() {
         let mut world = World::new();
-        world.spawn(NpcInventory::new(ResourceAmounts::new(1, 2, 3, 4)));
+        world.spawn(CarriedResource::of(ResourceKind::Wood, 1));
 
         let mut warehouse = WarehouseInventory::empty();
         for (kind, amount) in [
@@ -382,9 +382,9 @@ mod tests {
 
         let overview = resource_overview(&mut world);
         assert_eq!(overview.usable().get(ResourceKind::Wood), 26);
-        assert_eq!(overview.usable().get(ResourceKind::Stone), 13);
-        assert_eq!(overview.usable().get(ResourceKind::Food), 15);
-        assert_eq!(overview.usable().get(ResourceKind::Gold), 17);
+        assert_eq!(overview.usable().get(ResourceKind::Stone), 11);
+        assert_eq!(overview.usable().get(ResourceKind::Food), 12);
+        assert_eq!(overview.usable().get(ResourceKind::Gold), 13);
         assert_eq!(overview.usable().get(ResourceKind::Crops), 14);
         assert_eq!(overview.committed(), ResourceTotals::zero());
     }
@@ -394,10 +394,7 @@ mod tests {
         let mut world = World::new();
         let mut warehouse = WarehouseInventory::empty();
         assert!(warehouse.add(ResourceKind::Wood, 7));
-        world.spawn((
-            NpcInventory::new(ResourceAmounts::new(5, 0, 0, 0)),
-            warehouse,
-        ));
+        world.spawn((CarriedResource::of(ResourceKind::Wood, 5), warehouse));
 
         assert_eq!(
             resource_overview(&mut world)

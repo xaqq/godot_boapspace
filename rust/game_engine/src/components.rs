@@ -8,6 +8,8 @@ pub const SUBTILE_UNITS_PER_TILE: i32 = 1024;
 pub const HALF_SUBTILE_UNITS_PER_TILE: i32 = SUBTILE_UNITS_PER_TILE / 2;
 pub const DEFAULT_MAX_VELOCITY_UNITS_PER_TICK: u32 = 16;
 pub const DEFAULT_NPC_INVENTORY_MAX_SIZE: u32 = 100;
+pub const FOOD_POUCH_CAPACITY: u32 = 100;
+pub const CARRIED_RESOURCE_CAPACITY: u32 = 5;
 pub const NPC_HUNGER_HUNGRY_THRESHOLD: u32 = SIMULATION_TICKS_PER_DAY;
 pub const NPC_HUNGER_FULL_SATIATION: u32 = 2 * SIMULATION_TICKS_PER_DAY;
 
@@ -428,16 +430,14 @@ impl NpcHunger {
         }
     }
 
-    pub fn advance_tick(&mut self, inventory: &mut NpcInventory) {
+    pub fn advance_tick(&mut self, food_pouch: &mut FoodPouch) {
         let was_fed = self.state() == HungerState::Fed;
 
         if self.satiation_level > 0 {
             self.satiation_level -= 1;
         }
 
-        if self.satiation_level <= NPC_HUNGER_HUNGRY_THRESHOLD
-            && inventory.consume(ResourceKind::Food, 1)
-        {
+        if self.satiation_level <= NPC_HUNGER_HUNGRY_THRESHOLD && food_pouch.consume(1) {
             self.satiation_level = if was_fed {
                 NPC_HUNGER_FULL_SATIATION
             } else {
@@ -453,6 +453,168 @@ impl Default for NpcHunger {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct FoodPouch {
+    amount: u32,
+}
+
+impl FoodPouch {
+    pub const fn empty() -> Self {
+        Self { amount: 0 }
+    }
+
+    pub const fn new(amount: u32) -> Self {
+        assert!(amount <= FOOD_POUCH_CAPACITY);
+        Self { amount }
+    }
+
+    pub const fn amount(self) -> u32 {
+        self.amount
+    }
+
+    pub const fn capacity(self) -> u32 {
+        FOOD_POUCH_CAPACITY
+    }
+
+    pub const fn free_size(self) -> u32 {
+        FOOD_POUCH_CAPACITY - self.amount
+    }
+
+    pub fn add(&mut self, amount: u32) -> bool {
+        let Some(new_amount) = self.amount.checked_add(amount) else {
+            return false;
+        };
+        if new_amount > FOOD_POUCH_CAPACITY {
+            return false;
+        }
+        self.amount = new_amount;
+        true
+    }
+
+    pub fn consume(&mut self, amount: u32) -> bool {
+        if self.amount < amount {
+            return false;
+        }
+        self.amount -= amount;
+        true
+    }
+}
+
+impl Default for FoodPouch {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CarriedResourceStack {
+    kind: ResourceKind,
+    amount: u32,
+}
+
+impl CarriedResourceStack {
+    pub const fn kind(self) -> ResourceKind {
+        self.kind
+    }
+
+    pub const fn amount(self) -> u32 {
+        self.amount
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component, Default)]
+pub struct CarriedResource {
+    stack: Option<CarriedResourceStack>,
+}
+
+impl CarriedResource {
+    pub const fn empty() -> Self {
+        Self { stack: None }
+    }
+
+    pub const fn of(kind: ResourceKind, amount: u32) -> Self {
+        assert!(amount <= CARRIED_RESOURCE_CAPACITY);
+        if amount == 0 {
+            Self::empty()
+        } else {
+            Self {
+                stack: Some(CarriedResourceStack { kind, amount }),
+            }
+        }
+    }
+
+    pub const fn stack(self) -> Option<CarriedResourceStack> {
+        self.stack
+    }
+
+    pub const fn contents(self) -> ResourceAmounts {
+        match self.stack {
+            Some(stack) => ResourceAmounts::of(stack.kind, stack.amount),
+            None => ResourceAmounts::zero(),
+        }
+    }
+
+    pub const fn used_size(self) -> u32 {
+        match self.stack {
+            Some(stack) => stack.amount,
+            None => 0,
+        }
+    }
+
+    pub const fn max_size(self) -> u32 {
+        CARRIED_RESOURCE_CAPACITY
+    }
+
+    pub const fn free_size(self) -> u32 {
+        CARRIED_RESOURCE_CAPACITY - self.used_size()
+    }
+
+    pub fn add(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        match self.stack {
+            Some(mut stack) => {
+                if stack.kind != kind {
+                    return false;
+                }
+                let Some(new_amount) = stack.amount.checked_add(amount) else {
+                    return false;
+                };
+                if new_amount > CARRIED_RESOURCE_CAPACITY {
+                    return false;
+                }
+                stack.amount = new_amount;
+                self.stack = Some(stack);
+            }
+            None => {
+                if amount > CARRIED_RESOURCE_CAPACITY {
+                    return false;
+                }
+                self.stack = Some(CarriedResourceStack { kind, amount });
+            }
+        }
+        true
+    }
+
+    pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        let Some(mut stack) = self.stack else {
+            return false;
+        };
+        if stack.kind != kind || stack.amount < amount {
+            return false;
+        }
+        stack.amount -= amount;
+        self.stack = (stack.amount > 0).then_some(stack);
+        true
+    }
+}
+
+/// Legacy inventory retained for unscheduled compatibility AI helpers.
+/// Live NPCs use [`FoodPouch`] and [`CarriedResource`] instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct NpcInventory {
     inventory: ResourceInventory,

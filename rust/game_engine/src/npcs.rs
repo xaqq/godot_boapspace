@@ -1,7 +1,7 @@
 pub use crate::components::{
-    AiIdleRoam, AiKeepEnoughFoodInInventory, BirthDate, HungerState, MaxVelocity, MovementFacing,
-    MovementTarget, Npc, NpcAppearance, NpcHunger, NpcInventory, NpcName, NpcPosition,
-    SubtileOffset, Velocity,
+    AiIdleRoam, AiKeepEnoughFoodInInventory, BirthDate, CarriedResource, FoodPouch, HungerState,
+    MaxVelocity, MovementFacing, MovementTarget, Npc, NpcAppearance, NpcHunger, NpcInventory,
+    NpcName, NpcPosition, SubtileOffset, Velocity,
 };
 pub use crate::skills::{
     skill_percent, Cook, NpcSkills, Sawyer, SkillKind, SkillRank, Stonemason, MAX_SKILL_VALUE,
@@ -11,7 +11,6 @@ use crate::ai::{DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INV
 use crate::farming::Farmer;
 use crate::forestry::Forester;
 use crate::grid::{CellCoord, Grid};
-use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::time::{DAYS_PER_YEAR, SECONDS_PER_DAY};
 use bevy_ecs::prelude::*;
 use std::time::Duration;
@@ -123,7 +122,8 @@ pub struct InitialNpcBundle {
     max_velocity: MaxVelocity,
     movement_facing: MovementFacing,
     hunger: NpcHunger,
-    inventory: NpcInventory,
+    food_pouch: FoodPouch,
+    carried_resource: CarriedResource,
     skills: NpcSkills,
     farmer: Farmer,
     forester: Forester,
@@ -149,7 +149,8 @@ impl InitialNpcBundle {
             max_velocity: MaxVelocity::default(),
             movement_facing: MovementFacing::default(),
             hunger: NpcHunger::fed(),
-            inventory: NpcInventory::new(ResourceAmounts::of(ResourceKind::Food, 20)),
+            food_pouch: FoodPouch::new(20),
+            carried_resource: CarriedResource::empty(),
             skills: NpcSkills::default(),
             farmer: Farmer,
             forester: Forester,
@@ -176,9 +177,9 @@ pub fn spawn_initial_default_npcs(mut commands: Commands, grid: Res<Grid>) {
     }
 }
 
-pub fn update_npc_hunger(mut npcs: Query<(&mut NpcHunger, &mut NpcInventory), With<Npc>>) {
-    for (mut hunger, mut inventory) in &mut npcs {
-        hunger.advance_tick(&mut inventory);
+pub fn update_npc_hunger(mut npcs: Query<(&mut NpcHunger, &mut FoodPouch), With<Npc>>) {
+    for (mut hunger, mut food_pouch) in &mut npcs {
+        hunger.advance_tick(&mut food_pouch);
     }
 }
 

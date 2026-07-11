@@ -2,7 +2,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use game_engine::buildings::{Building, BuildingFootprint, BuildingKind};
 use game_engine::components::{
-    AiSearchForFood, MaxVelocity, MovementFacing, Npc, NpcInventory, NpcPosition, Velocity,
+    AiSearchForFood, CarriedResource, MaxVelocity, MovementFacing, Npc, NpcPosition, Velocity,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::refining::{
@@ -11,7 +11,7 @@ use game_engine::refining::{
     RefineryInventory, RefineryProduction, ReservationLedger, REFINERY_INPUT_CAPACITY,
     REFINERY_OUTPUT_CAPACITY, REFINING_TICKS_PER_UNIT,
 };
-use game_engine::resources::{ResourceAmounts, ResourceKind};
+use game_engine::resources::ResourceKind;
 use game_engine::skills::{NpcSkills, Sawyer, SkillKind};
 use game_engine::tile::{TileBundle, TileIndex};
 
@@ -96,7 +96,7 @@ fn eligible_worker_completes_exactly_one_buffered_batch_in_sixty_ticks() {
             Npc,
             Sawyer,
             NpcPosition::new(CellCoord::new(2, 3)),
-            NpcInventory::new(ResourceAmounts::zero()),
+            CarriedResource::empty(),
             NpcSkills::default(),
             Velocity::ZERO,
             MaxVelocity::default(),
@@ -312,7 +312,7 @@ fn spawn_sawyer(world: &mut World, coord: CellCoord) -> Entity {
             Npc,
             Sawyer,
             NpcPosition::new(coord),
-            NpcInventory::default(),
+            CarriedResource::default(),
             NpcSkills::default(),
             Velocity::ZERO,
             MaxVelocity::default(),

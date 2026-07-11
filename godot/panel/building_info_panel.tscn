@@ -1,35 +1,36 @@
 [gd_scene format=3]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("close_button", "name_label", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "warehouse_filter_container", "warehouse_filter_rows", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
 visible = false
-name_label = NodePath("MarginContainer/VBoxContainer/name_label")
-footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
-farming_info_label = NodePath("MarginContainer/VBoxContainer/farming_info_label")
-fields_button = NodePath("MarginContainer/VBoxContainer/FieldsButton")
-tree_plots_button = NodePath("MarginContainer/VBoxContainer/TreePlotsButton")
-construction_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer")
-construction_rows_container = NodePath("MarginContainer/VBoxContainer/ConstructionContainer/ConstructionRows")
-inventory_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer")
-inventory_label = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryLabel")
-inventory_rows_container = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryRows")
-refinery_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer")
-refinery_input_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/InputLabel")
-refinery_input_rows_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer/InputRows")
-refinery_output_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/OutputLabel")
-refinery_output_rows_container = NodePath("MarginContainer/VBoxContainer/RefineryContainer/OutputRows")
-refinery_recipe_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/RecipeLabel")
-refinery_progress_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/ProgressLabel")
-refinery_worker_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/WorkerLabel")
-refinery_blocked_label = NodePath("MarginContainer/VBoxContainer/RefineryContainer/BlockedLabel")
-housing_container = NodePath("MarginContainer/VBoxContainer/HousingContainer")
-housing_occupancy_label = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingOccupancyLabel")
-housing_rows = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingRows")
-custom_minimum_size = Vector2(240, 0)
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+close_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/CloseButton")
+name_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/name_label")
+footprint_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/footprint_label")
+farming_info_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/farming_info_label")
+fields_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/FieldsButton")
+tree_plots_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/TreePlotsButton")
+construction_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer")
+construction_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer/ConstructionRows")
+inventory_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer")
+inventory_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer/InventoryLabel")
+inventory_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer/InventoryRows")
+warehouse_filter_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer")
+warehouse_filter_rows = NodePath("MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer/FilterRows")
+refinery_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer")
+refinery_input_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/InputLabel")
+refinery_input_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/InputRows")
+refinery_output_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/OutputLabel")
+refinery_output_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/OutputRows")
+refinery_recipe_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/RecipeLabel")
+refinery_progress_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/ProgressLabel")
+refinery_worker_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/WorkerLabel")
+refinery_blocked_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/BlockedLabel")
+housing_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/HousingContainer")
+housing_occupancy_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/HousingContainer/HousingOccupancyLabel")
+housing_rows = NodePath("MarginContainer/ScrollContainer/VBoxContainer/HousingContainer/HousingRows")
+custom_minimum_size = Vector2(320, 0)
+offset_right = 360.0
+offset_bottom = 560.0
+z_index = 20
 
 [node name="MarginContainer" type="MarginContainer" parent="." unique_id=1922920576]
 layout_mode = 2
@@ -38,114 +39,136 @@ theme_override_constants/margin_top = 8
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 8
 
-[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer" unique_id=1573781782]
+[node name="ScrollContainer" type="ScrollContainer" parent="MarginContainer"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer" unique_id=1573781782]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1728009333]
+[node name="TitleLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1728009333]
 layout_mode = 2
-text = "Selected Building"
+text = "Building"
 
-[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676841]
+[node name="CloseButton" type="Button" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "Close"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1463676841]
 layout_mode = 2
 
-[node name="name_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1938474778]
+[node name="name_label" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1938474778]
 layout_mode = 2
 text = "Building: None"
 
-[node name="footprint_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271514]
+[node name="footprint_label" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271514]
 layout_mode = 2
 text = ""
 
-[node name="farming_info_label" type="Label" parent="MarginContainer/VBoxContainer" unique_id=1173271530]
+[node name="farming_info_label" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271530]
 visible = false
 layout_mode = 2
 text = ""
 
-[node name="FieldsButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1173271531]
+[node name="FieldsButton" type="Button" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271531]
 visible = false
 layout_mode = 2
 text = "Fields"
 
-[node name="TreePlotsButton" type="Button" parent="MarginContainer/VBoxContainer"]
+[node name="TreePlotsButton" type="Button" parent="MarginContainer/ScrollContainer/VBoxContainer"]
 visible = false
 layout_mode = 2
 text = "Tree Plots"
 
-[node name="ConstructionContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271515]
+[node name="ConstructionContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271515]
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ConstructionLabel" type="Label" parent="MarginContainer/VBoxContainer/ConstructionContainer" unique_id=1173271516]
+[node name="ConstructionLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer" unique_id=1173271516]
 layout_mode = 2
 text = "Construction:"
 
-[node name="ConstructionRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/ConstructionContainer" unique_id=1173271524]
+[node name="ConstructionRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer" unique_id=1173271524]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer" unique_id=1173271517]
+[node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271517]
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="InventoryLabel" type="Label" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271518]
+[node name="InventoryLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer" unique_id=1173271518]
 layout_mode = 2
 text = "Inventory:"
 
-[node name="InventoryRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/InventoryContainer" unique_id=1173271519]
+[node name="InventoryRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer" unique_id=1173271519]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="RefineryContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+[node name="WarehouseFilterContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="InputLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="FilterLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer"]
+layout_mode = 2
+text = "Allowed Deposits:"
+
+[node name="FilterRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="RefineryContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="InputLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 text = "Input Buffer: 0/100"
 
-[node name="InputRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="InputRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="OutputLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="OutputLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 text = "Output Buffer: 0/100"
 
-[node name="OutputRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="OutputRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="RecipeLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="RecipeLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 text = "Recipes:"
 autowrap_mode = 2
 
-[node name="ProgressLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="ProgressLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 text = "Progress: —"
 
-[node name="WorkerLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="WorkerLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 layout_mode = 2
 text = "Worker: Unassigned"
 
-[node name="BlockedLabel" type="Label" parent="MarginContainer/VBoxContainer/RefineryContainer"]
+[node name="BlockedLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer"]
 visible = false
 layout_mode = 2
 text = ""
 
-[node name="HousingContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+[node name="HousingContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="HousingOccupancyLabel" type="Label" parent="MarginContainer/VBoxContainer/HousingContainer"]
+[node name="HousingOccupancyLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/HousingContainer"]
 layout_mode = 2
 text = "Housing: 0/0"
 
-[node name="HousingRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/HousingContainer"]
+[node name="HousingRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/HousingContainer"]
 layout_mode = 2
 theme_override_constants/separation = 3

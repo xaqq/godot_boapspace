@@ -1,6 +1,6 @@
 use crate::buildings::{
     place_building_blueprint, validate_building_blueprint_placement, BuildingFootprint,
-    BuildingKind, BuildingPlacementError,
+    BuildingKind, BuildingPlacementError, WarehouseInventory,
 };
 use crate::collision::{collision_flags_at, CollisionFlags};
 use crate::components::{Terrain, TerrainKind, Tile};
@@ -18,7 +18,7 @@ use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::refining::{refinery_status, RefineryStatus, ReservationLedger};
 use crate::resource_nodes::spawn_initial_resource_nodes;
-use crate::resources::{resource_overview, ResourceHistory, ResourceOverview};
+use crate::resources::{resource_overview, ResourceHistory, ResourceKind, ResourceOverview};
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
 use crate::time::SIMULATION_TICK_DURATION;
@@ -72,6 +72,12 @@ impl SurfaceId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceLookupError {
     IndexOutOfRange { index: usize, surface_count: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WarehouseFilterError {
+    MissingEntity,
+    NotCompletedWarehouse,
 }
 
 struct SurfaceRuntime {
@@ -281,6 +287,40 @@ impl GameSimulation {
         refinery_status(&self.surface(surface_id).world, refinery)
     }
 
+    pub fn warehouse_resource_allowed(
+        &self,
+        surface_id: SurfaceId,
+        warehouse: Entity,
+        kind: ResourceKind,
+    ) -> Result<bool, WarehouseFilterError> {
+        let world = &self.surface(surface_id).world;
+        if world.get_entity(warehouse).is_err() {
+            return Err(WarehouseFilterError::MissingEntity);
+        }
+        world
+            .get::<WarehouseInventory>(warehouse)
+            .map(|inventory| inventory.is_allowed(kind))
+            .ok_or(WarehouseFilterError::NotCompletedWarehouse)
+    }
+
+    pub fn set_warehouse_resource_allowed(
+        &mut self,
+        surface_id: SurfaceId,
+        warehouse: Entity,
+        kind: ResourceKind,
+        allowed: bool,
+    ) -> Result<(), WarehouseFilterError> {
+        let world = &mut self.surface_mut(surface_id).world;
+        if world.get_entity(warehouse).is_err() {
+            return Err(WarehouseFilterError::MissingEntity);
+        }
+        let Some(mut inventory) = world.get_mut::<WarehouseInventory>(warehouse) else {
+            return Err(WarehouseFilterError::NotCompletedWarehouse);
+        };
+        inventory.set_allowed(kind, allowed);
+        Ok(())
+    }
+
     pub fn place_building_blueprint(
         &mut self,
         surface_id: SurfaceId,
@@ -441,14 +481,14 @@ impl Default for GameSimulation {
 mod tests {
     use super::*;
     use crate::buildings::{Building, BuildingFootprint, BuildingKind};
-    use crate::components::NpcInventory;
+    use crate::components::CarriedResource;
     use crate::forestry::{
         AiCutTreePlot, AiSeedTreePlot, Forester, ForesterLodgeInventory, TreePlotGrowth,
         TreePlotOwner, TREE_PLOT_GROWTH_TICKS,
     };
     use crate::grid::CellCoord;
     use crate::npcs::{Npc, NpcPosition};
-    use crate::resources::{ResourceAmounts, ResourceKind};
+    use crate::resources::ResourceKind;
     use crate::time::{SECONDS_PER_DAY, SIMULATION_TICK_SECONDS};
     use std::time::Duration;
 
@@ -460,7 +500,7 @@ mod tests {
         let initial = simulation.resource_history(default_surface).samples();
         assert_eq!(initial.len(), 1);
         assert_eq!(initial[0].day(), DEFAULT_WORLD_DATE_TIME_DAY);
-        assert_eq!(initial[0].quantity(ResourceKind::Food), 100);
+        assert_eq!(initial[0].quantity(ResourceKind::Food), 0);
 
         simulation.world_date_time = WorldDateTime::from_day(42);
         let empty_surface = simulation.create_surface(GridSize::new(2, 2));
@@ -518,11 +558,15 @@ mod tests {
         simulation
             .surface_mut(first)
             .world
-            .spawn(NpcInventory::new(ResourceAmounts::new(3, 0, 0, 0)));
+            .spawn(CarriedResource::of(ResourceKind::Wood, 3));
         simulation
             .surface_mut(second)
             .world
-            .spawn(NpcInventory::new(ResourceAmounts::new(9, 0, 0, 0)));
+            .spawn(CarriedResource::of(ResourceKind::Wood, 5));
+        simulation
+            .surface_mut(second)
+            .world
+            .spawn(CarriedResource::of(ResourceKind::Wood, 4));
         simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
             SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
         ));
@@ -550,22 +594,22 @@ mod tests {
             .surface(first)
             .world
             .iter_entities()
-            .find(|entity| entity.get::<NpcInventory>().is_some())
+            .find(|entity| entity.get::<CarriedResource>().is_some())
             .unwrap()
             .id();
         assert!(simulation
             .surface_mut(first)
             .world
-            .get_mut::<NpcInventory>(inventory_entity)
+            .get_mut::<CarriedResource>(inventory_entity)
             .unwrap()
-            .add(ResourceKind::Wood, 4));
+            .add(ResourceKind::Wood, 2));
 
         assert_eq!(
             simulation
                 .resource_overview(first)
                 .usable()
                 .get(ResourceKind::Wood),
-            7
+            5
         );
         assert_eq!(
             simulation
@@ -582,6 +626,66 @@ mod tests {
                 .unwrap()
                 .quantity(ResourceKind::Wood),
             9
+        );
+    }
+
+    #[test]
+    fn warehouse_filters_are_validated_and_surface_local() {
+        let mut simulation = GameSimulation::new();
+        let first = simulation.create_surface(GridSize::new(8, 8));
+        let second = simulation.create_surface(GridSize::new(8, 8));
+        let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 2, 2);
+        let first_warehouse = simulation
+            .surface_mut(first)
+            .world
+            .spawn((
+                Building::new(BuildingKind::Warehouse, footprint),
+                WarehouseInventory::empty(),
+            ))
+            .id();
+        let second_warehouse = simulation
+            .surface_mut(second)
+            .world
+            .spawn((
+                Building::new(BuildingKind::Warehouse, footprint),
+                WarehouseInventory::empty(),
+            ))
+            .id();
+        let town_hall = simulation
+            .surface_mut(first)
+            .world
+            .spawn(Building::new(BuildingKind::TownHall, footprint))
+            .id();
+
+        assert_eq!(
+            simulation.set_warehouse_resource_allowed(
+                first,
+                first_warehouse,
+                ResourceKind::Wood,
+                false,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            simulation.warehouse_resource_allowed(first, first_warehouse, ResourceKind::Wood),
+            Ok(false)
+        );
+        assert_eq!(
+            simulation.warehouse_resource_allowed(second, second_warehouse, ResourceKind::Wood),
+            Ok(true)
+        );
+        assert_eq!(
+            simulation.set_warehouse_resource_allowed(first, town_hall, ResourceKind::Wood, false,),
+            Err(WarehouseFilterError::NotCompletedWarehouse)
+        );
+        assert_eq!(
+            simulation.set_warehouse_resource_allowed(
+                first,
+                Entity::PLACEHOLDER,
+                ResourceKind::Wood,
+                false,
+            ),
+            Err(WarehouseFilterError::MissingEntity)
         );
     }
 
@@ -634,7 +738,7 @@ mod tests {
                 Npc,
                 Forester,
                 NpcPosition::new(CellCoord::new(0, 3)),
-                NpcInventory::empty(),
+                CarriedResource::empty(),
                 AiSeedTreePlot::new(seed_plot),
             ));
             let cut_worker = world
@@ -642,7 +746,7 @@ mod tests {
                     Npc,
                     Forester,
                     NpcPosition::new(CellCoord::new(2, 3)),
-                    NpcInventory::empty(),
+                    CarriedResource::empty(),
                     AiCutTreePlot::new(cut_plot),
                 ))
                 .id();
