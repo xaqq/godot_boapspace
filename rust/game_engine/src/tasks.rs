@@ -63,15 +63,23 @@ pub struct ProgressBuildingConstructionTaskBundle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiConstructionLabor {
     site: Entity,
+    interaction_cell: crate::grid::CellCoord,
 }
 
 impl AiConstructionLabor {
-    pub const fn new(site: Entity) -> Self {
-        Self { site }
+    pub const fn new(site: Entity, interaction_cell: crate::grid::CellCoord) -> Self {
+        Self {
+            site,
+            interaction_cell,
+        }
     }
 
     pub const fn site(self) -> Entity {
         self.site
+    }
+
+    pub const fn interaction_cell(self) -> crate::grid::CellCoord {
+        self.interaction_cell
     }
 }
 
@@ -106,9 +114,9 @@ pub fn maintain_construction_tasks(
     }
 }
 
-/// Routes idle NPCs to material-complete construction sites and advances at
-/// most one labor tick per site. Labor lives on the site, so interruptions do
-/// not lose progress.
+/// Routes idle NPCs to material-complete construction sites and advances one
+/// labor tick per worker that has reached a distinct interaction cell. Labor
+/// lives on the site, so interruptions do not lose progress.
 pub fn manage_construction_labor(world: &mut World) {
     let Some(snapshot) = current_navigation_snapshot(world) else {
         return;
@@ -120,7 +128,8 @@ pub fn manage_construction_labor(world: &mut World) {
         .map(|(worker, position, labor)| (worker, *position, *labor))
         .collect::<Vec<_>>();
     active.sort_unstable_by_key(|(worker, ..)| worker.to_bits());
-    let mut claimed_sites = HashSet::new();
+    let mut claimed_slots = HashSet::new();
+    let mut completed_sites = HashSet::new();
 
     for (worker, position, labor) in active {
         let site = labor.site();
@@ -135,26 +144,42 @@ pub fn manage_construction_labor(world: &mut World) {
             .is_some_and(|progress| {
                 progress.materials_complete(cost) && !progress.is_complete(cost)
             });
-        if interrupted || !actionable || !claimed_sites.insert(site) {
+        let interaction_cell = labor.interaction_cell();
+        if interrupted
+            || !actionable
+            || !goals.contains(&interaction_cell)
+            || !claimed_slots.insert((site, interaction_cell))
+        {
             clear_labor(world, worker);
             continue;
         }
 
-        if goals.contains(&position.coord) {
+        if position.coord == interaction_cell {
             world
                 .entity_mut(worker)
                 .remove::<NpcRoute>()
                 .remove::<MovementTarget>();
             if let Some(mut progress) = world.get_mut::<ConstructionProgress>(site) {
                 progress.advance_labor();
+                if progress.is_complete(cost) {
+                    completed_sites.insert(site);
+                }
             }
-        } else if goals.is_empty() {
-            world
-                .entity_mut(worker)
-                .remove::<NpcRoute>()
-                .remove::<MovementTarget>();
         } else {
-            set_route(world, worker, goals);
+            set_route(world, worker, vec![interaction_cell]);
+        }
+    }
+
+    // A worker processed earlier in entity order may have supplied the final
+    // labor unit. Release every worker from a site that completed this tick.
+    if !completed_sites.is_empty() {
+        let mut completed_workers_query = world.query::<(Entity, &AiConstructionLabor)>();
+        let completed_workers = completed_workers_query
+            .iter(world)
+            .filter_map(|(worker, labor)| completed_sites.contains(&labor.site()).then_some(worker))
+            .collect::<Vec<_>>();
+        for worker in completed_workers {
+            clear_labor(world, worker);
         }
     }
 
@@ -164,19 +189,31 @@ pub fn manage_construction_labor(world: &mut World) {
         Option<&BuildingBlueprint>,
         Option<&RoadBlueprint>,
     )>();
-    let mut sites = sites_query
+    let mut available_slots = sites_query
         .iter(world)
         .filter_map(|(entity, progress, building, road)| {
             let cost = building
                 .map(|blueprint| blueprint.kind.definition().construction_cost())
                 .or_else(|| road.map(|blueprint| blueprint.target_tier.material_cost()))?;
-            (progress.materials_complete(cost)
-                && !progress.is_complete(cost)
-                && !claimed_sites.contains(&entity))
-            .then_some(entity)
+            (progress.materials_complete(cost) && !progress.is_complete(cost)).then_some(entity)
+        })
+        .flat_map(|site| {
+            construction_site(world, &snapshot, site)
+                .map(|(_, cells)| {
+                    cells
+                        .into_iter()
+                        .filter(|cell| !claimed_slots.contains(&(site, *cell)))
+                        .map(|cell| (site, cell))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
         })
         .collect::<Vec<_>>();
-    sites.sort_unstable_by_key(|entity| entity.to_bits());
+    available_slots.sort_unstable_by_key(|(site, cell)| (site.to_bits(), cell.y(), cell.x()));
+
+    if available_slots.is_empty() {
+        return;
+    }
 
     let mut npc_query = world.query_filtered::<(
         Entity,
@@ -207,30 +244,30 @@ pub fn manage_construction_labor(world: &mut World) {
     workers.sort_unstable_by_key(|(entity, _)| entity.to_bits());
 
     for (worker, position) in workers {
+        if available_slots.is_empty() {
+            break;
+        }
         let Some(distances) = snapshot.distances_from(position.coord) else {
             continue;
         };
-        let selected = sites
+        let selected = available_slots
             .iter()
-            .filter(|site| !claimed_sites.contains(site))
-            .filter_map(|site| {
-                let (_, goals) = construction_site(world, &snapshot, *site)?;
-                let (_, cost) = distances.closest_reachable(goals)?;
-                Some((cost, site.to_bits(), *site))
+            .enumerate()
+            .filter_map(|(index, (site, cell))| {
+                let (_, cost) = distances.closest_reachable([*cell])?;
+                Some((cost, site.to_bits(), cell.y(), cell.x(), index))
             })
-            .min_by_key(|candidate| (candidate.0, candidate.1));
-        let Some((_, _, site)) = selected else {
+            .min_by_key(|candidate| (candidate.0, candidate.1, candidate.2, candidate.3));
+        let Some((_, _, _, _, selected_index)) = selected else {
             continue;
         };
-        claimed_sites.insert(site);
+        let (site, interaction_cell) = available_slots.swap_remove(selected_index);
         world.entity_mut(worker).insert((
             AiConstructBuilding::new(site),
-            AiConstructionLabor::new(site),
+            AiConstructionLabor::new(site, interaction_cell),
         ));
-        if let Some((_, goals)) = construction_site(world, &snapshot, site) {
-            if !goals.contains(&position.coord) {
-                set_route(world, worker, goals);
-            }
+        if position.coord != interaction_cell {
+            set_route(world, worker, vec![interaction_cell]);
         }
     }
 }
