@@ -1,11 +1,9 @@
 use crate::ai::{AiConstructBuilding, AiSearchForFood};
 use crate::buildings::{BuildingBlueprint, ConstructionProgress};
 use crate::components::{MovementTarget, Npc, NpcPosition};
-use crate::farming::{AiHarvestField, AiSeedField};
-use crate::forestry::{AiCutTreePlot, AiSeedTreePlot};
 use crate::navigation::{current_navigation_snapshot, NavigationSnapshot, NpcRoute};
-use crate::refining::AiRefineResource;
 use crate::roads::RoadBlueprint;
+use crate::work::NpcWorkState;
 use bevy_ecs::prelude::*;
 use std::collections::HashSet;
 
@@ -215,31 +213,11 @@ pub fn manage_construction_labor(world: &mut World) {
         return;
     }
 
-    let mut npc_query = world.query_filtered::<(
-        Entity,
-        &NpcPosition,
-        Option<&AiSearchForFood>,
-        Option<&AiConstructBuilding>,
-        Option<&AiRefineResource>,
-        Option<&AiSeedField>,
-        Option<&AiHarvestField>,
-        Option<&AiSeedTreePlot>,
-        Option<&AiCutTreePlot>,
-    ), With<Npc>>();
+    let mut npc_query = world.query_filtered::<(Entity, &NpcPosition, NpcWorkState), With<Npc>>();
     let mut workers = npc_query
         .iter(world)
-        .filter(
-            |(_, _, food, construction, refining, seed, harvest, tree_seed, tree_cut)| {
-                food.is_none()
-                    && construction.is_none()
-                    && refining.is_none()
-                    && seed.is_none()
-                    && harvest.is_none()
-                    && tree_seed.is_none()
-                    && tree_cut.is_none()
-            },
-        )
-        .map(|(entity, position, ..)| (entity, *position))
+        .filter(|(_, _, work)| !work.is_assigned())
+        .map(|(entity, position, _)| (entity, *position))
         .collect::<Vec<_>>();
     workers.sort_unstable_by_key(|(entity, _)| entity.to_bits());
 

@@ -21,6 +21,7 @@ use game_engine::forestry::{
     TREE_PLOT_CUTTING_TICKS, TREE_PLOT_GROWTH_TICKS, TREE_PLOT_SEEDING_TICKS,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
+use game_engine::logistics::AiWheelbarrowRecovery;
 use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
@@ -786,6 +787,27 @@ fn food_and_construction_work_preempt_forestry_assignment() {
 
     assert!(world.get::<AiSeedTreePlot>(food_worker).is_none());
     assert!(world.get::<AiSeedTreePlot>(construction_worker).is_none());
+}
+
+#[test]
+fn wheelbarrow_recovery_blocks_plot_assignment() {
+    let mut world = forestry_world();
+    let lodge = spawn_lodge(&mut world, CellCoord::new(0, 0));
+    spawn_tree_plot(
+        &mut world,
+        lodge,
+        CellCoord::new(3, 1),
+        TreePlotGrowth::seedable(),
+    );
+    run_maintain_forestry_tasks(&mut world);
+    let worker = spawn_available_npc(&mut world, CellCoord::new(2, 1), (false, true));
+    world
+        .entity_mut(worker)
+        .insert(AiWheelbarrowRecovery::default());
+
+    run_assign_plot_work(&mut world);
+
+    assert!(world.get::<AiSeedTreePlot>(worker).is_none());
 }
 
 fn forestry_world() -> World {

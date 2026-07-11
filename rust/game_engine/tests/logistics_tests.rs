@@ -12,6 +12,7 @@ use game_engine::components::{
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::logistics::{
     manage_construction_logistics, manage_food_logistics, AiConstructionHaul, AiFoodHaul,
+    AiWheelbarrowRecovery,
 };
 use game_engine::refining::{
     RefineryInventory, RefineryProduction, Reservation, ReservationLedger, SinkEndpoint,
@@ -289,6 +290,22 @@ fn natural_construction_does_not_reserve_more_workers_than_source_stock() {
         ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Wood),
         2
     );
+}
+
+#[test]
+fn construction_logistics_does_not_claim_a_worker_recovering_a_wheelbarrow() {
+    let mut world = navigation_world();
+    spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
+    spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 20);
+    let worker = spawn_available_npc(&mut world, CellCoord::new(1, 7));
+    world
+        .entity_mut(worker)
+        .insert(AiWheelbarrowRecovery::default());
+
+    manage_construction_logistics(&mut world);
+
+    assert!(world.get::<AiConstructionHaul>(worker).is_none());
+    assert!(world.resource::<ReservationLedger>().claims().is_empty());
 }
 
 #[test]

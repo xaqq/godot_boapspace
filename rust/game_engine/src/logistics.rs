@@ -21,12 +21,13 @@ use crate::navigation::{
 };
 use crate::refining::{
     cancel_refining_work_for_building, endpoint_entity, recipes_for_building,
-    source_interaction_cells, source_stock, stock_sources, withdraw_source, AiRefineResource,
-    RefineryInventory, Reservation, ReservationLedger, SinkEndpoint, StockEndpoint,
+    source_interaction_cells, source_stock, stock_sources, withdraw_source, RefineryInventory,
+    Reservation, ReservationLedger, SinkEndpoint, StockEndpoint,
 };
 use crate::resources::ResourceKind;
 use crate::roads::RoadBlueprint;
 use crate::skills::{NpcSkills, SkillKind};
+use crate::work::NpcWorkState;
 
 const NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE: u32 = 1;
 
@@ -273,48 +274,13 @@ pub fn manage_construction_logistics(world: &mut World) {
         Entity,
         &NpcPosition,
         &CarriedResource,
-        Option<&AiSearchForFood>,
-        Option<&AiConstructBuilding>,
-        Option<&AiRefineResource>,
-        Option<&AiBuildingHaul>,
-        Option<&AiWheelbarrowRecovery>,
         Option<&Wheelbarrow>,
-        Option<&AiSeedField>,
-        Option<&AiHarvestField>,
-        Option<&AiSeedTreePlot>,
-        Option<&AiCutTreePlot>,
+        NpcWorkState,
     ), With<Npc>>();
     let mut npcs = npc_query
         .iter(world)
-        .filter(
-            |(
-                _,
-                _,
-                _,
-                food,
-                construction,
-                refining,
-                building_haul,
-                recovery,
-                wheelbarrow,
-                seed,
-                harvest,
-                tree_seed,
-                tree_cut,
-            )| {
-                food.is_none()
-                    && construction.is_none()
-                    && refining.is_none()
-                    && building_haul.is_none()
-                    && recovery.is_none()
-                    && wheelbarrow.is_none()
-                    && seed.is_none()
-                    && harvest.is_none()
-                    && tree_seed.is_none()
-                    && tree_cut.is_none()
-            },
-        )
-        .map(|(entity, position, inventory, ..)| (entity, *position, *inventory))
+        .filter(|(_, _, _, wheelbarrow, work)| wheelbarrow.is_none() && !work.is_assigned())
+        .map(|(entity, position, inventory, _, _)| (entity, *position, *inventory))
         .collect::<Vec<_>>();
     npcs.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
@@ -674,48 +640,14 @@ pub fn manage_building_logistics(world: &mut World) {
         &NpcPosition,
         &CarriedResource,
         Option<&Wheelbarrow>,
-        Option<&AiSearchForFood>,
-        Option<&AiConstructionHaul>,
-        Option<&AiRefineResource>,
-        Option<&AiBuildingHaul>,
-        Option<&AiWheelbarrowRecovery>,
-        Option<&AiSeedField>,
-        Option<&AiHarvestField>,
-        Option<&AiSeedTreePlot>,
-        Option<&AiCutTreePlot>,
+        NpcWorkState,
     ), With<Npc>>();
     let mut workers = query
         .iter(world)
-        .filter(
-            |(
-                _,
-                _,
-                cargo,
-                wheelbarrow,
-                food,
-                construction,
-                refining,
-                hauling,
-                recovery,
-                seed,
-                harvest,
-                tree_seed,
-                tree_cut,
-            )| {
-                cargo.used_size() == 0
-                    && wheelbarrow.is_none()
-                    && food.is_none()
-                    && construction.is_none()
-                    && refining.is_none()
-                    && hauling.is_none()
-                    && recovery.is_none()
-                    && seed.is_none()
-                    && harvest.is_none()
-                    && tree_seed.is_none()
-                    && tree_cut.is_none()
-            },
-        )
-        .map(|(entity, position, ..)| (entity, *position))
+        .filter(|(_, _, cargo, wheelbarrow, work)| {
+            cargo.used_size() == 0 && wheelbarrow.is_none() && !work.is_assigned()
+        })
+        .map(|(entity, position, _, _, _)| (entity, *position))
         .collect::<Vec<_>>();
     workers.sort_unstable_by_key(|(entity, _)| entity.to_bits());
 

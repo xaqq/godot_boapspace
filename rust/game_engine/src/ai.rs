@@ -22,6 +22,7 @@ use crate::navigation::{NavigationSnapshot, NpcRoute};
 use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::skills::{NpcSkills, SkillKind};
 use crate::tasks::ProgressBuildingConstruction;
+use crate::work::NpcWorkState;
 use bevy_ecs::prelude::*;
 
 pub const DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD: u32 = 5;
@@ -146,9 +147,7 @@ pub fn system_assign_construction_work(
             &NpcPosition,
             &NpcInventory,
             Option<&AiKeepEnoughFoodInInventory>,
-            Option<&AiSearchForFood>,
-            Option<&AiGatherResource>,
-            Option<&AiConstructBuilding>,
+            NpcWorkState,
         ),
         With<Npc>,
     >,
@@ -156,12 +155,8 @@ pub fn system_assign_construction_work(
     blueprints: Query<(Entity, &BuildingBlueprint, &ConstructionProgress)>,
     resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
-    for (entity, position, inventory, keep_food, search, gather, construction) in &npcs {
-        if search.is_some()
-            || gather.is_some()
-            || construction.is_some()
-            || should_interrupt_for_food(inventory, keep_food, &resource_nodes)
-        {
+    for (entity, position, inventory, keep_food, work) in &npcs {
+        if work.is_assigned() || should_interrupt_for_food(inventory, keep_food, &resource_nodes) {
             continue;
         }
 
@@ -187,15 +182,9 @@ pub fn system_assign_plot_work(
         (
             Entity,
             &NpcPosition,
-            Option<&AiSearchForFood>,
-            Option<&AiGatherResource>,
-            Option<&AiConstructBuilding>,
             Option<&Farmer>,
             Option<&Forester>,
-            Option<&AiSeedField>,
-            Option<&AiHarvestField>,
-            Option<&AiSeedTreePlot>,
-            Option<&AiCutTreePlot>,
+            NpcWorkState,
         ),
         With<Npc>,
     >,
@@ -225,28 +214,8 @@ pub fn system_assign_plot_work(
 
     let mut eligible_npcs = npcs.iter().collect::<Vec<_>>();
     eligible_npcs.sort_by_key(|(entity, ..)| entity.to_bits());
-    for (
-        entity,
-        position,
-        search,
-        gather,
-        construction,
-        farmer,
-        forester,
-        field_seed,
-        field_harvest,
-        tree_seed,
-        tree_cut,
-    ) in eligible_npcs
-    {
-        if search.is_some()
-            || gather.is_some()
-            || construction.is_some()
-            || field_seed.is_some()
-            || field_harvest.is_some()
-            || tree_seed.is_some()
-            || tree_cut.is_some()
-        {
+    for (entity, position, farmer, forester, work) in eligible_npcs {
+        if work.is_assigned() {
             continue;
         }
 
@@ -609,42 +578,15 @@ pub fn system_npc_idle(
             &NpcPosition,
             Option<&HousingAssignment>,
             Option<&MovementTarget>,
-            Option<&AiSearchForFood>,
-            Option<&AiGatherResource>,
-            Option<&AiConstructBuilding>,
-            Option<&AiSeedField>,
-            Option<&AiHarvestField>,
-            Option<&AiSeedTreePlot>,
-            Option<&AiCutTreePlot>,
+            NpcWorkState,
             Option<&mut AiIdleRoam>,
         ),
         With<Npc>,
     >,
 ) {
     let size = grid.size();
-    for (
-        entity,
-        position,
-        housing_assignment,
-        movement_target,
-        search,
-        gather,
-        construction,
-        seed,
-        harvest,
-        tree_seed,
-        tree_cut,
-        idle,
-    ) in &mut npcs
-    {
-        if search.is_some()
-            || gather.is_some()
-            || construction.is_some()
-            || seed.is_some()
-            || harvest.is_some()
-            || tree_seed.is_some()
-            || tree_cut.is_some()
-        {
+    for (entity, position, housing_assignment, movement_target, work, idle) in &mut npcs {
+        if work.is_assigned() {
             commands.entity(entity).remove::<AiIdleRoam>();
             continue;
         }

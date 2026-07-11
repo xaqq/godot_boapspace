@@ -5,6 +5,7 @@ use game_engine::components::{
     AiSearchForFood, CarriedResource, MaxVelocity, MovementFacing, Npc, NpcPosition, Velocity,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
+use game_engine::logistics::AiWheelbarrowRecovery;
 use game_engine::refining::{
     assign_refining_work, maintain_refining_tasks, recipes_for_building, refinery_status,
     route_and_advance_refining_work, AiRefineResource, RecipeKind, RefineryBlockedReason,
@@ -127,6 +128,29 @@ fn eligible_worker_completes_exactly_one_buffered_batch_in_sixty_ticks() {
         1
     );
     assert!(world.get::<AiRefineResource>(worker).is_none());
+}
+
+#[test]
+fn refining_does_not_claim_a_worker_recovering_a_wheelbarrow() {
+    let mut world = navigation_world();
+    let refinery = spawn_sawmill_with_input(&mut world, 1);
+    let worker = spawn_sawyer(&mut world, CellCoord::new(2, 3));
+    world
+        .entity_mut(worker)
+        .insert(AiWheelbarrowRecovery::default());
+    world.run_system_once(maintain_refining_tasks).unwrap();
+
+    assign_refining_work(&mut world);
+
+    assert!(world.get::<AiRefineResource>(worker).is_none());
+    assert_eq!(
+        world
+            .get::<RefineryProduction>(refinery)
+            .unwrap()
+            .assigned_worker(),
+        None
+    );
+    assert!(world.resource::<ReservationLedger>().claims().is_empty());
 }
 
 #[test]

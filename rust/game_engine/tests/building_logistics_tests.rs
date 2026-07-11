@@ -1,16 +1,20 @@
 use bevy_ecs::prelude::*;
 use game_engine::buildings::{
-    Building, BuildingActivity, BuildingFootprint, BuildingKind, RefineryPullConfig,
-    StorageInventory, StoragePullConfig,
+    Building, BuildingActivity, BuildingBlueprint, BuildingFootprint, BuildingKind,
+    ConstructionProgress, RefineryPullConfig, StorageInventory, StoragePullConfig,
 };
-use game_engine::components::{CarriedResource, Npc, NpcPosition, Wheelbarrow};
+use game_engine::components::{
+    AiConstructBuilding, CarriedResource, Npc, NpcPosition, Wheelbarrow,
+};
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::logistics::{
     cancel_work_involving_building, manage_building_logistics, manage_wheelbarrow_recovery,
     AiBuildingHaul, AiWheelbarrowRecovery, BuildingHaulPhase,
 };
+use game_engine::navigation::{refresh_navigation_snapshot, NpcRoute};
 use game_engine::refining::{RefineryInventory, ReservationLedger, StockEndpoint};
 use game_engine::resources::{resource_overview, ResourceKind};
+use game_engine::tasks::{manage_construction_labor, AiConstructionLabor};
 use game_engine::tile::{TileBundle, TileIndex};
 
 #[test]
@@ -213,6 +217,100 @@ fn mixed_input_reservations_share_the_refinery_total_capacity() {
             .resource::<ReservationLedger>()
             .reserved_capacity_to(game_engine::refining::SinkEndpoint::RefineryInput(kitchen)),
         100
+    );
+}
+
+#[test]
+fn building_logistics_does_not_replace_construction_labor_or_its_route() {
+    let mut world = navigation_world();
+    let source = spawn_storage(&mut world, BuildingKind::Depot, CellCoord::new(2, 2));
+    assert!(world
+        .get_mut::<StorageInventory>(source)
+        .unwrap()
+        .add(ResourceKind::Wood, 30));
+    let refinery = spawn_refinery(&mut world, BuildingKind::Sawmill, CellCoord::new(6, 2));
+    world
+        .get_mut::<RefineryPullConfig>(refinery)
+        .unwrap()
+        .set_pulls_from_storage(ResourceKind::Wood, true);
+    let kind = BuildingKind::Depot;
+    let cost = kind.definition().construction_cost();
+    let labor_site = world
+        .spawn((
+            BuildingBlueprint {
+                kind,
+                footprint: BuildingFootprint::new(CellCoord::new(5, 5), 1, 1),
+            },
+            ConstructionProgress::new(cost).with_required_labor(10),
+        ))
+        .id();
+    let worker = spawn_worker(&mut world, CellCoord::new(1, 5));
+    refresh_navigation_snapshot(&mut world);
+
+    manage_construction_labor(&mut world);
+    let labor = *world.get::<AiConstructionLabor>(worker).unwrap();
+    assert_eq!(labor.site(), labor_site);
+    let labor_route = world.get::<NpcRoute>(worker).unwrap().goals().to_vec();
+
+    manage_building_logistics(&mut world);
+
+    assert!(world.get::<AiBuildingHaul>(worker).is_none());
+    assert_eq!(world.get::<NpcRoute>(worker).unwrap().goals(), labor_route);
+    assert!(world.resource::<ReservationLedger>().claims().is_empty());
+
+    world.get_mut::<NpcPosition>(worker).unwrap().coord = labor.interaction_cell();
+    for _ in 0..3 {
+        manage_construction_labor(&mut world);
+        manage_building_logistics(&mut world);
+    }
+
+    assert_eq!(
+        world
+            .get::<ConstructionProgress>(labor_site)
+            .unwrap()
+            .labor_completed(),
+        3
+    );
+    assert!(world.get::<AiBuildingHaul>(worker).is_none());
+}
+
+#[test]
+fn construction_labor_does_not_preempt_an_existing_building_haul() {
+    let mut world = navigation_world();
+    let source = spawn_storage(&mut world, BuildingKind::Depot, CellCoord::new(2, 2));
+    assert!(world
+        .get_mut::<StorageInventory>(source)
+        .unwrap()
+        .add(ResourceKind::Wood, 30));
+    let refinery = spawn_refinery(&mut world, BuildingKind::Sawmill, CellCoord::new(6, 2));
+    world
+        .get_mut::<RefineryPullConfig>(refinery)
+        .unwrap()
+        .set_pulls_from_storage(ResourceKind::Wood, true);
+    let worker = spawn_worker(&mut world, CellCoord::new(1, 2));
+    manage_building_logistics(&mut world);
+    let original_haul = *world.get::<AiBuildingHaul>(worker).unwrap();
+    let original_claims = world.resource::<ReservationLedger>().claims().to_vec();
+
+    let kind = BuildingKind::Depot;
+    let cost = kind.definition().construction_cost();
+    world.spawn((
+        BuildingBlueprint {
+            kind,
+            footprint: BuildingFootprint::new(CellCoord::new(5, 5), 1, 1),
+        },
+        ConstructionProgress::new(cost).with_required_labor(10),
+    ));
+    refresh_navigation_snapshot(&mut world);
+
+    manage_construction_labor(&mut world);
+
+    assert_eq!(world.get::<AiBuildingHaul>(worker), Some(&original_haul));
+    assert!(world.get::<AiConstructionLabor>(worker).is_none());
+    assert!(world.get::<AiConstructBuilding>(worker).is_none());
+    assert_eq!(
+        world.resource::<ReservationLedger>().claims(),
+        original_claims.as_slice()
     );
 }
 

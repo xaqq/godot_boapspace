@@ -18,7 +18,7 @@ use game_engine::components::{
 };
 use game_engine::grid::{CellCoord, Grid};
 use game_engine::housing::{House, HousingAssignment};
-use game_engine::logistics::manage_food_logistics;
+use game_engine::logistics::{manage_food_logistics, AiWheelbarrowRecovery};
 use game_engine::navigation::{refresh_navigation_snapshot, NpcRoute};
 use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
@@ -360,6 +360,27 @@ fn test_idle_roam_is_suppressed_by_search_and_gather() {
     assert!(world.get::<MovementTarget>(search_npc).is_none());
     assert!(world.get::<AiIdleRoam>(gather_npc).is_none());
     assert!(world.get::<MovementTarget>(gather_npc).is_none());
+}
+
+#[test]
+fn test_idle_roam_is_suppressed_by_wheelbarrow_recovery() {
+    let origin = CellCoord::new(3, 3);
+    let recovery_goal = CellCoord::new(2, 3);
+    let mut world = idle_world(8, 8);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(origin),
+            AiIdleRoam::new(origin, 0),
+            AiWheelbarrowRecovery::default(),
+            NpcRoute::to_cell(recovery_goal),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    assert!(world.get::<AiIdleRoam>(npc).is_none());
+    assert_eq!(world.get::<NpcRoute>(npc).unwrap().goals(), [recovery_goal]);
 }
 
 #[test]
@@ -1083,6 +1104,27 @@ fn test_assign_construction_work_targets_carried_resource_blueprint() {
             .blueprint(),
         blueprint
     );
+}
+
+#[test]
+fn test_assign_construction_work_skips_wheelbarrow_recovery() {
+    let mut world = World::new();
+    spawn_construction_blueprint(&mut world, CellCoord::new(4, 4));
+    world
+        .run_system_once(maintain_construction_tasks)
+        .expect("task maintenance should run");
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            NpcInventory::new(ResourceAmounts::of(ResourceKind::Planks, 10)),
+            AiWheelbarrowRecovery::default(),
+        ))
+        .id();
+
+    run_assign_construction(&mut world);
+
+    assert!(world.get::<AiConstructBuilding>(npc).is_none());
 }
 
 #[test]

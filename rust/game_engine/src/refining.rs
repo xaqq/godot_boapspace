@@ -5,11 +5,10 @@ use bevy_ecs::prelude::*;
 use crate::ai::RESOURCE_GATHER_TICKS_PER_UNIT;
 use crate::buildings::{Building, BuildingActivity, BuildingKind, WarehouseInventory};
 use crate::components::{
-    AiConstructBuilding, AiGatherResource, AiSearchForFood, CarriedResource, MovementTarget, Npc,
-    NpcPosition, ResourceNode, TilePosition,
+    AiSearchForFood, CarriedResource, MovementTarget, Npc, NpcPosition, ResourceNode, TilePosition,
 };
-use crate::farming::{AiHarvestField, AiSeedField, FarmInventory};
-use crate::forestry::{AiCutTreePlot, AiSeedTreePlot, ForesterLodgeInventory};
+use crate::farming::FarmInventory;
+use crate::forestry::ForesterLodgeInventory;
 use crate::navigation::{
     current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
     NavigationSnapshot, NpcRoute,
@@ -17,6 +16,7 @@ use crate::navigation::{
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::skills::{Cook, NpcSkills, Sawyer, SkillKind, Stonemason};
 use crate::tasks::{Task, TaskAssignment};
+use crate::work::NpcWorkState;
 
 pub const REFINERY_INPUT_CAPACITY: u32 = 100;
 pub const REFINERY_OUTPUT_CAPACITY: u32 = 100;
@@ -463,44 +463,12 @@ pub fn assign_refining_work(world: &mut World) {
         Option<&Sawyer>,
         Option<&Stonemason>,
         Option<&Cook>,
-        Option<&AiSearchForFood>,
-        Option<&AiGatherResource>,
-        Option<&AiConstructBuilding>,
-        Option<&AiRefineResource>,
-        Option<&AiSeedField>,
-        Option<&AiHarvestField>,
-        Option<&AiSeedTreePlot>,
-        Option<&AiCutTreePlot>,
+        NpcWorkState,
     ), With<Npc>>();
     let mut workers = worker_query
         .iter(world)
-        .filter(
-            |(
-                _,
-                _,
-                _,
-                _,
-                _,
-                food,
-                gather,
-                construction,
-                refining,
-                seed,
-                harvest,
-                tree_seed,
-                tree_cut,
-            )| {
-                food.is_none()
-                    && gather.is_none()
-                    && construction.is_none()
-                    && refining.is_none()
-                    && seed.is_none()
-                    && harvest.is_none()
-                    && tree_seed.is_none()
-                    && tree_cut.is_none()
-            },
-        )
-        .map(|(entity, position, sawyer, stonemason, cook, ..)| {
+        .filter(|(_, _, _, _, _, work)| !work.is_assigned())
+        .map(|(entity, position, sawyer, stonemason, cook, _)| {
             (
                 entity,
                 *position,
