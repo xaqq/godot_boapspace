@@ -1,3 +1,5 @@
+use super::resource_quantity::ResourceQuantity;
+use crate::assets::load_packed_scene;
 use crate::world::game_world::{decode_entity_id, GameWorld, MapEntityKind};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
@@ -13,11 +15,54 @@ use game_engine::npcs::{
 use game_engine::refining::{recipes_for_building, RefineryInventory};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use godot::classes::{control, IPanelContainer, PanelContainer, RichTextLabel};
+use godot::classes::{
+    control, HFlowContainer, IPanelContainer, Label, PackedScene, PanelContainer, RichTextLabel,
+    VBoxContainer,
+};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
 const TOOLTIP_CURSOR_OFFSET: Vector2 = Vector2::new(16.0, 16.0);
+const RESOURCE_QUANTITY_SCENE_PATH: &str = "res://panel/resource_quantity.tscn";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TooltipView {
+    text: String,
+    resource_sections: Vec<ResourceSectionView>,
+}
+
+impl TooltipView {
+    fn text_only(text: String) -> Self {
+        Self {
+            text,
+            resource_sections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResourceSectionView {
+    label: String,
+    entries: Vec<ResourceEntryView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResourceEntryView {
+    kind: ResourceKind,
+    value: Option<String>,
+}
+
+struct ResourceSectionControls {
+    label: Gd<Label>,
+    row: Gd<HFlowContainer>,
+    entries: Vec<ResourceEntryControls>,
+    empty_label: Option<Gd<Label>>,
+}
+
+struct ResourceEntryControls {
+    kind: ResourceKind,
+    node: Gd<ResourceQuantity>,
+}
 
 #[derive(GodotClass)]
 #[class(base = PanelContainer)]
@@ -26,10 +71,15 @@ pub(crate) struct MapEntityTooltipPanel {
     text_label: OnEditor<Gd<RichTextLabel>>,
 
     #[export]
+    resource_sections: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     hovered_target: Option<(MapEntityKind, i64)>,
-    cached_text: Option<String>,
+    cached_view: Option<TooltipView>,
+    resource_quantity_scene: Option<Gd<PackedScene>>,
+    resource_section_controls: Vec<ResourceSectionControls>,
 
     base: Base<PanelContainer>,
 }
@@ -39,14 +89,19 @@ impl IPanelContainer for MapEntityTooltipPanel {
     fn init(base: Base<PanelContainer>) -> Self {
         Self {
             text_label: OnEditor::default(),
+            resource_sections: OnEditor::default(),
             game_world: OnEditor::default(),
             hovered_target: None,
-            cached_text: None,
+            cached_view: None,
+            resource_quantity_scene: None,
+            resource_section_controls: Vec::new(),
             base,
         }
     }
 
     fn ready(&mut self) {
+        self.resource_quantity_scene =
+            load_packed_scene(RESOURCE_QUANTITY_SCENE_PATH, "MapEntityTooltipPanel");
         let game_world = self.game_world.clone();
         game_world
             .signals()
@@ -78,7 +133,7 @@ impl MapEntityTooltipPanel {
             return;
         };
         self.hovered_target = Some((kind, entity_id));
-        self.cached_text = None;
+        self.cached_view = None;
         self.refresh_tooltip();
         if self.hovered_target.is_none() {
             return;
@@ -89,7 +144,7 @@ impl MapEntityTooltipPanel {
 
     fn hide_tooltip(&mut self) {
         self.hovered_target = None;
-        self.cached_text = None;
+        self.cached_view = None;
         self.base_mut().hide();
     }
 
@@ -97,21 +152,124 @@ impl MapEntityTooltipPanel {
         let Some((kind, entity_id)) = self.hovered_target else {
             return;
         };
-        let text = {
+        let view = {
             let game_world = self.game_world.bind();
-            map_entity_tooltip_text(&game_world, kind, entity_id)
+            map_entity_tooltip_view(&game_world, kind, entity_id)
         };
-        let Some(text) = text else {
+        let Some(view) = view else {
             self.hide_tooltip();
             return;
         };
-        if self.cached_text.as_ref() == Some(&text) {
+        if self.cached_view.as_ref() == Some(&view) {
             return;
         }
 
-        self.text_label.clone().parse_bbcode(text.as_str());
-        self.cached_text = Some(text);
+        self.text_label.clone().parse_bbcode(view.text.as_str());
+        self.sync_resource_sections(&view.resource_sections);
+        self.cached_view = Some(view);
         self.base_mut().reset_size();
+    }
+
+    fn sync_resource_sections(&mut self, sections: &[ResourceSectionView]) {
+        let shape_matches =
+            self.resource_section_controls.len() == sections.len()
+                && self.resource_section_controls.iter().zip(sections).all(
+                    |(controls, section)| {
+                        controls
+                            .entries
+                            .iter()
+                            .map(|entry| entry.kind)
+                            .eq(section.entries.iter().map(|entry| entry.kind))
+                            && controls.empty_label.is_some() == section.entries.is_empty()
+                    },
+                );
+
+        if !shape_matches {
+            self.rebuild_resource_sections(sections);
+        }
+
+        for (controls, section) in self.resource_section_controls.iter_mut().zip(sections) {
+            controls.label.set_text(section.label.as_str());
+            for (controls, entry) in controls.entries.iter_mut().zip(&section.entries) {
+                let mut node = controls.node.bind_mut();
+                if let Some(value) = &entry.value {
+                    node.set_display_text(value.as_str());
+                } else {
+                    node.hide_amount();
+                }
+            }
+        }
+    }
+
+    fn rebuild_resource_sections(&mut self, sections: &[ResourceSectionView]) {
+        for mut controls in self.resource_section_controls.drain(..) {
+            controls.label.queue_free();
+            controls.row.queue_free();
+        }
+
+        let Some(scene) = self.resource_quantity_scene.clone() else {
+            return;
+        };
+        let mut parent = self.resource_sections.clone();
+        for section in sections {
+            let mut label = Label::new_alloc();
+            label.set_text(section.label.as_str());
+            label.set_mouse_filter(control::MouseFilter::IGNORE);
+            parent.add_child(&label);
+
+            let mut row = HFlowContainer::new_alloc();
+            row.set_h_size_flags(control::SizeFlags::EXPAND_FILL);
+            row.set_mouse_filter(control::MouseFilter::IGNORE);
+            parent.add_child(&row);
+
+            let mut entries = Vec::with_capacity(section.entries.len());
+            let mut empty_label = None;
+            if section.entries.is_empty() {
+                let mut label = Label::new_alloc();
+                label.set_text("None");
+                label.set_mouse_filter(control::MouseFilter::IGNORE);
+                row.add_child(&label);
+                empty_label = Some(label);
+            } else {
+                for entry in &section.entries {
+                    let Some(node) = scene.instantiate() else {
+                        godot_error!(
+                            "MapEntityTooltipPanel: failed to instantiate resource quantity"
+                        );
+                        continue;
+                    };
+                    let Ok(mut node) = node.try_cast::<ResourceQuantity>() else {
+                        godot_error!(
+                            "MapEntityTooltipPanel: resource quantity scene has unexpected root type"
+                        );
+                        continue;
+                    };
+                    row.add_child(&node);
+                    {
+                        let mut quantity = node.bind_mut();
+                        quantity.set_resource_kind(entry.kind);
+                        quantity.set_mouse_passthrough();
+                        if let Some(value) = &entry.value {
+                            quantity.set_display_text(value.as_str());
+                        } else {
+                            quantity.hide_amount();
+                        }
+                    }
+                    entries.push(ResourceEntryControls {
+                        kind: entry.kind,
+                        node,
+                    });
+                }
+            }
+
+            self.resource_section_controls
+                .push(ResourceSectionControls {
+                    label,
+                    row,
+                    entries,
+                    empty_label,
+                });
+        }
     }
 
     fn position_near_mouse(&mut self) {
@@ -135,26 +293,28 @@ impl MapEntityTooltipPanel {
     }
 }
 
-fn map_entity_tooltip_text(
+fn map_entity_tooltip_view(
     game_world: &GameWorld,
     kind: MapEntityKind,
     entity_id: i64,
-) -> Option<String> {
+) -> Option<TooltipView> {
     let entity = decode_entity_id(entity_id)?;
     game_world.with_rendered_surface_world(|world| match kind {
-        MapEntityKind::Building => building_tooltip_text(world, entity),
-        MapEntityKind::Npc => npc_tooltip_text(world, entity),
-        MapEntityKind::ResourceNode => resource_node_tooltip_text(world, entity),
+        MapEntityKind::Building => building_tooltip_view(world, entity),
+        MapEntityKind::Npc => npc_tooltip_text(world, entity).map(TooltipView::text_only),
+        MapEntityKind::ResourceNode => {
+            resource_node_tooltip_text(world, entity).map(TooltipView::text_only)
+        }
     })
 }
 
-fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
+fn building_tooltip_view(world: &World, entity: Entity) -> Option<TooltipView> {
     let name = world.get::<BuildingName>(entity)?;
 
     if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
         let progress = world.get::<ConstructionProgress>(entity)?;
 
-        return Some(format_building_blueprint_tooltip(
+        return Some(building_blueprint_tooltip_view(
             name.as_str(),
             blueprint.kind.label(),
             progress.deposited(),
@@ -170,7 +330,7 @@ fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
         world.get::<BuildingActivity>(entity),
         world.get::<StoragePullConfig>(entity),
     ) {
-        return Some(format_storage_tooltip(
+        return Some(storage_tooltip_view(
             name.as_str(),
             building.kind.label(),
             *activity,
@@ -183,7 +343,7 @@ fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
         world.get::<BuildingActivity>(entity),
         world.get::<RefineryPullConfig>(entity),
     ) {
-        return Some(format_refinery_tooltip(
+        return Some(refinery_tooltip_view(
             name.as_str(),
             building.kind,
             *activity,
@@ -195,11 +355,11 @@ fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
     let occupancy = housing_snapshot(world)
         .house(entity)
         .map(|house| (house.occupied(), house.capacity()));
-    Some(format_finished_building_tooltip(
+    Some(TooltipView::text_only(format_finished_building_tooltip(
         name.as_str(),
         building.kind.label(),
         occupancy,
-    ))
+    )))
 }
 
 fn npc_tooltip_text(world: &World, entity: Entity) -> Option<String> {
@@ -228,20 +388,34 @@ fn resource_node_tooltip_text(world: &World, entity: Entity) -> Option<String> {
     Some(format_resource_node_tooltip(*node))
 }
 
-fn format_building_blueprint_tooltip(
+fn building_blueprint_tooltip_view(
     name: &str,
     label: &str,
     progress: ResourceAmounts,
     cost: ResourceAmounts,
     labor_completed: u32,
     labor_required: u32,
-) -> String {
-    format!(
-        "[b]{name}[/b]\nBlueprint: {label}\nMaterials: {}\nLabor: {}/{}",
-        format_deposited_over_required(progress, cost),
-        labor_completed,
-        labor_required,
-    )
+) -> TooltipView {
+    let entries = ResourceKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let required = cost.get(kind);
+            (required > 0).then(|| ResourceEntryView {
+                kind,
+                value: Some(format!("{}/{required}", progress.get(kind))),
+            })
+        })
+        .collect();
+
+    TooltipView {
+        text: format!(
+            "[b]{name}[/b]\nBlueprint: {label}\nLabor: {labor_completed}/{labor_required}"
+        ),
+        resource_sections: vec![ResourceSectionView {
+            label: "Materials:".to_string(),
+            entries,
+        }],
+    }
 }
 
 fn format_finished_building_tooltip(
@@ -256,50 +430,66 @@ fn format_finished_building_tooltip(
     text
 }
 
-fn format_storage_tooltip(
+fn storage_tooltip_view(
     name: &str,
     label: &str,
     activity: BuildingActivity,
     inventory: StorageInventory,
     pull_config: StoragePullConfig,
-) -> String {
+) -> TooltipView {
     let contents = inventory.contents();
     let stock = ResourceKind::ALL
         .into_iter()
         .filter_map(|kind| {
             let amount = contents.get(kind);
-            (amount > 0).then(|| format!("{}: {amount}", kind.label()))
+            (amount > 0).then(|| ResourceEntryView {
+                kind,
+                value: Some(amount.to_string()),
+            })
         })
         .collect();
     let allowed = ResourceKind::ALL
         .into_iter()
         .filter(|kind| inventory.is_allowed(*kind))
-        .map(|kind| kind.label().to_string())
+        .map(|kind| ResourceEntryView { kind, value: None })
         .collect();
     let pulls = StoragePullConfig::SUPPORTED_RESOURCES
         .into_iter()
         .filter(|kind| pull_config.pulls_from_refineries(*kind))
-        .map(|kind| kind.label().to_string())
+        .map(|kind| ResourceEntryView { kind, value: None })
         .collect();
 
-    format!(
-        "[b]{name}[/b]\n{label}\nStatus: {}\nCapacity: {}/{}\nStock: {}\nAllowed Deposits: {}\nPull from Refineries: {}",
-        activity_label(activity),
-        inventory.used_size(),
-        inventory.max_size(),
-        format_parts_or_none(stock),
-        format_parts_or_none(allowed),
-        format_parts_or_none(pulls),
-    )
+    TooltipView {
+        text: format!(
+            "[b]{name}[/b]\n{label}\nStatus: {}\nCapacity: {}/{}",
+            activity_label(activity),
+            inventory.used_size(),
+            inventory.max_size(),
+        ),
+        resource_sections: vec![
+            ResourceSectionView {
+                label: "Stock:".to_string(),
+                entries: stock,
+            },
+            ResourceSectionView {
+                label: "Allowed Deposits:".to_string(),
+                entries: allowed,
+            },
+            ResourceSectionView {
+                label: "Pull from Refineries:".to_string(),
+                entries: pulls,
+            },
+        ],
+    }
 }
 
-fn format_refinery_tooltip(
+fn refinery_tooltip_view(
     name: &str,
     kind: BuildingKind,
     activity: BuildingActivity,
     inventory: RefineryInventory,
     pull_config: RefineryPullConfig,
-) -> String {
+) -> TooltipView {
     let recipes = recipes_for_building(kind);
     let inputs = recipes
         .iter()
@@ -316,32 +506,48 @@ fn format_refinery_tooltip(
     let output_contents = inventory.output_contents();
     let input_parts = inputs
         .iter()
-        .map(|kind| format!("{}: {}", kind.label(), input_contents.get(*kind)))
+        .map(|kind| ResourceEntryView {
+            kind: *kind,
+            value: Some(input_contents.get(*kind).to_string()),
+        })
         .collect();
     let output_parts = outputs
         .iter()
-        .map(|kind| format!("{}: {}", kind.label(), output_contents.get(*kind)))
+        .map(|kind| ResourceEntryView {
+            kind: *kind,
+            value: Some(output_contents.get(*kind).to_string()),
+        })
         .collect();
     let pull_parts = inputs
         .iter()
-        .map(|kind| {
-            let state = if pull_config.pulls_from_storage(*kind) {
-                "On"
-            } else {
-                "Off"
-            };
-            format!("{}: {state}", kind.label())
+        .filter(|kind| pull_config.pulls_from_storage(**kind))
+        .map(|kind| ResourceEntryView {
+            kind: *kind,
+            value: None,
         })
         .collect();
 
-    format!(
-        "[b]{name}[/b]\n{}\nStatus: {}\nInputs: {}\nOutputs: {}\nPull from Storage: {}",
-        kind.label(),
-        activity_label(activity),
-        format_parts_or_none(input_parts),
-        format_parts_or_none(output_parts),
-        format_parts_or_none(pull_parts),
-    )
+    TooltipView {
+        text: format!(
+            "[b]{name}[/b]\n{}\nStatus: {}",
+            kind.label(),
+            activity_label(activity),
+        ),
+        resource_sections: vec![
+            ResourceSectionView {
+                label: "Inputs:".to_string(),
+                entries: input_parts,
+            },
+            ResourceSectionView {
+                label: "Outputs:".to_string(),
+                entries: output_parts,
+            },
+            ResourceSectionView {
+                label: "Pull from Storage:".to_string(),
+                entries: pull_parts,
+            },
+        ],
+    }
 }
 
 fn activity_label(activity: BuildingActivity) -> &'static str {
@@ -384,34 +590,21 @@ fn format_resource_node_tooltip(node: ResourceNode) -> String {
     )
 }
 
-fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
-    let parts = ResourceKind::ALL
-        .into_iter()
-        .filter_map(|kind| {
-            let required = cost.get(kind);
-            (required > 0).then(|| format!("{}: {}/{}", kind.label(), progress.get(kind), required))
-        })
-        .collect::<Vec<_>>();
-
-    format_parts_or_none(parts)
-}
-
-fn format_parts_or_none(parts: Vec<String>) -> String {
-    if parts.is_empty() {
-        "None".to_string()
-    } else {
-        parts.join(", ")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use game_engine::grid::CellCoord;
 
+    fn entry(kind: ResourceKind, value: Option<&str>) -> ResourceEntryView {
+        ResourceEntryView {
+            kind,
+            value: value.map(str::to_string),
+        }
+    }
+
     #[test]
-    fn building_blueprint_tooltip_formats_name_type_and_progress() {
-        let text = format_building_blueprint_tooltip(
+    fn building_blueprint_tooltip_uses_resource_progress_entries() {
+        let view = building_blueprint_tooltip_view(
             "Central Depot",
             "Depot",
             ResourceAmounts::new(5, 0, 0, 0),
@@ -421,8 +614,17 @@ mod tests {
         );
 
         assert_eq!(
-            text,
-            "[b]Central Depot[/b]\nBlueprint: Depot\nMaterials: Wood: 5/20, Stone: 0/10\nLabor: 12/720"
+            view,
+            TooltipView {
+                text: "[b]Central Depot[/b]\nBlueprint: Depot\nLabor: 12/720".to_string(),
+                resource_sections: vec![ResourceSectionView {
+                    label: "Materials:".to_string(),
+                    entries: vec![
+                        entry(ResourceKind::Wood, Some("5/20")),
+                        entry(ResourceKind::Stone, Some("0/10")),
+                    ],
+                }],
+            }
         );
     }
 
@@ -442,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn storage_tooltip_formats_live_configuration_and_nonzero_stock() {
+    fn storage_tooltip_uses_quantities_and_enabled_resource_icons() {
         let mut inventory = StorageInventory::for_kind(BuildingKind::Depot);
         assert!(inventory.add(ResourceKind::Wood, 7));
         assert!(inventory.add(ResourceKind::Food, 3));
@@ -451,7 +653,7 @@ mod tests {
         let mut pulls = StoragePullConfig::default();
         pulls.set_pulls_from_refineries(ResourceKind::Food, true);
 
-        let text = format_storage_tooltip(
+        let view = storage_tooltip_view(
             "Supply Depot",
             "Depot",
             BuildingActivity::active(),
@@ -460,13 +662,40 @@ mod tests {
         );
 
         assert_eq!(
-            text,
-            "[b]Supply Depot[/b]\nDepot\nStatus: Active\nCapacity: 10/500\nStock: Wood: 7, Food: 3\nAllowed Deposits: Wood, Food, Crops, Wild Berries, Planks, Stone Blocks\nPull from Refineries: Food"
+            view.text,
+            "[b]Supply Depot[/b]\nDepot\nStatus: Active\nCapacity: 10/500"
+        );
+        assert_eq!(
+            view.resource_sections,
+            vec![
+                ResourceSectionView {
+                    label: "Stock:".to_string(),
+                    entries: vec![
+                        entry(ResourceKind::Wood, Some("7")),
+                        entry(ResourceKind::Food, Some("3")),
+                    ],
+                },
+                ResourceSectionView {
+                    label: "Allowed Deposits:".to_string(),
+                    entries: vec![
+                        entry(ResourceKind::Wood, None),
+                        entry(ResourceKind::Food, None),
+                        entry(ResourceKind::Crops, None),
+                        entry(ResourceKind::WildBerries, None),
+                        entry(ResourceKind::Planks, None),
+                        entry(ResourceKind::StoneBlocks, None),
+                    ],
+                },
+                ResourceSectionView {
+                    label: "Pull from Refineries:".to_string(),
+                    entries: vec![entry(ResourceKind::Food, None)],
+                },
+            ]
         );
     }
 
     #[test]
-    fn refinery_tooltip_includes_zero_quantities_and_each_input_pull_state() {
+    fn refinery_tooltip_includes_zero_quantities_and_only_enabled_pulls() {
         let mut inventory = RefineryInventory::empty();
         assert!(inventory.add_input(BuildingKind::Kitchen, ResourceKind::Crops, 4));
         assert!(inventory.add_output(BuildingKind::Kitchen, ResourceKind::Food, 2));
@@ -475,7 +704,7 @@ mod tests {
         let mut activity = BuildingActivity::active();
         activity.set_active(false);
 
-        let text = format_refinery_tooltip(
+        let view = refinery_tooltip_view(
             "Community Kitchen",
             BuildingKind::Kitchen,
             activity,
@@ -484,9 +713,44 @@ mod tests {
         );
 
         assert_eq!(
-            text,
-            "[b]Community Kitchen[/b]\nKitchen\nStatus: Inactive\nInputs: Crops: 4, Wild Berries: 0\nOutputs: Food: 2\nPull from Storage: Crops: Off, Wild Berries: On"
+            view,
+            TooltipView {
+                text: "[b]Community Kitchen[/b]\nKitchen\nStatus: Inactive".to_string(),
+                resource_sections: vec![
+                    ResourceSectionView {
+                        label: "Inputs:".to_string(),
+                        entries: vec![
+                            entry(ResourceKind::Crops, Some("4")),
+                            entry(ResourceKind::WildBerries, Some("0")),
+                        ],
+                    },
+                    ResourceSectionView {
+                        label: "Outputs:".to_string(),
+                        entries: vec![entry(ResourceKind::Food, Some("2"))],
+                    },
+                    ResourceSectionView {
+                        label: "Pull from Storage:".to_string(),
+                        entries: vec![entry(ResourceKind::WildBerries, None)],
+                    },
+                ],
+            }
         );
+    }
+
+    #[test]
+    fn storage_tooltip_keeps_empty_resource_sections() {
+        let inventory = StorageInventory::for_kind(BuildingKind::Depot);
+
+        let view = storage_tooltip_view(
+            "Empty Depot",
+            "Depot",
+            BuildingActivity::active(),
+            inventory,
+            StoragePullConfig::default(),
+        );
+
+        assert!(view.resource_sections[0].entries.is_empty());
+        assert!(view.resource_sections[2].entries.is_empty());
     }
 
     #[test]

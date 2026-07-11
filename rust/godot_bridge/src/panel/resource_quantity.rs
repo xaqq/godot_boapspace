@@ -1,7 +1,7 @@
 use super::resource_tooltip::ResourceTooltip;
 use crate::assets::{load_packed_scene, load_texture, resource_asset_path};
 use game_engine::resources::ResourceKind;
-use godot::classes::{HBoxContainer, IHBoxContainer, Label, Object, TextureRect};
+use godot::classes::{control, HBoxContainer, IHBoxContainer, Label, Object, TextureRect};
 use godot::obj::OnEditor;
 use godot::prelude::*;
 
@@ -70,8 +70,28 @@ impl ResourceQuantity {
     }
 
     pub(crate) fn set_amount(&mut self, amount: u32) {
+        self.set_display_text(amount_text(amount).as_str());
+    }
+
+    pub(crate) fn set_display_text(&mut self, text: &str) {
         let mut amount_label = self.amount_label.clone();
-        amount_label.set_text(amount_text(amount).as_str());
+        amount_label.set_text(text);
+        amount_label.show();
+    }
+
+    pub(crate) fn hide_amount(&mut self) {
+        self.amount_label.clone().hide();
+    }
+
+    pub(crate) fn set_mouse_passthrough(&mut self) {
+        self.base_mut()
+            .set_mouse_filter(control::MouseFilter::IGNORE);
+        self.icon_rect
+            .clone()
+            .set_mouse_filter(control::MouseFilter::IGNORE);
+        self.amount_label
+            .clone()
+            .set_mouse_filter(control::MouseFilter::IGNORE);
     }
 
     pub(crate) fn show_quantity(&mut self) {
