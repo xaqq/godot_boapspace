@@ -1,4 +1,10 @@
+use bevy_ecs::prelude::{Resource, World};
 use godot::prelude::{Export, GodotConvert, Var};
+
+use crate::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
+use crate::components::NpcInventory;
+use crate::farming::FarmInventory;
+use crate::forestry::ForesterLodgeInventory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, GodotConvert, Var, Export)]
 #[godot(via = i64)]
@@ -32,6 +38,153 @@ impl ResourceKind {
             ResourceKind::Food => "Essential supplies that keep colonists fed and productive.",
             ResourceKind::Gold => "Valuable currency used for advanced construction and trade.",
         }
+    }
+}
+
+/// Overflow-safe quantities used by surface-wide resource queries and history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResourceTotals {
+    amounts: [u64; ResourceKind::ALL.len()],
+}
+
+impl ResourceTotals {
+    pub const fn zero() -> Self {
+        Self {
+            amounts: [0; ResourceKind::ALL.len()],
+        }
+    }
+
+    pub const fn get(self, kind: ResourceKind) -> u64 {
+        self.amounts[kind as usize]
+    }
+
+    fn add_amounts(&mut self, amounts: ResourceAmounts) {
+        for kind in ResourceKind::ALL {
+            self.amounts[kind as usize] += u64::from(amounts.get(kind));
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResourceOverview {
+    usable: ResourceTotals,
+    committed: ResourceTotals,
+}
+
+impl ResourceOverview {
+    pub const fn usable(self) -> ResourceTotals {
+        self.usable
+    }
+
+    pub const fn committed(self) -> ResourceTotals {
+        self.committed
+    }
+}
+
+/// Returns live, surface-local resource totals. Natural resource nodes have no
+/// eligible inventory component and are therefore intentionally excluded.
+pub fn resource_overview(world: &World) -> ResourceOverview {
+    let mut overview = ResourceOverview::default();
+
+    for entity in world.iter_entities() {
+        if let Some(inventory) = entity.get::<NpcInventory>() {
+            overview.usable.add_amounts(inventory.contents());
+        }
+        if let Some(inventory) = entity.get::<WarehouseInventory>() {
+            overview.usable.add_amounts(inventory.contents());
+        }
+        if let Some(inventory) = entity.get::<FarmInventory>() {
+            overview.usable.add_amounts(inventory.contents());
+        }
+        if let Some(inventory) = entity.get::<ForesterLodgeInventory>() {
+            overview.usable.add_amounts(inventory.contents());
+        }
+
+        if let (Some(blueprint), Some(progress)) = (
+            entity.get::<BuildingBlueprint>(),
+            entity.get::<ConstructionProgress>(),
+        ) {
+            let cost = blueprint.kind.definition().construction_cost();
+            if !progress.is_complete(cost) {
+                overview.committed.add_amounts(progress.deposited());
+            }
+        }
+    }
+
+    overview
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DailyResourceSample {
+    day: u64,
+    usable: ResourceTotals,
+}
+
+impl DailyResourceSample {
+    pub const fn new(day: u64, usable: ResourceTotals) -> Self {
+        Self { day, usable }
+    }
+
+    pub const fn day(self) -> u64 {
+        self.day
+    }
+
+    pub const fn usable(self) -> ResourceTotals {
+        self.usable
+    }
+
+    pub const fn quantity(self, kind: ResourceKind) -> u64 {
+        self.usable.get(kind)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Resource)]
+pub struct ResourceHistory {
+    samples: Vec<DailyResourceSample>,
+}
+
+impl ResourceHistory {
+    pub fn new(initial_day: u64, initial_usable: ResourceTotals) -> Self {
+        Self {
+            samples: vec![DailyResourceSample::new(initial_day, initial_usable)],
+        }
+    }
+
+    pub fn samples(&self) -> &[DailyResourceSample] {
+        &self.samples
+    }
+
+    /// Records at most one immutable sample per day. Simulation time is
+    /// monotonic, so older days are ignored as well as duplicates.
+    pub fn record_day(&mut self, day: u64, usable: ResourceTotals) -> bool {
+        if self
+            .samples
+            .last()
+            .is_some_and(|sample| sample.day() >= day)
+        {
+            return false;
+        }
+        self.samples.push(DailyResourceSample::new(day, usable));
+        true
+    }
+
+    pub fn sample_on(&self, day: u64) -> Option<DailyResourceSample> {
+        self.samples
+            .binary_search_by_key(&day, |sample| sample.day())
+            .ok()
+            .map(|index| self.samples[index])
+    }
+
+    pub fn change_since(
+        &self,
+        current_day: u64,
+        lookback_days: u64,
+        kind: ResourceKind,
+        current_quantity: u64,
+    ) -> Option<i128> {
+        let target_day = current_day.checked_sub(lookback_days)?;
+        let baseline = self.sample_on(target_day)?.quantity(kind);
+        Some(i128::from(current_quantity) - i128::from(baseline))
     }
 }
 
@@ -126,7 +279,141 @@ impl ResourceInventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buildings::{
+        BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+        WarehouseInventory,
+    };
+    use crate::components::{NpcInventory, ResourceNode};
+    use crate::farming::FarmInventory;
+    use crate::forestry::ForesterLodgeInventory;
     use godot::prelude::{FromGodot, ToGodot};
+
+    fn totals(amounts: ResourceAmounts) -> ResourceTotals {
+        let mut totals = ResourceTotals::zero();
+        totals.add_amounts(amounts);
+        totals
+    }
+
+    #[test]
+    fn resource_overview_sums_every_owned_inventory_and_excludes_natural_nodes() {
+        let mut world = World::new();
+        world.spawn(NpcInventory::new(ResourceAmounts::new(1, 2, 3, 4)));
+
+        let mut warehouse = WarehouseInventory::empty();
+        for (kind, amount) in [
+            (ResourceKind::Wood, 10),
+            (ResourceKind::Stone, 11),
+            (ResourceKind::Food, 12),
+            (ResourceKind::Gold, 13),
+        ] {
+            assert!(warehouse.add(kind, amount));
+        }
+        world.spawn(warehouse);
+
+        let mut farm = FarmInventory::empty();
+        assert!(farm.add_food(14));
+        world.spawn(farm);
+
+        let mut lodge = ForesterLodgeInventory::empty();
+        assert!(lodge.add_wood(15));
+        world.spawn(lodge);
+
+        world.spawn(ResourceNode {
+            kind: ResourceKind::Gold,
+            quantity: u32::MAX,
+        });
+
+        let overview = resource_overview(&world);
+        assert_eq!(overview.usable().get(ResourceKind::Wood), 26);
+        assert_eq!(overview.usable().get(ResourceKind::Stone), 13);
+        assert_eq!(overview.usable().get(ResourceKind::Food), 29);
+        assert_eq!(overview.usable().get(ResourceKind::Gold), 17);
+        assert_eq!(overview.committed(), ResourceTotals::zero());
+    }
+
+    #[test]
+    fn resource_overview_counts_each_inventory_component_once() {
+        let mut world = World::new();
+        let mut warehouse = WarehouseInventory::empty();
+        assert!(warehouse.add(ResourceKind::Wood, 7));
+        world.spawn((
+            NpcInventory::new(ResourceAmounts::new(5, 0, 0, 0)),
+            warehouse,
+        ));
+
+        assert_eq!(
+            resource_overview(&world).usable().get(ResourceKind::Wood),
+            12
+        );
+    }
+
+    #[test]
+    fn resource_overview_only_commits_deposits_on_incomplete_blueprints() {
+        let mut world = World::new();
+        world.spawn((
+            BuildingBlueprint {
+                kind: BuildingKind::TownHall,
+                footprint: BuildingFootprint::new(crate::grid::CellCoord::new(0, 0), 3, 3),
+            },
+            ConstructionProgress::new(ResourceAmounts::new(5, 6, 0, 1)),
+        ));
+        world.spawn((
+            BuildingBlueprint {
+                kind: BuildingKind::Warehouse,
+                footprint: BuildingFootprint::new(crate::grid::CellCoord::new(4, 0), 2, 2),
+            },
+            ConstructionProgress::new(BuildingKind::Warehouse.definition().construction_cost()),
+        ));
+        world.spawn(ConstructionProgress::new(ResourceAmounts::new(9, 9, 9, 9)));
+
+        let committed = resource_overview(&world).committed();
+        assert_eq!(committed.get(ResourceKind::Wood), 5);
+        assert_eq!(committed.get(ResourceKind::Stone), 6);
+        assert_eq!(committed.get(ResourceKind::Food), 0);
+        assert_eq!(committed.get(ResourceKind::Gold), 1);
+    }
+
+    #[test]
+    fn resource_totals_accumulate_beyond_u32_range() {
+        let mut totals = ResourceTotals::zero();
+        totals.add_amounts(ResourceAmounts::new(u32::MAX, 0, 0, 0));
+        totals.add_amounts(ResourceAmounts::new(1, 0, 0, 0));
+
+        assert_eq!(totals.get(ResourceKind::Wood), u64::from(u32::MAX) + 1);
+    }
+
+    #[test]
+    fn resource_history_keeps_samples_immutable_and_ordered() {
+        let initial = totals(ResourceAmounts::new(1, 2, 3, 4));
+        let mut history = ResourceHistory::new(10, initial);
+
+        assert!(!history.record_day(10, totals(ResourceAmounts::new(9, 9, 9, 9))));
+        assert!(!history.record_day(9, totals(ResourceAmounts::zero())));
+        assert!(history.record_day(11, totals(ResourceAmounts::new(5, 6, 7, 8))));
+
+        assert_eq!(history.samples().len(), 2);
+        assert_eq!(history.sample_on(10).unwrap().usable(), initial);
+        assert_eq!(
+            history.sample_on(11).unwrap().quantity(ResourceKind::Gold),
+            8
+        );
+    }
+
+    #[test]
+    fn resource_history_changes_require_an_exact_baseline_day() {
+        let mut history = ResourceHistory::new(10, totals(ResourceAmounts::new(5, 8, 0, 0)));
+        assert!(history.record_day(11, totals(ResourceAmounts::new(6, 3, 0, 0))));
+        assert!(history.record_day(17, totals(ResourceAmounts::new(20, 20, 0, 0))));
+
+        assert_eq!(history.change_since(17, 7, ResourceKind::Wood, 12), Some(7));
+        assert_eq!(
+            history.change_since(17, 7, ResourceKind::Stone, 2),
+            Some(-6)
+        );
+        assert_eq!(history.change_since(11, 1, ResourceKind::Food, 0), Some(0));
+        assert_eq!(history.change_since(17, 1, ResourceKind::Wood, 12), None);
+        assert_eq!(history.change_since(3, 7, ResourceKind::Wood, 12), None);
+    }
 
     #[test]
     fn resource_amounts_default_to_zero() {

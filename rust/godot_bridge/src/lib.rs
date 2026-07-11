@@ -14,6 +14,8 @@ mod panel {
     mod map_entity_tooltip_panel;
     mod npc_details;
     mod npc_info_panel;
+    mod resource_history_graph;
+    mod resource_panel;
     mod resource_quantity;
     mod resource_quantity_progress;
     mod resource_tooltip;

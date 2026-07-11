@@ -1,0 +1,145 @@
+[gd_scene format=3]
+
+[node name="ResourcePanel" type="ResourcePanel" node_paths=PackedStringArray("close_button", "row_container", "empty_state_label", "graph", "range_30d_button", "range_365d_button", "range_all_button")]
+close_button = NodePath("MarginContainer/VBoxContainer/Header/CloseButton")
+row_container = NodePath("MarginContainer/VBoxContainer/OverviewScroll/RowsGrid")
+empty_state_label = NodePath("MarginContainer/VBoxContainer/GraphArea/EmptyState")
+graph = NodePath("MarginContainer/VBoxContainer/GraphArea/HistoryGraph")
+range_30d_button = NodePath("MarginContainer/VBoxContainer/RangeControls/Range30d")
+range_365d_button = NodePath("MarginContainer/VBoxContainer/RangeControls/Range365d")
+range_all_button = NodePath("MarginContainer/VBoxContainer/RangeControls/RangeAll")
+custom_minimum_size = Vector2(720, 520)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Header" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Resources"
+
+[node name="CloseButton" type="Button" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+text = "Close"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="OverviewScroll" type="ScrollContainer" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 190)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="RowsGrid" type="GridContainer" parent="MarginContainer/VBoxContainer/OverviewScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 7
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 5
+
+[node name="ResourceHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Resource"
+
+[node name="NowHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "Now"
+horizontal_alignment = 2
+
+[node name="CommittedHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "Committed"
+horizontal_alignment = 2
+
+[node name="DayHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "1d"
+horizontal_alignment = 2
+
+[node name="WeekHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "7d"
+horizontal_alignment = 2
+
+[node name="MonthHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "30d"
+horizontal_alignment = 2
+
+[node name="YearHeader" type="Label" parent="MarginContainer/VBoxContainer/OverviewScroll/RowsGrid"]
+layout_mode = 2
+text = "365d"
+horizontal_alignment = 2
+
+[node name="HSeparator2" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="RangeControls" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+alignment = 2
+theme_override_constants/separation = 6
+
+[node name="RangeLabel" type="Label" parent="MarginContainer/VBoxContainer/RangeControls"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Usable stock history"
+
+[node name="Range30d" type="Button" parent="MarginContainer/VBoxContainer/RangeControls"]
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "30d"
+
+[node name="Range365d" type="Button" parent="MarginContainer/VBoxContainer/RangeControls"]
+layout_mode = 2
+toggle_mode = true
+text = "365d"
+
+[node name="RangeAll" type="Button" parent="MarginContainer/VBoxContainer/RangeControls"]
+layout_mode = 2
+toggle_mode = true
+text = "All"
+
+[node name="GraphArea" type="Control" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 220)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="EmptyState" type="Label" parent="MarginContainer/VBoxContainer/GraphArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "Select a resource to view its history"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HistoryGraph" type="ResourceHistoryGraph" parent="MarginContainer/VBoxContainer/GraphArea"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0

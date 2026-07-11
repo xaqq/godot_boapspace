@@ -17,6 +17,7 @@ use crate::forestry::{
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
+use crate::resources::{resource_overview, ResourceHistory, ResourceOverview};
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
 use crate::time::SIMULATION_TICK_DURATION;
@@ -94,6 +95,9 @@ impl SurfaceRuntime {
                 .expect("initial NPC spawn system should run");
         }
 
+        let initial_usable = resource_overview(&world).usable();
+        world.insert_resource(ResourceHistory::new(world_date_time.day(), initial_usable));
+
         Self {
             world,
             schedule: build_surface_schedule(),
@@ -106,6 +110,20 @@ impl SurfaceRuntime {
 
     fn tick(&mut self) {
         self.schedule.run(&mut self.world);
+        let day = self.world.resource::<WorldDateTime>().day();
+        if self
+            .world
+            .resource::<ResourceHistory>()
+            .samples()
+            .last()
+            .is_some_and(|sample| sample.day() >= day)
+        {
+            return;
+        }
+        let usable = resource_overview(&self.world).usable();
+        self.world
+            .resource_mut::<ResourceHistory>()
+            .record_day(day, usable);
     }
 
     fn set_world_date_time(&mut self, world_date_time: WorldDateTime) {
@@ -233,6 +251,14 @@ impl GameSimulation {
 
     pub fn with_surface_world<R>(&self, surface_id: SurfaceId, f: impl FnOnce(&World) -> R) -> R {
         f(&self.surface(surface_id).world)
+    }
+
+    pub fn resource_overview(&self, surface_id: SurfaceId) -> ResourceOverview {
+        resource_overview(&self.surface(surface_id).world)
+    }
+
+    pub fn resource_history(&self, surface_id: SurfaceId) -> &ResourceHistory {
+        self.surface(surface_id).world.resource::<ResourceHistory>()
     }
 
     pub fn place_building_blueprint(
@@ -402,6 +428,142 @@ mod tests {
     };
     use crate::grid::CellCoord;
     use crate::npcs::{Npc, NpcPosition};
+    use crate::resources::{ResourceAmounts, ResourceKind};
+    use crate::time::{SECONDS_PER_DAY, SIMULATION_TICK_SECONDS};
+    use std::time::Duration;
+
+    #[test]
+    fn surfaces_record_their_live_initial_state_on_the_creation_day() {
+        let mut simulation = GameSimulation::new();
+        let default_surface = simulation.default_surface_id();
+
+        let initial = simulation.resource_history(default_surface).samples();
+        assert_eq!(initial.len(), 1);
+        assert_eq!(initial[0].day(), DEFAULT_WORLD_DATE_TIME_DAY);
+        assert_eq!(initial[0].quantity(ResourceKind::Food), 100);
+
+        simulation.world_date_time = WorldDateTime::from_day(42);
+        let empty_surface = simulation.create_surface(GridSize::new(2, 2));
+        let initial = simulation.resource_history(empty_surface).samples();
+        assert_eq!(initial.len(), 1);
+        assert_eq!(initial[0].day(), 42);
+        for kind in ResourceKind::ALL {
+            assert_eq!(initial[0].quantity(kind), 0);
+        }
+    }
+
+    #[test]
+    fn paused_simulation_does_not_record_a_day_boundary() {
+        let mut simulation = GameSimulation::new();
+        let surface = simulation.create_surface(GridSize::new(2, 2));
+        simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
+            SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
+        ));
+        simulation.pause();
+
+        simulation.tick();
+
+        assert_eq!(simulation.resource_history(surface).samples().len(), 1);
+        assert_eq!(simulation.world_date_time().day(), 0);
+
+        simulation.play();
+        simulation.tick();
+        let samples = simulation.resource_history(surface).samples();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[1].day(), 1);
+    }
+
+    #[test]
+    fn accelerated_ticks_record_a_crossed_day_once() {
+        let mut simulation = GameSimulation::new();
+        let surface = simulation.create_surface(GridSize::new(2, 2));
+        simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
+            SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
+        ));
+        simulation.set_simulation_speed(SimulationSpeed::FourX);
+
+        simulation.tick();
+
+        let samples = simulation.resource_history(surface).samples();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[0].day(), 0);
+        assert_eq!(samples[1].day(), 1);
+    }
+
+    #[test]
+    fn daily_samples_are_surface_local_and_remain_immutable() {
+        let mut simulation = GameSimulation::new();
+        let first = simulation.create_surface(GridSize::new(2, 2));
+        let second = simulation.create_surface(GridSize::new(2, 2));
+        simulation
+            .surface_mut(first)
+            .world
+            .spawn(NpcInventory::new(ResourceAmounts::new(3, 0, 0, 0)));
+        simulation
+            .surface_mut(second)
+            .world
+            .spawn(NpcInventory::new(ResourceAmounts::new(9, 0, 0, 0)));
+        simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
+            SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
+        ));
+
+        simulation.tick();
+
+        assert_eq!(
+            simulation
+                .resource_history(first)
+                .sample_on(1)
+                .unwrap()
+                .quantity(ResourceKind::Wood),
+            3
+        );
+        assert_eq!(
+            simulation
+                .resource_history(second)
+                .sample_on(1)
+                .unwrap()
+                .quantity(ResourceKind::Wood),
+            9
+        );
+
+        let inventory_entity = simulation
+            .surface(first)
+            .world
+            .iter_entities()
+            .find(|entity| entity.get::<NpcInventory>().is_some())
+            .unwrap()
+            .id();
+        assert!(simulation
+            .surface_mut(first)
+            .world
+            .get_mut::<NpcInventory>(inventory_entity)
+            .unwrap()
+            .add(ResourceKind::Wood, 4));
+
+        assert_eq!(
+            simulation
+                .resource_overview(first)
+                .usable()
+                .get(ResourceKind::Wood),
+            7
+        );
+        assert_eq!(
+            simulation
+                .resource_history(first)
+                .sample_on(1)
+                .unwrap()
+                .quantity(ResourceKind::Wood),
+            3
+        );
+        assert_eq!(
+            simulation
+                .resource_history(second)
+                .sample_on(1)
+                .unwrap()
+                .quantity(ResourceKind::Wood),
+            9
+        );
+    }
 
     #[test]
     fn pause_and_speed_multiplier_apply_to_forestry_progress() {

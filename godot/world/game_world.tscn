@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://panel/map_entity_tooltip_panel.tscn" id="9_map_entity_tooltip_panel"]
 [ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
+[ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -87,6 +88,10 @@ text = "Tasks"
 [node name="HousingButton" type="Button" parent="VBoxContainer/HeaderBar"]
 layout_mode = 2
 text = "Housing"
+
+[node name="ResourcesButton" type="Button" parent="VBoxContainer/HeaderBar"]
+layout_mode = 2
+text = "Resources"
 
 [node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=1435075728]
 layout_mode = 2
@@ -205,6 +210,21 @@ grow_vertical = 2
 visible = false
 game_world = NodePath("../SubViewport/GameWorld")
 toggle_button = NodePath("../../../HeaderBar/HousingButton")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResourcePanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("12_resource_panel")]
+visible = false
+game_world = NodePath("../SubViewport/GameWorld")
+toggle_button = NodePath("../../../HeaderBar/ResourcesButton")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
