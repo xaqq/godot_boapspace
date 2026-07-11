@@ -13,6 +13,8 @@ use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn test_building_definitions_include_dimensions_and_costs() {
     let warehouse = BuildingKind::Warehouse.definition();
@@ -125,7 +127,7 @@ fn test_building_definitions_include_dimensions_and_costs() {
 
 #[test]
 fn test_place_building_blueprint_inside_bounds() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(16, 16));
     let origin = first_valid_building_origin(&simulation, surface, BuildingKind::Warehouse);
 
@@ -152,7 +154,7 @@ fn test_place_building_blueprint_inside_bounds() {
 
 #[test]
 fn test_place_building_blueprint_rejects_out_of_bounds() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     let result =
@@ -163,7 +165,7 @@ fn test_place_building_blueprint_rejects_out_of_bounds() {
 
 #[test]
 fn test_place_building_blueprint_rejects_blueprint_overlap() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(8, 8));
 
     simulation
@@ -177,7 +179,7 @@ fn test_place_building_blueprint_rejects_blueprint_overlap() {
 
 #[test]
 fn test_standalone_field_blueprint_requires_farm_owner() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     let result =
@@ -188,7 +190,7 @@ fn test_standalone_field_blueprint_requires_farm_owner() {
 
 #[test]
 fn test_blueprint_can_overlap_npc() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let npc_coord = simulation
         .with_surface_world(surface, first_npc_coord)
@@ -201,7 +203,7 @@ fn test_blueprint_can_overlap_npc() {
 
 #[test]
 fn test_blueprint_rejects_resource_node_overlap() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let size = simulation.grid_size(surface);
     let resource_coord = simulation
@@ -218,10 +220,11 @@ fn test_blueprint_rejects_resource_node_overlap() {
 
 #[test]
 fn test_construction_progress_starts_empty() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_building_origin(&simulation, surface, BuildingKind::TownHall);
     let entity = simulation
-        .place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::TownHall, origin)
         .expect("town hall should place");
 
     let deposited = simulation
@@ -239,7 +242,7 @@ fn test_construction_progress_starts_empty() {
 
 #[test]
 fn test_warehouse_blueprint_does_not_have_inventory() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(16, 16));
     let origin = first_valid_building_origin(&simulation, surface, BuildingKind::Warehouse);
     let entity = simulation
@@ -255,10 +258,11 @@ fn test_warehouse_blueprint_does_not_have_inventory() {
 
 #[test]
 fn test_town_hall_does_not_have_warehouse_inventory() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_building_origin(&simulation, surface, BuildingKind::TownHall);
     let entity = simulation
-        .place_building_blueprint(surface, BuildingKind::TownHall, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::TownHall, origin)
         .expect("town hall should place");
 
     let has_inventory = simulation.with_surface_world(surface, |world| {
@@ -353,7 +357,7 @@ fn test_building_blueprint_rejects_finished_building_overlap() {
 
 #[test]
 fn test_building_blueprints_are_scoped_per_surface() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(16, 16));
     let origin = first_valid_building_origin(&simulation, second_surface, BuildingKind::Warehouse);

@@ -27,6 +27,8 @@ use game_engine::simulation::GameSimulation;
 use game_engine::tile::{TileBundle, TileIndex};
 use game_engine::time::SIMULATION_TICKS_PER_YEAR;
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn forestry_building_definitions_and_durations_match_the_design() {
     let lodge = BuildingKind::ForesterLodge.definition();
@@ -78,7 +80,7 @@ fn tree_plot_blocks_building_but_remains_npc_walkable() {
 
 #[test]
 fn every_initial_npc_is_a_forester() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     let (npc_count, forester_count) = simulation.with_surface_world(surface, |world| {
@@ -311,7 +313,7 @@ fn tree_plot_batch_limit_keeps_the_connector_instead_of_a_disconnected_plot() {
 
 #[test]
 fn simulation_tree_plot_placement_is_surface_scoped() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let first = simulation.create_surface(GridSize::new(8, 8));
     let second = simulation.create_surface(GridSize::new(8, 8));
     let lodge = simulation

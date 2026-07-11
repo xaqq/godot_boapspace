@@ -44,6 +44,8 @@ use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
 use godot::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -81,6 +83,16 @@ const TREE_PLOT_MATURE_PATH: &str = "res://assets/generated/tree_plot_mature.png
 const ROAD_DIRT_PATH: &str = "res://assets/generated/road_dirt_path_atlas.png";
 const ROAD_COBBLESTONE_PATH: &str = "res://assets/generated/road_cobblestone_atlas.png";
 const ROAD_FLAGSTONE_PATH: &str = "res://assets/generated/road_flagstone_atlas.png";
+static GENERATION_SEED_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn fresh_generation_seed() -> u64 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
+    folded_time ^ GENERATION_SEED_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+}
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -339,7 +351,7 @@ pub(crate) struct GameWorld {
 #[godot_api]
 impl INode2D for GameWorld {
     fn init(base: Base<Node2D>) -> Self {
-        let game = GameSimulation::new();
+        let game = GameSimulation::new(fresh_generation_seed());
         let rendered_surface = game.default_surface_id();
 
         Self {

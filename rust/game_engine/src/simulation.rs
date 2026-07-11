@@ -27,7 +27,7 @@ use crate::roads::{
     RoadPlacementBatchResult, RoadTier,
 };
 use crate::systems::build_surface_schedule;
-use crate::tile::{spawn_initial_tiles, TileIndex};
+use crate::tile::{mix_hash, spawn_initial_tiles, SurfaceGeneration, TileIndex};
 use crate::time::SIMULATION_TICK_DURATION;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
@@ -125,9 +125,15 @@ struct SurfaceRuntime {
 }
 
 impl SurfaceRuntime {
-    fn new(size: GridSize, spawn_default_npc: bool, world_date_time: WorldDateTime) -> Self {
+    fn new(
+        size: GridSize,
+        generation_seed: u64,
+        spawn_default_npc: bool,
+        world_date_time: WorldDateTime,
+    ) -> Self {
         let mut world = World::new();
         world.insert_resource(Grid::new(size.width(), size.height()));
+        world.insert_resource(SurfaceGeneration::new(generation_seed, spawn_default_npc));
         world.insert_resource(world_date_time);
         world.insert_resource(ReservationLedger::default());
         world.insert_resource(BuildingNameRegistry::default());
@@ -187,19 +193,27 @@ impl SurfaceRuntime {
 pub struct GameSimulation {
     surfaces: Vec<SurfaceRuntime>,
     default_surface: SurfaceId,
+    generation_seed: u64,
     world_date_time: WorldDateTime,
     playing: bool,
     simulation_speed: SimulationSpeed,
 }
 
 impl GameSimulation {
-    pub fn new() -> Self {
+    pub fn new(generation_seed: u64) -> Self {
         let world_date_time = WorldDateTime::from_day(DEFAULT_WORLD_DATE_TIME_DAY);
-        let default_surface = SurfaceRuntime::new(DEFAULT_GRID_SIZE, true, world_date_time);
+        let default_surface_id = SurfaceId(0);
+        let default_surface = SurfaceRuntime::new(
+            DEFAULT_GRID_SIZE,
+            surface_generation_seed(generation_seed, default_surface_id),
+            true,
+            world_date_time,
+        );
 
         Self {
             surfaces: vec![default_surface],
-            default_surface: SurfaceId(0),
+            default_surface: default_surface_id,
+            generation_seed,
             world_date_time,
             playing: true,
             simulation_speed: SimulationSpeed::OneX,
@@ -208,8 +222,12 @@ impl GameSimulation {
 
     pub fn create_surface(&mut self, size: GridSize) -> SurfaceId {
         let surface_id = SurfaceId(self.surfaces.len());
-        self.surfaces
-            .push(SurfaceRuntime::new(size, false, self.world_date_time));
+        self.surfaces.push(SurfaceRuntime::new(
+            size,
+            surface_generation_seed(self.generation_seed, surface_id),
+            false,
+            self.world_date_time,
+        ));
         surface_id
     }
 
@@ -784,10 +802,13 @@ fn tile_coords(surface: &SurfaceRuntime) -> Vec<CellCoord> {
         .collect()
 }
 
-impl Default for GameSimulation {
-    fn default() -> Self {
-        Self::new()
-    }
+fn surface_generation_seed(generation_seed: u64, surface_id: SurfaceId) -> u64 {
+    mix_hash(
+        generation_seed
+            ^ (surface_id.index() as u64)
+                .wrapping_add(1)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15),
+    )
 }
 
 #[cfg(test)]
@@ -805,9 +826,11 @@ mod tests {
     use crate::time::{SECONDS_PER_DAY, SIMULATION_TICK_SECONDS};
     use std::time::Duration;
 
+    const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
     #[test]
     fn surfaces_record_their_live_initial_state_on_the_creation_day() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let default_surface = simulation.default_surface_id();
 
         let initial = simulation.resource_history(default_surface).samples();
@@ -827,7 +850,7 @@ mod tests {
 
     #[test]
     fn paused_simulation_does_not_record_a_day_boundary() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let surface = simulation.create_surface(GridSize::new(2, 2));
         simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
             SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
@@ -848,7 +871,7 @@ mod tests {
 
     #[test]
     fn accelerated_ticks_record_a_crossed_day_once() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let surface = simulation.create_surface(GridSize::new(2, 2));
         simulation.world_date_time = WorldDateTime::new(Duration::from_secs(
             SECONDS_PER_DAY - SIMULATION_TICK_SECONDS,
@@ -865,7 +888,7 @@ mod tests {
 
     #[test]
     fn daily_samples_are_surface_local_and_remain_immutable() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let first = simulation.create_surface(GridSize::new(2, 2));
         let second = simulation.create_surface(GridSize::new(2, 2));
         simulation
@@ -944,7 +967,7 @@ mod tests {
 
     #[test]
     fn warehouse_filters_are_validated_and_surface_local() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let first = simulation.create_surface(GridSize::new(8, 8));
         let second = simulation.create_surface(GridSize::new(8, 8));
         let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 2, 2);
@@ -1004,7 +1027,7 @@ mod tests {
 
     #[test]
     fn typed_building_commands_validate_surface_names_and_pull_dependencies() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let first = simulation.create_surface(GridSize::new(8, 8));
         let second = simulation.create_surface(GridSize::new(8, 8));
         let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 2, 2);
@@ -1071,7 +1094,7 @@ mod tests {
 
     #[test]
     fn pause_and_speed_multiplier_apply_to_forestry_progress() {
-        let mut simulation = GameSimulation::new();
+        let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
         let surface = simulation.create_surface(GridSize::new(8, 8));
         let (seed_plot, growth_plot, cut_worker) = {
             let world = &mut simulation.surface_mut(surface).world;

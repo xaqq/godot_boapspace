@@ -6,7 +6,7 @@ use game_engine::npcs::{
     BirthDate, HungerState, Npc, NpcAppearance, NpcHunger, NpcName, NpcPosition, WorldDateTime,
     INITIAL_NPC_BIRTH_DAY, INITIAL_NPC_NAME, INITIAL_NPC_SPECS,
 };
-use game_engine::resource_nodes::ResourceNode;
+use game_engine::resource_nodes::{terrain_allows_resource, ResourceNode};
 use game_engine::resources::ResourceKind;
 use game_engine::simulation::{
     GameSimulation, SimulationSpeed, SurfaceLookupError, DEFAULT_GRID_SIZE,
@@ -16,9 +16,11 @@ use game_engine::time::{SECONDS_PER_DAY, SIMULATION_TICK_SECONDS};
 use std::collections::HashSet;
 use std::time::Duration;
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn test_new_creates_default_surface() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     assert_eq!(simulation.surface_count(), 1);
@@ -27,14 +29,14 @@ fn test_new_creates_default_surface() {
 
 #[test]
 fn test_new_starts_world_date_time_at_epoch() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
 
     assert_eq!(simulation.world_date_time(), WorldDateTime::from_day(0));
 }
 
 #[test]
 fn test_create_surface_returns_distinct_id() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
@@ -45,7 +47,7 @@ fn test_create_surface_returns_distinct_id() {
 
 #[test]
 fn test_surface_id_at_returns_valid_surface_ids() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
@@ -55,7 +57,7 @@ fn test_surface_id_at_returns_valid_surface_ids() {
 
 #[test]
 fn test_surface_id_at_rejects_invalid_indexes() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     simulation.create_surface(GridSize::new(10, 12));
 
     assert_eq!(
@@ -69,7 +71,7 @@ fn test_surface_id_at_rejects_invalid_indexes() {
 
 #[test]
 fn test_tile_coordinate_reads_are_scoped_per_surface() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 5));
 
@@ -83,7 +85,7 @@ fn test_tile_coordinate_reads_are_scoped_per_surface() {
 
 #[test]
 fn test_tile_terrain_at_returns_none_for_missing_tile() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     assert_eq!(
@@ -94,7 +96,7 @@ fn test_tile_terrain_at_returns_none_for_missing_tile() {
 
 #[test]
 fn test_tick_runs_across_multiple_surfaces() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     simulation.create_surface(GridSize::new(6, 6));
 
     simulation.tick();
@@ -104,21 +106,21 @@ fn test_tick_runs_across_multiple_surfaces() {
 
 #[test]
 fn test_simulation_starts_playing() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
 
     assert!(simulation.is_playing());
 }
 
 #[test]
 fn test_simulation_defaults_to_one_x_speed() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
 
     assert_eq!(simulation.simulation_speed(), SimulationSpeed::OneX);
 }
 
 #[test]
 fn test_tick_advances_world_date_time_by_fixed_duration() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.tick();
@@ -131,7 +133,7 @@ fn test_tick_advances_world_date_time_by_fixed_duration() {
 
 #[test]
 fn test_two_x_speed_runs_two_fixed_ticks() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::TwoX);
@@ -145,7 +147,7 @@ fn test_two_x_speed_runs_two_fixed_ticks() {
 
 #[test]
 fn test_four_x_speed_runs_four_fixed_ticks() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::FourX);
@@ -159,7 +161,7 @@ fn test_four_x_speed_runs_four_fixed_ticks() {
 
 #[test]
 fn test_fifty_x_speed_runs_fifty_fixed_ticks() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::FiftyX);
@@ -173,7 +175,7 @@ fn test_fifty_x_speed_runs_fifty_fixed_ticks() {
 
 #[test]
 fn test_hundred_x_speed_runs_one_hundred_fixed_ticks() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::HundredX);
@@ -187,7 +189,7 @@ fn test_hundred_x_speed_runs_one_hundred_fixed_ticks() {
 
 #[test]
 fn test_paused_tick_does_not_advance_world_date_time() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let before = simulation.world_date_time();
 
     simulation.set_simulation_speed(SimulationSpeed::FourX);
@@ -200,7 +202,7 @@ fn test_paused_tick_does_not_advance_world_date_time() {
 
 #[test]
 fn test_resume_allows_world_date_time_to_advance_again() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
 
     simulation.pause();
     simulation.tick();
@@ -217,7 +219,7 @@ fn test_resume_allows_world_date_time_to_advance_again() {
 
 #[test]
 fn test_created_surface_inherits_current_world_date_time() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     simulation.tick();
     let current_date_time = simulation.world_date_time();
 
@@ -231,7 +233,7 @@ fn test_created_surface_inherits_current_world_date_time() {
 
 #[test]
 fn test_tick_syncs_world_date_time_across_surfaces() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
 
@@ -250,7 +252,7 @@ fn test_tick_syncs_world_date_time_across_surfaces() {
 
 #[test]
 fn test_four_x_tick_syncs_world_date_time_across_surfaces() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
 
@@ -270,7 +272,7 @@ fn test_four_x_tick_syncs_world_date_time_across_surfaces() {
 
 #[test]
 fn test_surface_spawns_one_tile_entity_per_cell() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(4, 5));
 
     let tiles = tiles(&simulation, surface);
@@ -280,7 +282,7 @@ fn test_surface_spawns_one_tile_entity_per_cell() {
 
 #[test]
 fn test_tile_index_contains_one_entity_per_cell() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(4, 5));
     let size = simulation.grid_size(surface);
     let (indexed_size, indexed_len, indexed_coords) =
@@ -307,7 +309,7 @@ fn test_tile_index_contains_one_entity_per_cell() {
 
 #[test]
 fn test_tile_entities_are_unique_within_bounds_and_have_valid_terrain() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(64, 64));
     let size = simulation.grid_size(surface);
     let tiles = tiles(&simulation, surface);
@@ -339,7 +341,7 @@ fn test_tile_entities_are_unique_within_bounds_and_have_valid_terrain() {
 
 #[test]
 fn test_tile_coords_are_complete_unique_and_in_bounds() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(7, 9));
     let size = simulation.grid_size(surface);
     let coords = simulation.tile_coords(surface);
@@ -357,7 +359,7 @@ fn test_tile_coords_are_complete_unique_and_in_bounds() {
 
 #[test]
 fn test_default_and_created_surfaces_have_resource_nodes() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
@@ -367,7 +369,7 @@ fn test_default_and_created_surfaces_have_resource_nodes() {
 
 #[test]
 fn test_resource_nodes_are_within_bounds() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.create_surface(GridSize::new(17, 19));
     let size = simulation.grid_size(surface);
 
@@ -378,7 +380,7 @@ fn test_resource_nodes_are_within_bounds() {
 
 #[test]
 fn test_resource_nodes_are_attached_to_tile_entities() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let (node_count, attached_count) =
         simulation.with_surface_world(surface, resource_node_attachment_counts);
@@ -389,7 +391,7 @@ fn test_resource_nodes_are_attached_to_tile_entities() {
 
 #[test]
 fn test_resource_node_quantities_are_within_generated_range() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     for (_, _, quantity) in resource_nodes(&mut simulation, surface) {
@@ -402,7 +404,7 @@ fn test_resource_node_quantities_are_within_generated_range() {
 
 #[test]
 fn test_resource_nodes_do_not_share_tiles() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let nodes = resource_nodes(&mut simulation, surface);
     let unique_tiles = nodes
@@ -414,9 +416,58 @@ fn test_resource_nodes_do_not_share_tiles() {
 }
 
 #[test]
+fn test_resource_nodes_only_spawn_on_allowed_terrain_at_target_density() {
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.default_surface_id();
+    let nodes = resource_nodes(&simulation, surface);
+    let expected_count = DEFAULT_GRID_SIZE
+        .cell_count()
+        .expect("default grid size should fit")
+        * 15
+        / 1_000;
+
+    assert_eq!(nodes.len(), expected_count);
+    for (coord, resource, _) in nodes {
+        let terrain = simulation
+            .tile_terrain_at(surface, coord)
+            .expect("resource node should be attached to a terrain tile");
+        assert!(
+            terrain_allows_resource(terrain, resource),
+            "{resource:?} should not spawn on {terrain:?} at {coord:?}"
+        );
+    }
+}
+
+#[test]
+fn test_default_start_area_is_grass_and_resource_free() {
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.default_surface_id();
+    let center = CellCoord::from_usize(
+        DEFAULT_GRID_SIZE.width() / 2,
+        DEFAULT_GRID_SIZE.height() / 2,
+    )
+    .expect("default grid center should fit");
+    let resource_coords = resource_nodes(&simulation, surface)
+        .into_iter()
+        .map(|(coord, _, _)| coord)
+        .collect::<HashSet<_>>();
+
+    for y_offset in -1..=1 {
+        for x_offset in -1..=1 {
+            let coord = CellCoord::new(center.x() + x_offset, center.y() + y_offset);
+            assert_eq!(
+                simulation.tile_terrain_at(surface, coord),
+                Some(TerrainKind::Grass)
+            );
+            assert!(!resource_coords.contains(&coord));
+        }
+    }
+}
+
+#[test]
 fn test_resource_node_generation_is_deterministic_for_same_size() {
-    let mut first = GameSimulation::new();
-    let mut second = GameSimulation::new();
+    let mut first = GameSimulation::new(TEST_GENERATION_SEED);
+    let mut second = GameSimulation::new(TEST_GENERATION_SEED);
     let first_default = first.default_surface_id();
     let second_default = second.default_surface_id();
 
@@ -432,11 +483,32 @@ fn test_resource_node_generation_is_deterministic_for_same_size() {
         sorted_resource_nodes(&mut first, first_surface),
         sorted_resource_nodes(&mut second, second_surface)
     );
+    assert_eq!(tiles(&first, first_surface), tiles(&second, second_surface));
+}
+
+#[test]
+fn test_different_generation_seeds_produce_different_maps() {
+    let first = GameSimulation::new(TEST_GENERATION_SEED);
+    let second = GameSimulation::new(TEST_GENERATION_SEED.wrapping_add(1));
+
+    assert_ne!(
+        tiles(&first, first.default_surface_id()),
+        tiles(&second, second.default_surface_id())
+    );
+}
+
+#[test]
+fn test_equal_sized_surfaces_have_distinct_derived_seeds() {
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let first = simulation.create_surface(GridSize::new(64, 64));
+    let second = simulation.create_surface(GridSize::new(64, 64));
+
+    assert_ne!(tiles(&simulation, first), tiles(&simulation, second));
 }
 
 #[test]
 fn test_resource_node_queries_are_scoped_per_surface() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(7, 9));
 
@@ -448,7 +520,7 @@ fn test_resource_node_queries_are_scoped_per_surface() {
 
 #[test]
 fn test_tick_does_not_duplicate_resource_nodes() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let before = sorted_resource_nodes(&mut simulation, surface);
 
@@ -460,7 +532,7 @@ fn test_tick_does_not_duplicate_resource_nodes() {
 
 #[test]
 fn test_default_surface_spawns_initial_npc() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     assert_eq!(npcs(&simulation, surface).len(), INITIAL_NPC_SPECS.len());
@@ -468,7 +540,7 @@ fn test_default_surface_spawns_initial_npc() {
 
 #[test]
 fn test_created_surfaces_do_not_spawn_initial_npc() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(10, 12));
 
@@ -481,7 +553,7 @@ fn test_created_surfaces_do_not_spawn_initial_npc() {
 
 #[test]
 fn test_initial_npcs_have_identity_birth_date_age_appearance_and_cluster_position() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let center = CellCoord::from_usize(
         DEFAULT_GRID_SIZE.width() / 2,
@@ -535,7 +607,7 @@ fn test_initial_npcs_have_identity_birth_date_age_appearance_and_cluster_positio
 
 #[test]
 fn test_initial_npc_starts_with_food_pouch_and_empty_cargo() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     let containers = simulation
@@ -560,7 +632,7 @@ fn test_initial_npc_starts_with_food_pouch_and_empty_cargo() {
 
 #[test]
 fn test_initial_npc_starts_fed() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     let hunger_states = npc_hunger_states(&simulation, surface);
@@ -573,7 +645,7 @@ fn test_initial_npc_starts_fed() {
 
 #[test]
 fn test_paused_tick_does_not_advance_npc_hunger() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     simulation.pause();
@@ -589,7 +661,7 @@ fn test_paused_tick_does_not_advance_npc_hunger() {
 
 #[test]
 fn test_default_npc_does_not_treat_natural_ingredients_as_cooked_food() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     simulation.tick();

@@ -1,18 +1,32 @@
 pub use crate::components::ResourceNode;
 
-use crate::grid::{CellCoord, Grid, GridSize};
+use crate::components::{Terrain, TerrainKind};
+use crate::grid::Grid;
 use crate::resources::ResourceKind;
-use crate::tile::TileIndex;
+use crate::tile::{generation_hash, SurfaceGeneration, TileIndex};
 use bevy_ecs::prelude::*;
 
 const COVERAGE_PER_THOUSAND: usize = 15;
 const MIN_RESOURCE_NODE_QUANTITY: u32 = 50;
 const RESOURCE_NODE_QUANTITY_RANGE: u64 = 101;
+const PLACEMENT_DOMAIN: u64 = 0x3c6e_f372_fe94_f82b;
+const KIND_DOMAIN: u64 = 0xa54f_f53a_5f1d_36f1;
+const QUANTITY_DOMAIN: u64 = 0x510e_527f_ade6_82d1;
+const GRASS_RESOURCES: [ResourceKind; 2] = [ResourceKind::Wood, ResourceKind::WildBerries];
+const DIRT_RESOURCES: [ResourceKind; 4] = [
+    ResourceKind::Wood,
+    ResourceKind::WildBerries,
+    ResourceKind::Stone,
+    ResourceKind::Gold,
+];
+const SAND_RESOURCES: [ResourceKind; 2] = [ResourceKind::Stone, ResourceKind::Gold];
 
-pub fn spawn_initial_resource_nodes(
+pub(crate) fn spawn_initial_resource_nodes(
     mut commands: Commands,
     grid: Res<Grid>,
     index: Res<TileIndex>,
+    generation: Res<SurfaceGeneration>,
+    terrain_query: Query<&Terrain>,
 ) {
     let size = grid.size();
     let Some(cell_count) = size.cell_count() else {
@@ -27,44 +41,58 @@ pub fn spawn_initial_resource_nodes(
         .max(1);
     let mut candidates = size
         .iter_coords()
-        .map(|coord| (placement_hash(size, coord), coord))
+        .filter(|&coord| !generation.protects(size, coord))
+        .filter_map(|coord| {
+            let entity = index.get(coord)?;
+            let terrain = terrain_query.get(entity).ok()?.kind;
+            let allowed_kinds = resource_kinds_for_terrain(terrain);
+            if allowed_kinds.is_empty() {
+                return None;
+            }
+
+            let kind_hash = generation_hash(generation.seed(), coord, KIND_DOMAIN);
+            let kind = allowed_kinds[(kind_hash % allowed_kinds.len() as u64) as usize];
+            let placement = generation_hash(generation.seed(), coord, PLACEMENT_DOMAIN);
+            let quantity_hash = generation_hash(generation.seed(), coord, QUANTITY_DOMAIN);
+            Some((placement, coord, entity, kind, quantity_hash))
+        })
         .collect::<Vec<_>>();
-    candidates.sort_unstable_by_key(|(hash, coord)| (*hash, coord.y(), coord.x()));
+    candidates.sort_unstable_by_key(|(hash, coord, _, _, _)| (*hash, coord.y(), coord.x()));
 
-    for (hash, coord) in candidates.into_iter().take(target_count) {
-        let Some(entity) = index.get(coord) else {
-            continue;
-        };
-
+    for (_, _, entity, kind, quantity_hash) in candidates.into_iter().take(target_count) {
         commands.entity(entity).insert(ResourceNode {
-            kind: resource_kind_for_hash(hash),
-            quantity: resource_quantity_for_hash(hash),
+            kind,
+            quantity: resource_quantity_for_hash(quantity_hash),
         });
     }
 }
 
-fn resource_kind_for_hash(hash: u64) -> ResourceKind {
-    ResourceKind::NATURAL[((hash >> 32) % ResourceKind::NATURAL.len() as u64) as usize]
+pub const fn terrain_allows_resource(terrain: TerrainKind, resource: ResourceKind) -> bool {
+    match resource {
+        ResourceKind::Wood | ResourceKind::WildBerries => {
+            matches!(terrain, TerrainKind::Grass | TerrainKind::Dirt)
+        }
+        ResourceKind::Stone | ResourceKind::Gold => {
+            matches!(terrain, TerrainKind::Dirt | TerrainKind::Sand)
+        }
+        ResourceKind::Planks
+        | ResourceKind::Crops
+        | ResourceKind::Food
+        | ResourceKind::StoneBlocks => false,
+    }
 }
 
 fn resource_quantity_for_hash(hash: u64) -> u32 {
     MIN_RESOURCE_NODE_QUANTITY + (hash % RESOURCE_NODE_QUANTITY_RANGE) as u32
 }
 
-fn placement_hash(size: GridSize, coord: CellCoord) -> u64 {
-    let mut value = 0x9e37_79b9_7f4a_7c15_u64;
-    value ^= (size.width() as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value = value.rotate_left(27);
-    value ^= (size.height() as u64).wrapping_mul(0x94d0_49bb_1331_11eb);
-    value = value.rotate_left(31);
-    value ^= (coord.x() as i64 as u64).wrapping_mul(0xd6e8_feb8_6659_fd93);
-    value = value.rotate_left(23);
-    value ^= (coord.y() as i64 as u64).wrapping_mul(0xa5a3_58f1_d6a1_0f41);
-    value ^= value >> 30;
-    value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value ^= value >> 27;
-    value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
-    value ^ (value >> 31)
+const fn resource_kinds_for_terrain(terrain: TerrainKind) -> &'static [ResourceKind] {
+    match terrain {
+        TerrainKind::Grass => &GRASS_RESOURCES,
+        TerrainKind::Dirt => &DIRT_RESOURCES,
+        TerrainKind::Sand => &SAND_RESOURCES,
+        TerrainKind::Water => &[],
+    }
 }
 
 #[cfg(test)]
@@ -72,15 +100,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn natural_resource_bucket_order_is_stable() {
-        let bucket_hash = |bucket: u64| bucket << 32;
-
-        assert_eq!(resource_kind_for_hash(bucket_hash(0)), ResourceKind::Wood);
-        assert_eq!(resource_kind_for_hash(bucket_hash(1)), ResourceKind::Stone);
-        assert_eq!(
-            resource_kind_for_hash(bucket_hash(2)),
-            ResourceKind::WildBerries
-        );
-        assert_eq!(resource_kind_for_hash(bucket_hash(3)), ResourceKind::Gold);
+    fn natural_resources_only_allow_their_ecological_terrain() {
+        for terrain in TerrainKind::ALL {
+            for resource in ResourceKind::ALL {
+                let expected = match resource {
+                    ResourceKind::Wood | ResourceKind::WildBerries => {
+                        matches!(terrain, TerrainKind::Grass | TerrainKind::Dirt)
+                    }
+                    ResourceKind::Stone | ResourceKind::Gold => {
+                        matches!(terrain, TerrainKind::Dirt | TerrainKind::Sand)
+                    }
+                    _ => false,
+                };
+                assert_eq!(terrain_allows_resource(terrain, resource), expected);
+            }
+        }
     }
 }

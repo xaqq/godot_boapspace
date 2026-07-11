@@ -8,13 +8,16 @@ use game_engine::tasks::{
     ProgressBuildingConstructionTaskBundle, Task,
 };
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn test_blueprint_does_not_create_task_before_tick() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_depot_origin(&simulation, surface);
 
     simulation
-        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::Depot, origin)
         .expect("depot should place");
 
     assert_eq!(construction_tasks(&simulation, surface).len(), 0);
@@ -22,10 +25,11 @@ fn test_blueprint_does_not_create_task_before_tick() {
 
 #[test]
 fn test_tick_creates_construction_task_for_blueprint() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_depot_origin(&simulation, surface);
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::Depot, origin)
         .expect("depot should place");
 
     simulation.tick();
@@ -51,10 +55,11 @@ fn test_tick_creates_construction_task_for_blueprint() {
 
 #[test]
 fn test_paused_tick_does_not_run_surface_schedule() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_depot_origin(&simulation, surface);
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::Depot, origin)
         .expect("depot should place");
 
     simulation.pause();
@@ -70,10 +75,11 @@ fn test_paused_tick_does_not_run_surface_schedule() {
 
 #[test]
 fn test_repeated_ticks_do_not_duplicate_construction_tasks() {
-    let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_depot_origin(&simulation, surface);
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::Depot, origin)
         .expect("depot should place");
 
     simulation.tick();
@@ -104,11 +110,12 @@ fn test_stale_construction_task_is_removed() {
 
 #[test]
 fn test_construction_tasks_are_scoped_per_surface() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation.create_surface(GridSize::new(4, 4));
+    let second_surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_depot_origin(&simulation, second_surface);
     let blueprint = simulation
-        .place_building_blueprint(second_surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .place_building_blueprint(second_surface, BuildingKind::Depot, origin)
         .expect("depot should place");
 
     simulation.tick();
@@ -143,4 +150,16 @@ fn construction_tasks(simulation: &GameSimulation, surface: SurfaceId) -> Vec<En
     });
     tasks.sort_by_key(|entity| entity.to_bits());
     tasks
+}
+
+fn first_valid_depot_origin(simulation: &GameSimulation, surface: SurfaceId) -> CellCoord {
+    simulation
+        .grid_size(surface)
+        .iter_coords()
+        .find(|&coord| {
+            simulation
+                .validate_building_blueprint_placement(surface, BuildingKind::Depot, coord)
+                .is_ok()
+        })
+        .expect("test surface should contain a valid depot origin")
 }

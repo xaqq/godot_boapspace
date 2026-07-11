@@ -27,9 +27,11 @@ use game_engine::systems::build_surface_schedule;
 use game_engine::tasks::maintain_construction_tasks;
 use game_engine::tile::{TileBundle, TileIndex};
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn test_initial_npc_has_keep_food_goal() {
-    let simulation = GameSimulation::new();
+    let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     let thresholds = simulation
@@ -187,7 +189,7 @@ fn test_keep_enough_food_does_not_search_when_no_food_exists() {
 
 #[test]
 fn test_default_npc_enters_idle_roam_when_food_is_sufficient() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
 
     simulation.tick();

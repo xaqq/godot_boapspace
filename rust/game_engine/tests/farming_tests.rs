@@ -20,6 +20,8 @@ use game_engine::simulation::GameSimulation;
 use game_engine::tasks::Task;
 use game_engine::tile::{TileBundle, TileIndex};
 
+const TEST_GENERATION_SEED: u64 = 0x5eed_cafe_f00d_beef;
+
 #[test]
 fn field_blueprint_placement_requires_cardinal_farm_connection() {
     let mut world = farming_world();
@@ -184,7 +186,7 @@ fn field_batch_limit_keeps_the_connector_instead_of_a_disconnected_field() {
 
 #[test]
 fn simulation_field_placement_is_surface_scoped() {
-    let mut simulation = GameSimulation::new();
+    let mut simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let first = simulation.create_surface(GridSize::new(8, 8));
     let second = simulation.create_surface(GridSize::new(8, 8));
     let farm = simulation
