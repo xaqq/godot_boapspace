@@ -27,7 +27,7 @@ use game_engine::refining::{
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
 use game_engine::roads::{
-    Road, RoadBlueprint, RoadPlacementBatchResult, RoadPlacementError, RoadTier,
+    Road, RoadBlueprint, RoadMap, RoadPlacementBatchResult, RoadPlacementError, RoadTier,
 };
 use game_engine::simulation::{
     BuildingCommandError, BuildingTarget, GameSimulation, SimulationSpeed, SurfaceId,
@@ -154,6 +154,7 @@ pub(crate) enum MapEntityKind {
     Building,
     Npc,
     ResourceNode,
+    RoadBlueprint,
 }
 
 impl MapEntityKind {
@@ -162,6 +163,7 @@ impl MapEntityKind {
             Self::Building => 0,
             Self::Npc => 1,
             Self::ResourceNode => 2,
+            Self::RoadBlueprint => 3,
         }
     }
 
@@ -170,6 +172,7 @@ impl MapEntityKind {
             0 => Some(Self::Building),
             1 => Some(Self::Npc),
             2 => Some(Self::ResourceNode),
+            3 => Some(Self::RoadBlueprint),
             _ => None,
         }
     }
@@ -2438,6 +2441,13 @@ fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarg
         });
     }
 
+    if let Some(entity) = road_blueprint_entity_at(world, coord) {
+        return Some(MapEntityTarget {
+            kind: MapEntityKind::RoadBlueprint,
+            entity,
+        });
+    }
+
     if let Some(entity) = npc_entity_at(world, coord) {
         return Some(MapEntityTarget {
             kind: MapEntityKind::Npc,
@@ -2453,6 +2463,21 @@ fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarg
 
 fn building_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
     selected_building_at(world, coord).map(|selected| selected.entity)
+}
+
+fn road_blueprint_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
+    if let Some(entity) = world
+        .get_resource::<RoadMap>()
+        .and_then(|roads| roads.entity_at(coord))
+        .filter(|entity| world.get::<RoadBlueprint>(*entity).is_some())
+    {
+        return Some(entity);
+    }
+
+    let mut query = world.try_query::<(Entity, &RoadBlueprint)>()?;
+    query
+        .iter(world)
+        .find_map(|(entity, blueprint)| (blueprint.coord == coord).then_some(entity))
 }
 
 fn npc_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
@@ -4260,6 +4285,79 @@ mod tests {
                 entity: resource,
             })
         );
+    }
+
+    #[test]
+    fn map_entity_kind_signal_values_round_trip() {
+        for (kind, value) in [
+            (MapEntityKind::Building, 0),
+            (MapEntityKind::Npc, 1),
+            (MapEntityKind::ResourceNode, 2),
+            (MapEntityKind::RoadBlueprint, 3),
+        ] {
+            assert_eq!(kind.signal_value(), value);
+            assert_eq!(MapEntityKind::from_signal_value(value), Some(kind));
+        }
+        assert_eq!(MapEntityKind::from_signal_value(4), None);
+    }
+
+    #[test]
+    fn map_entity_target_returns_road_blueprint_for_pending_road_cell() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        let road = world
+            .spawn((
+                RoadBlueprint {
+                    coord,
+                    target_tier: RoadTier::Cobblestone,
+                },
+                ConstructionProgress::new(ResourceAmounts::zero()).with_required_labor(180),
+            ))
+            .id();
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::RoadBlueprint,
+                entity: road,
+            })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_prioritizes_road_blueprint_over_npc() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        world.spawn(InitialNpcBundle::new(coord));
+        let road = world
+            .spawn((
+                RoadBlueprint {
+                    coord,
+                    target_tier: RoadTier::DirtPath,
+                },
+                ConstructionProgress::new(ResourceAmounts::zero()).with_required_labor(180),
+            ))
+            .id();
+
+        assert_eq!(
+            map_entity_target_at(&world, coord),
+            Some(MapEntityTarget {
+                kind: MapEntityKind::RoadBlueprint,
+                entity: road,
+            })
+        );
+    }
+
+    #[test]
+    fn map_entity_target_does_not_target_completed_road() {
+        let mut world = World::new();
+        let coord = CellCoord::new(2, 3);
+        world.spawn(Road {
+            coord,
+            tier: RoadTier::DirtPath,
+        });
+
+        assert_eq!(map_entity_target_at(&world, coord), None);
     }
 
     #[test]

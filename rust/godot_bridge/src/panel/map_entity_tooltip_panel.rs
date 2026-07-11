@@ -15,6 +15,7 @@ use game_engine::npcs::{
 use game_engine::refining::{recipes_for_building, RefineryInventory};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
+use game_engine::roads::{Road, RoadBlueprint, RoadTier};
 use godot::classes::{
     control, HFlowContainer, IPanelContainer, Label, PackedScene, PanelContainer, RichTextLabel,
     VBoxContainer,
@@ -305,6 +306,7 @@ fn map_entity_tooltip_view(
         MapEntityKind::ResourceNode => {
             resource_node_tooltip_text(world, entity).map(TooltipView::text_only)
         }
+        MapEntityKind::RoadBlueprint => road_blueprint_tooltip_view(world, entity),
     })
 }
 
@@ -396,6 +398,54 @@ fn building_blueprint_tooltip_view(
     labor_completed: u32,
     labor_required: u32,
 ) -> TooltipView {
+    TooltipView {
+        text: format!(
+            "[b]{name}[/b]\nBlueprint: {label}\nLabor: {labor_completed}/{labor_required}"
+        ),
+        resource_sections: vec![construction_materials_section(progress, cost)],
+    }
+}
+
+fn road_blueprint_tooltip_view(world: &World, entity: Entity) -> Option<TooltipView> {
+    let blueprint = world.get::<RoadBlueprint>(entity)?;
+    let progress = *world.get::<ConstructionProgress>(entity)?;
+    let completed_tier = world.get::<Road>(entity).map(|road| road.tier);
+
+    Some(road_construction_tooltip_view(
+        blueprint.target_tier,
+        completed_tier,
+        progress,
+    ))
+}
+
+fn road_construction_tooltip_view(
+    target_tier: RoadTier,
+    completed_tier: Option<RoadTier>,
+    progress: ConstructionProgress,
+) -> TooltipView {
+    let operation = completed_tier.map_or_else(
+        || "Road Blueprint".to_string(),
+        |tier| format!("Road Upgrade from {}", tier.label()),
+    );
+
+    TooltipView {
+        text: format!(
+            "[b]{}[/b]\n{operation}\nLabor: {}/{}",
+            target_tier.label(),
+            progress.labor_completed(),
+            progress.labor_required(),
+        ),
+        resource_sections: vec![construction_materials_section(
+            progress.deposited(),
+            target_tier.material_cost(),
+        )],
+    }
+}
+
+fn construction_materials_section(
+    progress: ResourceAmounts,
+    cost: ResourceAmounts,
+) -> ResourceSectionView {
     let entries = ResourceKind::ALL
         .into_iter()
         .filter_map(|kind| {
@@ -407,14 +457,9 @@ fn building_blueprint_tooltip_view(
         })
         .collect();
 
-    TooltipView {
-        text: format!(
-            "[b]{name}[/b]\nBlueprint: {label}\nLabor: {labor_completed}/{labor_required}"
-        ),
-        resource_sections: vec![ResourceSectionView {
-            label: "Materials:".to_string(),
-            entries,
-        }],
+    ResourceSectionView {
+        label: "Materials:".to_string(),
+        entries,
     }
 }
 
@@ -625,6 +670,60 @@ mod tests {
                     ],
                 }],
             }
+        );
+    }
+
+    #[test]
+    fn road_blueprint_tooltip_uses_resource_and_labor_progress() {
+        let mut progress =
+            ConstructionProgress::new(ResourceAmounts::zero()).with_required_labor(180);
+        for _ in 0..12 {
+            assert!(progress.advance_labor());
+        }
+
+        let view = road_construction_tooltip_view(RoadTier::Cobblestone, None, progress);
+
+        assert_eq!(
+            view,
+            TooltipView {
+                text: "[b]Cobblestone Road[/b]\nRoad Blueprint\nLabor: 12/180".to_string(),
+                resource_sections: vec![ResourceSectionView {
+                    label: "Materials:".to_string(),
+                    entries: vec![entry(ResourceKind::Stone, Some("0/1"))],
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn dirt_path_blueprint_tooltip_shows_no_required_materials() {
+        let progress = ConstructionProgress::new(ResourceAmounts::zero()).with_required_labor(180);
+
+        let view = road_construction_tooltip_view(RoadTier::DirtPath, None, progress);
+
+        assert_eq!(view.text, "[b]Dirt Path[/b]\nRoad Blueprint\nLabor: 0/180");
+        assert_eq!(
+            view.resource_sections,
+            vec![ResourceSectionView {
+                label: "Materials:".to_string(),
+                entries: Vec::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn road_upgrade_tooltip_names_the_completed_tier() {
+        let progress = ConstructionProgress::new(ResourceAmounts::zero()).with_required_labor(180);
+
+        let view = road_construction_tooltip_view(
+            RoadTier::Cobblestone,
+            Some(RoadTier::DirtPath),
+            progress,
+        );
+
+        assert_eq!(
+            view.text,
+            "[b]Cobblestone Road[/b]\nRoad Upgrade from Dirt Path\nLabor: 0/180"
         );
     }
 
