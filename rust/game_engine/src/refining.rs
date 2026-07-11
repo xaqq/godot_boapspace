@@ -258,6 +258,19 @@ impl ReservationLedger {
             .filter(|claim| claim.source == Some(source) && claim.kind == kind)
             .fold(0, |sum, claim| sum.saturating_add(claim.amount))
     }
+    pub(crate) fn reserved_from_excluding_worker(
+        &self,
+        worker: Entity,
+        source: StockEndpoint,
+        kind: ResourceKind,
+    ) -> u32 {
+        self.claims
+            .iter()
+            .filter(|claim| {
+                claim.worker != worker && claim.source == Some(source) && claim.kind == kind
+            })
+            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
+    }
     pub fn reserved_to(&self, sink: SinkEndpoint, kind: ResourceKind) -> u32 {
         self.claims
             .iter()

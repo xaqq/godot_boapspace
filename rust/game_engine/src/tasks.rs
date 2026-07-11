@@ -1,6 +1,7 @@
 use crate::ai::{AiConstructBuilding, AiSearchForFood};
 use crate::buildings::{BuildingBlueprint, ConstructionProgress};
 use crate::components::{MovementTarget, Npc, NpcPosition};
+use crate::logistics::preempt_refinery_supply_for_construction;
 use crate::navigation::{current_navigation_snapshot, NavigationSnapshot, NpcRoute};
 use crate::roads::RoadBlueprint;
 use crate::work::NpcWorkState;
@@ -216,12 +217,12 @@ pub fn manage_construction_labor(world: &mut World) {
     let mut npc_query = world.query_filtered::<(Entity, &NpcPosition, NpcWorkState), With<Npc>>();
     let mut workers = npc_query
         .iter(world)
-        .filter(|(_, _, work)| !work.is_assigned())
-        .map(|(entity, position, _)| (entity, *position))
+        .filter(|(_, _, work)| work.is_available_for_construction())
+        .map(|(entity, position, work)| (entity, *position, work.has_preemptible_refinery_supply()))
         .collect::<Vec<_>>();
-    workers.sort_unstable_by_key(|(entity, _)| entity.to_bits());
+    workers.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
-    for (worker, position) in workers {
+    for (worker, position, preempt_refinery_supply) in workers {
         if available_slots.is_empty() {
             break;
         }
@@ -240,6 +241,9 @@ pub fn manage_construction_labor(world: &mut World) {
             continue;
         };
         let (site, interaction_cell) = available_slots.swap_remove(selected_index);
+        if preempt_refinery_supply {
+            preempt_refinery_supply_for_construction(world, worker);
+        }
         world.entity_mut(worker).insert((
             AiConstructBuilding::new(site),
             AiConstructionLabor::new(site, interaction_cell),

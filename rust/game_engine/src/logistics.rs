@@ -103,6 +103,10 @@ impl AiBuildingHaul {
     pub const fn uses_wheelbarrow(self) -> bool {
         self.uses_wheelbarrow
     }
+    pub(crate) const fn can_be_preempted_by_construction(self) -> bool {
+        matches!(self.sink, SinkEndpoint::RefineryInput(_))
+            && !matches!(self.phase, BuildingHaulPhase::ToSink)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component, Default)]
@@ -279,8 +283,18 @@ pub fn manage_construction_logistics(world: &mut World) {
     ), With<Npc>>();
     let mut npcs = npc_query
         .iter(world)
-        .filter(|(_, _, _, wheelbarrow, work)| wheelbarrow.is_none() && !work.is_assigned())
-        .map(|(entity, position, inventory, _, _)| (entity, *position, *inventory))
+        .filter(|(_, _, _, wheelbarrow, work)| {
+            work.is_available_for_construction()
+                && (wheelbarrow.is_none() || work.has_preemptible_refinery_supply())
+        })
+        .map(|(entity, position, inventory, _, work)| {
+            (
+                entity,
+                *position,
+                *inventory,
+                work.has_preemptible_refinery_supply(),
+            )
+        })
         .collect::<Vec<_>>();
     npcs.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
@@ -304,7 +318,7 @@ pub fn manage_construction_logistics(world: &mut World) {
     // kind on first use to keep ticks with no matching demand cheap.
     let mut stock_sources_by_kind: [Option<Vec<StockEndpoint>>; ResourceKind::ALL.len()] =
         std::array::from_fn(|_| None);
-    for (npc, position, inventory) in npcs {
+    for (npc, position, inventory, preempt_refinery_supply) in npcs {
         let mut candidates = Vec::new();
         let mut distances = None;
         let mut distances_initialized = false;
@@ -349,11 +363,10 @@ pub fn manage_construction_logistics(world: &mut World) {
                     stock_sources(world, kind, Entity::PLACEHOLDER, Entity::PLACEHOLDER)
                 });
                 for &source in sources.iter() {
-                    if source_stock(world, source, kind)
-                        <= world
-                            .resource::<ReservationLedger>()
-                            .reserved_from(source, kind)
-                    {
+                    let reserved_from_other_workers = world
+                        .resource::<ReservationLedger>()
+                        .reserved_from_excluding_worker(npc, source, kind);
+                    if source_stock(world, source, kind) <= reserved_from_other_workers {
                         continue;
                     }
                     let goals = source_interaction_cells(world, &snapshot, source, npc);
@@ -366,11 +379,8 @@ pub fn manage_construction_logistics(world: &mut World) {
                     ) else {
                         continue;
                     };
-                    let available = source_stock(world, source, kind).saturating_sub(
-                        world
-                            .resource::<ReservationLedger>()
-                            .reserved_from(source, kind),
-                    );
+                    let available = source_stock(world, source, kind)
+                        .saturating_sub(reserved_from_other_workers);
                     let source_batch_size = match source {
                         StockEndpoint::NaturalNode(_) => NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE,
                         StockEndpoint::Warehouse(_) => WHEELBARROW_CAPACITY,
@@ -412,6 +422,9 @@ pub fn manage_construction_logistics(world: &mut World) {
             amount,
             task: blueprint,
         };
+        if preempt_refinery_supply {
+            preempt_refinery_supply_for_construction(world, npc);
+        }
         if !world.resource_mut::<ReservationLedger>().claim(claim) {
             continue;
         }
@@ -1188,6 +1201,16 @@ fn clear_building_haul(world: &mut World, worker: Entity, remove_wheelbarrow: bo
         .remove::<MovementTarget>();
     if remove_wheelbarrow {
         entity.remove::<Wheelbarrow>();
+    }
+}
+
+pub(crate) fn preempt_refinery_supply_for_construction(world: &mut World, worker: Entity) {
+    let can_preempt = world
+        .get::<AiBuildingHaul>(worker)
+        .is_some_and(|haul| haul.can_be_preempted_by_construction());
+    if can_preempt {
+        debug_assert!(!wheelbarrow_loaded(world, worker));
+        clear_building_haul(world, worker, true);
     }
 }
 

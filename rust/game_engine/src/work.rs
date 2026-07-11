@@ -44,4 +44,27 @@ impl NpcWorkStateItem<'_, '_> {
             || self.seed_tree_plot.is_some()
             || self.cut_tree_plot.is_some()
     }
+
+    pub(crate) fn has_preemptible_refinery_supply(&self) -> bool {
+        self.building_haul
+            .is_some_and(|haul| haul.can_be_preempted_by_construction())
+    }
+
+    pub(crate) fn is_available_for_construction(&self) -> bool {
+        self.search_for_food.is_none()
+            && self.food_haul.is_none()
+            && self.gather_resource.is_none()
+            && self.construct_building.is_none()
+            && self.construction_haul.is_none()
+            && self.construction_labor.is_none()
+            && self.refine_resource.is_none()
+            && self
+                .building_haul
+                .is_none_or(|haul| haul.can_be_preempted_by_construction())
+            && self.wheelbarrow_recovery.is_none()
+            && self.seed_field.is_none()
+            && self.harvest_field.is_none()
+            && self.seed_tree_plot.is_none()
+            && self.cut_tree_plot.is_none()
+    }
 }
