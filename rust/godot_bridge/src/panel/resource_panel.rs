@@ -1,12 +1,13 @@
 use super::resource_history_graph::{GraphHistoryPoint, ResourceHistoryGraph};
 use crate::assets::{load_texture, resource_asset_path};
 use crate::world::game_world::GameWorld;
-use game_engine::resources::{resource_overview, ResourceHistory, ResourceKind};
+use game_engine::resources::{ResourceHistory, ResourceKind, ResourceOverview};
 use godot::classes::{control, Button, GridContainer, IPanelContainer, Label, PanelContainer};
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
 
 const LOOKBACKS: [u64; 4] = [1, 7, 30, 365];
+const REFRESH_INTERVAL_SECONDS: f64 = 0.25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeltaState {
@@ -73,6 +74,7 @@ pub(crate) struct ResourcePanel {
     rows: Vec<ResourcePanelRowControls>,
     selected_resource: Option<ResourceKind>,
     cached_view: Option<ResourcePanelView>,
+    refresh_elapsed: f64,
     base: Base<PanelContainer>,
 }
 
@@ -92,6 +94,7 @@ impl IPanelContainer for ResourcePanel {
             rows: Vec::new(),
             selected_resource: None,
             cached_view: None,
+            refresh_elapsed: 0.0,
             base,
         }
     }
@@ -130,8 +133,13 @@ impl IPanelContainer for ResourcePanel {
         self.base_mut().set_process(true);
     }
 
-    fn process(&mut self, _delta: f64) {
+    fn process(&mut self, delta: f64) {
         if self.base().is_visible() {
+            self.refresh_elapsed += delta;
+            if self.refresh_elapsed < REFRESH_INTERVAL_SECONDS {
+                return;
+            }
+            self.refresh_elapsed = 0.0;
             self.refresh();
         }
     }
@@ -186,6 +194,7 @@ impl ResourcePanel {
         } else {
             self.base_mut().show();
             self.refresh();
+            self.refresh_elapsed = 0.0;
         }
     }
 
@@ -232,9 +241,9 @@ impl ResourcePanel {
         let selected = self.selected_resource;
         let surface_index = self.game_world.bind().active_surface_index();
         let view = {
-            let game_world = self.game_world.bind();
-            game_world.with_rendered_surface_world(|world| {
-                build_panel_view(world, surface_index, selected)
+            let mut game_world = self.game_world.bind_mut();
+            game_world.with_rendered_surface_resource_overview(|overview, world| {
+                build_panel_view(world, overview, surface_index, selected)
             })
         };
         if self.cached_view.as_ref() == Some(&view) {
@@ -264,10 +273,10 @@ impl ResourcePanel {
 
 fn build_panel_view(
     world: &bevy_ecs::world::World,
+    overview: ResourceOverview,
     surface_index: i32,
     selected: Option<ResourceKind>,
 ) -> ResourcePanelView {
-    let overview = resource_overview(world);
     let history = world.resource::<ResourceHistory>();
     let day = world.resource::<game_engine::npcs::WorldDateTime>().day();
     let rows = ResourceKind::ALL
@@ -346,7 +355,8 @@ mod tests {
         let mut world = bevy_ecs::world::World::new();
         world.insert_resource(game_engine::npcs::WorldDateTime::from_day(10));
         world.insert_resource(ResourceHistory::new(10, Default::default()));
-        let view = build_panel_view(&world, 0, None);
+        let overview = game_engine::resources::resource_overview(&mut world);
+        let view = build_panel_view(&world, overview, 0, None);
         assert_eq!(
             view.rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
             ResourceKind::ALL

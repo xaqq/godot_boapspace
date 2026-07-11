@@ -21,7 +21,7 @@ use game_engine::forestry::{
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
-use game_engine::resources::{ResourceAmounts, ResourceKind};
+use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
 use game_engine::simulation::{GameSimulation, SimulationSpeed, SurfaceId};
 use game_engine::tasks::ProgressBuildingConstruction;
 use game_engine::tile::TileIndex;
@@ -1041,6 +1041,14 @@ impl GameWorld {
 
     pub(crate) fn with_rendered_surface_world<R>(&self, f: impl FnOnce(&World) -> R) -> R {
         self.game.with_surface_world(self.rendered_surface, f)
+    }
+
+    pub(crate) fn with_rendered_surface_resource_overview<R>(
+        &mut self,
+        f: impl FnOnce(ResourceOverview, &World) -> R,
+    ) -> R {
+        self.game
+            .with_surface_resource_overview(self.rendered_surface, f)
     }
 
     pub(crate) fn task_table_rows(&self) -> Vec<TaskTableRow> {

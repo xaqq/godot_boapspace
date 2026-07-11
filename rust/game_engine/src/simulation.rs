@@ -95,7 +95,7 @@ impl SurfaceRuntime {
                 .expect("initial NPC spawn system should run");
         }
 
-        let initial_usable = resource_overview(&world).usable();
+        let initial_usable = resource_overview(&mut world).usable();
         world.insert_resource(ResourceHistory::new(world_date_time.day(), initial_usable));
 
         Self {
@@ -120,7 +120,7 @@ impl SurfaceRuntime {
         {
             return;
         }
-        let usable = resource_overview(&self.world).usable();
+        let usable = resource_overview(&mut self.world).usable();
         self.world
             .resource_mut::<ResourceHistory>()
             .record_day(day, usable);
@@ -253,8 +253,18 @@ impl GameSimulation {
         f(&self.surface(surface_id).world)
     }
 
-    pub fn resource_overview(&self, surface_id: SurfaceId) -> ResourceOverview {
-        resource_overview(&self.surface(surface_id).world)
+    pub fn with_surface_resource_overview<R>(
+        &mut self,
+        surface_id: SurfaceId,
+        f: impl FnOnce(ResourceOverview, &World) -> R,
+    ) -> R {
+        let surface = self.surface_mut(surface_id);
+        let overview = resource_overview(&mut surface.world);
+        f(overview, &surface.world)
+    }
+
+    pub fn resource_overview(&mut self, surface_id: SurfaceId) -> ResourceOverview {
+        resource_overview(&mut self.surface_mut(surface_id).world)
     }
 
     pub fn resource_history(&self, surface_id: SurfaceId) -> &ResourceHistory {

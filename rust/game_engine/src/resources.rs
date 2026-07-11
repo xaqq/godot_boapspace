@@ -1,4 +1,5 @@
-use bevy_ecs::prelude::{Resource, World};
+use bevy_ecs::prelude::{Query, Resource, World};
+use bevy_ecs::system::SystemState;
 use godot::prelude::{Export, GodotConvert, Var};
 
 use crate::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
@@ -83,31 +84,40 @@ impl ResourceOverview {
 
 /// Returns live, surface-local resource totals. Natural resource nodes have no
 /// eligible inventory component and are therefore intentionally excluded.
-pub fn resource_overview(world: &World) -> ResourceOverview {
+pub fn resource_overview(world: &mut World) -> ResourceOverview {
     let mut overview = ResourceOverview::default();
 
-    for entity in world.iter_entities() {
-        if let Some(inventory) = entity.get::<NpcInventory>() {
-            overview.usable.add_amounts(inventory.contents());
-        }
-        if let Some(inventory) = entity.get::<WarehouseInventory>() {
-            overview.usable.add_amounts(inventory.contents());
-        }
-        if let Some(inventory) = entity.get::<FarmInventory>() {
-            overview.usable.add_amounts(inventory.contents());
-        }
-        if let Some(inventory) = entity.get::<ForesterLodgeInventory>() {
-            overview.usable.add_amounts(inventory.contents());
-        }
+    // Query only the handful of archetypes that can contribute resources. The
+    // surface also contains one entity per terrain tile, so iterating every
+    // entity here makes UI refreshes and daily history recording scale with map
+    // area rather than with the number of inventories.
+    let mut state: SystemState<(
+        Query<&NpcInventory>,
+        Query<&WarehouseInventory>,
+        Query<&FarmInventory>,
+        Query<&ForesterLodgeInventory>,
+        Query<(&BuildingBlueprint, &ConstructionProgress)>,
+    )> = SystemState::new(world);
+    let (npcs, warehouses, farms, lodges, blueprints) = state
+        .get(world)
+        .expect("resource overview queries should be compatible");
 
-        if let (Some(blueprint), Some(progress)) = (
-            entity.get::<BuildingBlueprint>(),
-            entity.get::<ConstructionProgress>(),
-        ) {
-            let cost = blueprint.kind.definition().construction_cost();
-            if !progress.is_complete(cost) {
-                overview.committed.add_amounts(progress.deposited());
-            }
+    for inventory in npcs.iter() {
+        overview.usable.add_amounts(inventory.contents());
+    }
+    for inventory in warehouses.iter() {
+        overview.usable.add_amounts(inventory.contents());
+    }
+    for inventory in farms.iter() {
+        overview.usable.add_amounts(inventory.contents());
+    }
+    for inventory in lodges.iter() {
+        overview.usable.add_amounts(inventory.contents());
+    }
+    for (blueprint, progress) in blueprints.iter() {
+        let cost = blueprint.kind.definition().construction_cost();
+        if !progress.is_complete(cost) {
+            overview.committed.add_amounts(progress.deposited());
         }
     }
 
@@ -323,7 +333,7 @@ mod tests {
             quantity: u32::MAX,
         });
 
-        let overview = resource_overview(&world);
+        let overview = resource_overview(&mut world);
         assert_eq!(overview.usable().get(ResourceKind::Wood), 26);
         assert_eq!(overview.usable().get(ResourceKind::Stone), 13);
         assert_eq!(overview.usable().get(ResourceKind::Food), 29);
@@ -342,7 +352,9 @@ mod tests {
         ));
 
         assert_eq!(
-            resource_overview(&world).usable().get(ResourceKind::Wood),
+            resource_overview(&mut world)
+                .usable()
+                .get(ResourceKind::Wood),
             12
         );
     }
@@ -366,7 +378,7 @@ mod tests {
         ));
         world.spawn(ConstructionProgress::new(ResourceAmounts::new(9, 9, 9, 9)));
 
-        let committed = resource_overview(&world).committed();
+        let committed = resource_overview(&mut world).committed();
         assert_eq!(committed.get(ResourceKind::Wood), 5);
         assert_eq!(committed.get(ResourceKind::Stone), 6);
         assert_eq!(committed.get(ResourceKind::Food), 0);
