@@ -3098,6 +3098,9 @@ fn set_wheelbarrow_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderIn
     }
 
     sprite.show();
+    let (position, z_index) = wheelbarrow_transform(npc.facing);
+    sprite.set_position(position);
+    sprite.set_z_index(z_index);
     let animation_name = wheelbarrow_animation_name(npc.facing, npc.wheelbarrow_kind);
     let animation = StringName::from(&animation_name);
     if sprite.get_animation() != animation {
@@ -3109,6 +3112,32 @@ fn set_wheelbarrow_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderIn
     } else if !sprite.is_playing() {
         sprite.play();
     }
+}
+
+fn wheelbarrow_transform(facing: MovementFacing) -> (Vector2, i32) {
+    const CARDINAL_OFFSET: f32 = 24.0;
+    const DIAGONAL_OFFSET: f32 = 18.0;
+
+    let position = match facing {
+        MovementFacing::North => Vector2::new(0.0, -CARDINAL_OFFSET),
+        MovementFacing::NorthEast => Vector2::new(DIAGONAL_OFFSET, -DIAGONAL_OFFSET),
+        MovementFacing::East => Vector2::new(CARDINAL_OFFSET, 0.0),
+        MovementFacing::SouthEast => Vector2::new(DIAGONAL_OFFSET, DIAGONAL_OFFSET),
+        MovementFacing::South => Vector2::new(0.0, CARDINAL_OFFSET),
+        MovementFacing::SouthWest => Vector2::new(-DIAGONAL_OFFSET, DIAGONAL_OFFSET),
+        MovementFacing::West => Vector2::new(-CARDINAL_OFFSET, 0.0),
+        MovementFacing::NorthWest => Vector2::new(-DIAGONAL_OFFSET, -DIAGONAL_OFFSET),
+    };
+    let z_index = match facing {
+        MovementFacing::North | MovementFacing::NorthEast | MovementFacing::NorthWest => -1,
+        MovementFacing::East
+        | MovementFacing::SouthEast
+        | MovementFacing::South
+        | MovementFacing::SouthWest
+        | MovementFacing::West => 1,
+    };
+
+    (position, z_index)
 }
 
 fn wheelbarrow_animation_name(facing: MovementFacing, cargo: Option<ResourceKind>) -> String {
@@ -3948,6 +3977,25 @@ mod tests {
                     format!("{}_{direction}", resource_animation_slug(kind))
                 );
             }
+        }
+    }
+
+    #[test]
+    fn wheelbarrow_transform_places_it_ahead_of_the_npc() {
+        for (facing, expected_position, expected_z_index) in [
+            (MovementFacing::North, Vector2::new(0.0, -24.0), -1),
+            (MovementFacing::NorthEast, Vector2::new(18.0, -18.0), -1),
+            (MovementFacing::East, Vector2::new(24.0, 0.0), 1),
+            (MovementFacing::SouthEast, Vector2::new(18.0, 18.0), 1),
+            (MovementFacing::South, Vector2::new(0.0, 24.0), 1),
+            (MovementFacing::SouthWest, Vector2::new(-18.0, 18.0), 1),
+            (MovementFacing::West, Vector2::new(-24.0, 0.0), 1),
+            (MovementFacing::NorthWest, Vector2::new(-18.0, -18.0), -1),
+        ] {
+            assert_eq!(
+                wheelbarrow_transform(facing),
+                (expected_position, expected_z_index)
+            );
         }
     }
 
