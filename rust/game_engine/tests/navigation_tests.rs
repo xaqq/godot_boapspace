@@ -2,7 +2,9 @@ use bevy_ecs::prelude::*;
 use game_engine::buildings::BuildingFootprint;
 use game_engine::components::{MovementTarget, Npc, NpcPosition, ResourceNode, TerrainKind};
 use game_engine::grid::{CellCoord, Grid, GridSize};
-use game_engine::navigation::{drive_npc_routes, NavigationSnapshot, NpcRoute};
+use game_engine::navigation::{
+    drive_npc_routes, invalidate_navigation_snapshot, NavigationSnapshot, NpcRoute,
+};
 use game_engine::resources::ResourceKind;
 use game_engine::tile::{TileBundle, TileIndex};
 
@@ -208,6 +210,7 @@ fn set_resource_node(world: &mut World, coord: CellCoord, blocked: bool) {
     } else {
         world.entity_mut(entity).remove::<ResourceNode>();
     }
+    invalidate_navigation_snapshot(world);
 }
 
 fn cardinal_distance(left: CellCoord, right: CellCoord) -> i32 {

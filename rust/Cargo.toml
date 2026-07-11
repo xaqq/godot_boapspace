@@ -1,3 +1,6 @@
 [workspace]
 members = ["game_engine", "godot_bridge"]
 resolver = "2"
+
+[profile.dev.package.game_engine]
+opt-level = 2

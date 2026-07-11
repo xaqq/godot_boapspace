@@ -11,7 +11,8 @@ use crate::components::{
 use crate::farming::{AiHarvestField, AiSeedField, FarmInventory};
 use crate::forestry::{AiCutTreePlot, AiSeedTreePlot, ForesterLodgeInventory};
 use crate::navigation::{
-    current_navigation_snapshot, invalidate_navigation_snapshot, NavigationSnapshot, NpcRoute,
+    current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
+    NavigationSnapshot, NpcRoute,
 };
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::skills::{Cook, NpcSkills, Sawyer, SkillKind, Stonemason};
@@ -520,6 +521,7 @@ pub fn assign_refining_work(world: &mut World) {
     let mut newly_claimed = claimed_refineries;
 
     for (worker, position, sawyer, stonemason, cook) in workers {
+        let mut distances = None;
         let mut candidates = Vec::new();
         for (task_entity, task) in &tasks {
             let refinery = task.refinery();
@@ -545,8 +547,14 @@ pub fn assign_refining_work(world: &mut World) {
             if !eligible || inventory.output_free_size() == 0 {
                 continue;
             }
+            let distances = distances
+                .get_or_insert_with(|| snapshot.distances_from(position.coord))
+                .as_ref();
+            let Some(distances) = distances else {
+                continue;
+            };
             let goals = snapshot.exterior_interaction_cells(building.footprint);
-            let Some(path) = snapshot.shortest_path_to_any(position.coord, goals) else {
+            let Some((_, refinery_distance)) = distances.closest_reachable(goals) else {
                 continue;
             };
             let recipe_source = if let Some(recipe) = production.recipe() {
@@ -555,8 +563,8 @@ pub fn assign_refining_work(world: &mut World) {
                 choose_recipe_and_source(
                     world,
                     &snapshot,
+                    distances,
                     worker,
-                    position.coord,
                     refinery,
                     building.kind,
                     inventory,
@@ -566,7 +574,7 @@ pub fn assign_refining_work(world: &mut World) {
                 continue;
             };
             candidates.push((
-                path.distance(),
+                refinery_distance,
                 refinery.to_bits(),
                 *task_entity,
                 refinery,
@@ -698,11 +706,19 @@ pub fn route_and_advance_refining_work(world: &mut World) {
                     release_refining_worker(world, worker, work);
                     continue;
                 }
-                if let Some(mut node) = world.get_mut::<ResourceNode>(node_entity) {
+                let depleted = if let Some(mut node) = world.get_mut::<ResourceNode>(node_entity) {
                     node.quantity = node.quantity.saturating_sub(1);
-                    if node.quantity == 0 {
-                        world.entity_mut(node_entity).remove::<ResourceNode>();
-                        invalidate_navigation_snapshot(world);
+                    node.quantity == 0
+                } else {
+                    false
+                };
+                if depleted {
+                    let coord = world
+                        .get::<TilePosition>(node_entity)
+                        .map(|position| position.coord);
+                    world.entity_mut(node_entity).remove::<ResourceNode>();
+                    if let Some(coord) = coord {
+                        refresh_navigation_snapshot_cells(world, [coord]);
                     }
                 }
                 if let Some(mut skills) = world.get_mut::<NpcSkills>(worker) {
@@ -852,8 +868,8 @@ pub fn refinery_status(world: &World, entity: Entity) -> Option<RefineryStatus> 
 fn choose_recipe_and_source(
     world: &mut World,
     snapshot: &NavigationSnapshot,
+    distances: &NavigationDistances,
     worker: Entity,
-    origin: crate::grid::CellCoord,
     refinery: Entity,
     building: BuildingKind,
     inventory: RefineryInventory,
@@ -877,10 +893,10 @@ fn choose_recipe_and_source(
                 0
             } else {
                 let goals = source_interaction_cells(world, snapshot, source, worker);
-                let Some(path) = snapshot.shortest_path_to_any(origin, goals) else {
+                let Some((_, distance)) = distances.closest_reachable(goals) else {
                     continue;
                 };
-                path.distance()
+                distance
             };
             candidates.push((
                 distance,
@@ -1166,6 +1182,114 @@ fn has_eligible_worker(world: &World, building: BuildingKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buildings::BuildingFootprint;
+    use crate::grid::{CellCoord, Grid, GridSize};
+    use crate::tile::{TileBundle, TileIndex};
+
+    #[test]
+    fn source_selection_skips_unreachable_stock() {
+        let mut world = navigation_world();
+        let worker = world
+            .spawn((
+                NpcPosition::new(CellCoord::new(0, 0)),
+                NpcInventory::default(),
+            ))
+            .id();
+        let refinery = world.spawn_empty().id();
+        let reachable = spawn_warehouse(&mut world, CellCoord::new(2, 0), ResourceKind::Wood, 1);
+        let unreachable = spawn_warehouse(&mut world, CellCoord::new(6, 6), ResourceKind::Wood, 1);
+        for coord in [
+            CellCoord::new(6, 5),
+            CellCoord::new(5, 6),
+            CellCoord::new(7, 6),
+            CellCoord::new(6, 7),
+        ] {
+            let tile = world.resource::<TileIndex>().get(coord).unwrap();
+            world.entity_mut(tile).insert(ResourceNode {
+                kind: ResourceKind::Stone,
+                quantity: 1,
+            });
+        }
+        let snapshot = NavigationSnapshot::from_world(&world).unwrap();
+        let distances = snapshot.distances_from(CellCoord::new(0, 0)).unwrap();
+
+        let selected = choose_recipe_and_source(
+            &mut world,
+            &snapshot,
+            &distances,
+            worker,
+            refinery,
+            BuildingKind::Sawmill,
+            RefineryInventory::empty(),
+        );
+
+        assert_eq!(
+            selected,
+            Some((
+                RecipeKind::SawWood,
+                Some(StockEndpoint::Warehouse(reachable))
+            ))
+        );
+        assert_ne!(reachable, unreachable);
+    }
+
+    #[test]
+    fn equidistant_sources_preserve_entity_id_tie_break() {
+        let mut world = navigation_world();
+        let worker = world
+            .spawn((
+                NpcPosition::new(CellCoord::new(4, 4)),
+                NpcInventory::default(),
+            ))
+            .id();
+        let refinery = world.spawn_empty().id();
+        let first = spawn_warehouse(&mut world, CellCoord::new(2, 4), ResourceKind::Wood, 1);
+        let second = spawn_warehouse(&mut world, CellCoord::new(6, 4), ResourceKind::Wood, 1);
+        let lower_entity = if first.to_bits() < second.to_bits() {
+            first
+        } else {
+            second
+        };
+        let snapshot = NavigationSnapshot::from_world(&world).unwrap();
+        let distances = snapshot.distances_from(CellCoord::new(4, 4)).unwrap();
+        let first_distance = distances
+            .closest_reachable(source_interaction_cells(
+                &world,
+                &snapshot,
+                StockEndpoint::Warehouse(first),
+                worker,
+            ))
+            .unwrap()
+            .1;
+        let second_distance = distances
+            .closest_reachable(source_interaction_cells(
+                &world,
+                &snapshot,
+                StockEndpoint::Warehouse(second),
+                worker,
+            ))
+            .unwrap()
+            .1;
+        assert_eq!((first_distance, second_distance), (1, 1));
+
+        let selected = choose_recipe_and_source(
+            &mut world,
+            &snapshot,
+            &distances,
+            worker,
+            refinery,
+            BuildingKind::Sawmill,
+            RefineryInventory::empty(),
+        );
+
+        assert_eq!(
+            selected,
+            Some((
+                RecipeKind::SawWood,
+                Some(StockEndpoint::Warehouse(lower_entity))
+            ))
+        );
+    }
 
     #[test]
     fn stock_sources_query_each_supported_inventory_archetype_in_stable_order() {
@@ -1323,5 +1447,33 @@ mod tests {
             input: ResourceInventory::new(input, REFINERY_INPUT_CAPACITY),
             output: ResourceInventory::new(output, REFINERY_OUTPUT_CAPACITY),
         }
+    }
+
+    fn navigation_world() -> World {
+        let size = GridSize::new(8, 8);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(size.width(), size.height()));
+        world.insert_resource(ReservationLedger::default());
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let tile = world.spawn(TileBundle::new(coord)).id();
+            assert!(index.set(coord, tile));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn spawn_warehouse(
+        world: &mut World,
+        coord: CellCoord,
+        kind: ResourceKind,
+        amount: u32,
+    ) -> Entity {
+        world
+            .spawn((
+                Building::new(BuildingKind::Warehouse, BuildingFootprint::new(coord, 1, 1)),
+                warehouse_inventory(kind, amount),
+            ))
+            .id()
     }
 }

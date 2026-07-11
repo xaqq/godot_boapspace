@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bevy_ecs::prelude::*;
 
 use crate::buildings::{Building, BuildingBlueprint, BuildingFootprint};
-use crate::collision::building_blocks_npc_walk;
+use crate::collision::{building_blocks_npc_walk, collision_flags_at};
 use crate::components::{
     MovementTarget, Npc, NpcPosition, ResourceNode, Terrain, TerrainKind, Tile, TilePosition,
 };
@@ -31,15 +31,63 @@ pub fn refresh_navigation_snapshot(world: &mut World) {
     }
 }
 
-pub fn invalidate_navigation_snapshot(world: &mut World) {
-    world.remove_resource::<NavigationSnapshot>();
+/// Re-evaluates walkability only for cells whose collision occupants changed.
+/// The snapshot revision advances only when at least one cell actually changes.
+pub(crate) fn refresh_navigation_snapshot_cells(
+    world: &mut World,
+    cells: impl IntoIterator<Item = CellCoord>,
+) {
+    if world.get_resource::<NavigationSnapshot>().is_none() {
+        refresh_navigation_snapshot(world);
+    }
+
+    let mut cells = cells.into_iter().collect::<Vec<_>>();
+    sort_and_deduplicate(&mut cells);
+    let updates = cells
+        .into_iter()
+        .map(|coord| {
+            let walkable =
+                collision_flags_at(world, coord).is_some_and(|flags| !flags.is_npc_walk_blocked());
+            (coord, walkable)
+        })
+        .collect::<Vec<_>>();
+
+    let Some(mut snapshot) = world.get_resource_mut::<NavigationSnapshot>() else {
+        return;
+    };
+    let mut changed = false;
+    for (coord, walkable) in updates {
+        changed |= snapshot.set_walkability(coord, walkable);
+    }
+    if changed {
+        snapshot.fingerprint = snapshot.fingerprint.wrapping_add(1);
+    }
 }
 
-pub fn current_navigation_snapshot(world: &World) -> Option<NavigationSnapshot> {
-    world
-        .get_resource::<NavigationSnapshot>()
-        .cloned()
-        .or_else(|| NavigationSnapshot::from_world(world))
+/// Fully rebuilds the cached snapshot. Prefer refreshing affected cells when
+/// their coordinates are known.
+pub fn invalidate_navigation_snapshot(world: &mut World) {
+    let replacement = NavigationSnapshot::from_world(world);
+    match (world.get_resource::<NavigationSnapshot>(), replacement) {
+        (Some(current), Some(mut replacement)) => {
+            if current.size == replacement.size && current.walkable == replacement.walkable {
+                return;
+            }
+            replacement.fingerprint = current.fingerprint.wrapping_add(1);
+            world.insert_resource(replacement);
+        }
+        (None, Some(replacement)) => {
+            world.insert_resource(replacement);
+        }
+        (_, None) => {
+            world.remove_resource::<NavigationSnapshot>();
+        }
+    }
+}
+
+pub fn current_navigation_snapshot(world: &mut World) -> Option<NavigationSnapshot> {
+    refresh_navigation_snapshot(world);
+    world.get_resource::<NavigationSnapshot>().cloned()
 }
 
 impl NavigationSnapshot {
@@ -105,6 +153,37 @@ impl NavigationSnapshot {
         self.fingerprint
     }
 
+    /// Computes cardinal distances from `start` once for reuse across many
+    /// target sets. A blocked starting cell remains a valid origin.
+    pub(crate) fn distances_from(&self, start: CellCoord) -> Option<NavigationDistances> {
+        let start_index = self.index(start)?;
+        let cell_count = self.size.cell_count()?;
+        if cell_count >= u32::MAX as usize {
+            return None;
+        }
+        let mut distances = vec![u32::MAX; cell_count];
+        let mut queue = VecDeque::from([start]);
+        distances[start_index] = 0;
+
+        while let Some(coord) = queue.pop_front() {
+            let coord_index = self.index(coord)?;
+            let next_distance = distances[coord_index].checked_add(1)?;
+            for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
+                let neighbor_index = self.index(neighbor)?;
+                if distances[neighbor_index] != u32::MAX || !self.is_walkable(neighbor) {
+                    continue;
+                }
+                distances[neighbor_index] = next_distance;
+                queue.push_back(neighbor);
+            }
+        }
+
+        Some(NavigationDistances {
+            size: self.size,
+            distances,
+        })
+    }
+
     /// Returns a deterministic cardinal shortest path, including both `start`
     /// and `goal`. The starting cell may have become blocked underneath an NPC;
     /// all cells entered after it must be walkable.
@@ -132,37 +211,50 @@ impl NavigationSnapshot {
         }
 
         let cell_count = self.size.cell_count()?;
-        let mut distance = vec![usize::MAX; cell_count];
-        let mut previous = vec![usize::MAX; cell_count];
-        let mut queue = VecDeque::from([start]);
-        distance[start_index] = 0;
+        if cell_count >= u32::MAX as usize {
+            return None;
+        }
+        let mut previous = vec![u32::MAX; cell_count];
+        previous[start_index] = u32::try_from(start_index).ok()?;
+        let mut queue = VecDeque::from([(start, 0_u32)]);
+        let mut goal_indices = goals
+            .iter()
+            .filter_map(|goal| self.index(*goal))
+            .collect::<Vec<_>>();
+        goal_indices.sort_unstable();
+        let mut found_goals = Vec::new();
+        let mut found_distance = None;
+        if goal_indices.binary_search(&start_index).is_ok() {
+            found_goals.push((start, 0_u32));
+            found_distance = Some(0_u32);
+        }
 
-        while let Some(coord) = queue.pop_front() {
+        while let Some((coord, coord_distance)) = queue.pop_front() {
             let coord_index = self.index(coord)?;
-            for neighbor in self.cardinal_neighbors(coord) {
+            if found_distance.is_some_and(|found| coord_distance >= found) {
+                break;
+            }
+            for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
                 let neighbor_index = self.index(neighbor)?;
-                if distance[neighbor_index] != usize::MAX || !self.is_walkable(neighbor) {
+                if previous[neighbor_index] != u32::MAX || !self.is_walkable(neighbor) {
                     continue;
                 }
-                distance[neighbor_index] = distance[coord_index] + 1;
-                previous[neighbor_index] = coord_index;
-                queue.push_back(neighbor);
+                let neighbor_distance = coord_distance.checked_add(1)?;
+                previous[neighbor_index] = u32::try_from(coord_index).ok()?;
+                if goal_indices.binary_search(&neighbor_index).is_ok() {
+                    found_distance = Some(neighbor_distance);
+                    found_goals.push((neighbor, neighbor_distance));
+                }
+                queue.push_back((neighbor, neighbor_distance));
             }
         }
 
-        let target = goals.into_iter().min_by_key(|goal| {
-            let target_distance = self
-                .index(*goal)
-                .map(|index| distance[index])
-                .unwrap_or(usize::MAX);
-            (target_distance, goal.y(), goal.x())
-        })?;
+        let (target, target_distance) = found_goals
+            .into_iter()
+            .min_by_key(|(goal, distance)| (*distance, goal.y(), goal.x()))?;
         let target_index = self.index(target)?;
-        let target_distance = distance[target_index];
-        if target_distance == usize::MAX {
-            return None;
-        }
 
+        let target_distance = usize::try_from(target_distance).ok()?;
         let mut reversed = Vec::with_capacity(target_distance + 1);
         let mut cursor = target_index;
         loop {
@@ -170,10 +262,11 @@ impl NavigationSnapshot {
             if cursor == start_index {
                 break;
             }
-            cursor = previous[cursor];
-            if cursor == usize::MAX {
+            let predecessor = previous[cursor];
+            if predecessor == u32::MAX {
                 return None;
             }
+            cursor = usize::try_from(predecessor).ok()?;
         }
         reversed.reverse();
 
@@ -186,8 +279,8 @@ impl NavigationSnapshot {
 
     /// Walkable cardinal neighbors in row-major order.
     pub fn point_interaction_cells(&self, point: CellCoord) -> Vec<CellCoord> {
-        self.cardinal_neighbors(point)
-            .into_iter()
+        cardinal_coords(point)
+            .filter(|coord| self.size.contains(*coord))
             .filter(|coord| self.is_walkable(*coord))
             .collect()
     }
@@ -219,15 +312,6 @@ impl NavigationSnapshot {
         cells
     }
 
-    fn cardinal_neighbors(&self, coord: CellCoord) -> Vec<CellCoord> {
-        let mut neighbors = cardinal_coords(coord)
-            .into_iter()
-            .filter(|candidate| self.size.contains(*candidate))
-            .collect::<Vec<_>>();
-        neighbors.sort_unstable_by_key(|candidate| (candidate.y(), candidate.x()));
-        neighbors
-    }
-
     fn index(&self, coord: CellCoord) -> Option<usize> {
         if !self.size.contains(coord) {
             return None;
@@ -242,6 +326,48 @@ impl NavigationSnapshot {
             return None;
         }
         CellCoord::from_usize(index % self.size.width(), index / self.size.width())
+    }
+
+    fn set_walkability(&mut self, coord: CellCoord, value: bool) -> bool {
+        let Some(index) = self.index(coord) else {
+            return false;
+        };
+        if self.walkable.get(index).copied() == Some(value) {
+            return false;
+        }
+        let walkable = Arc::make_mut(&mut self.walkable);
+        let Some(cell) = walkable.get_mut(index) else {
+            return false;
+        };
+        *cell = value;
+        true
+    }
+}
+
+/// Reusable cardinal distances from one origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NavigationDistances {
+    size: GridSize,
+    distances: Vec<u32>,
+}
+
+impl NavigationDistances {
+    /// Returns the reachable goal ordered by distance, then row and column.
+    pub(crate) fn closest_reachable(
+        &self,
+        goals: impl IntoIterator<Item = CellCoord>,
+    ) -> Option<(CellCoord, usize)> {
+        goals
+            .into_iter()
+            .filter_map(|goal| {
+                let index = navigation_index(self.size, goal)?;
+                let distance = *self.distances.get(index)?;
+                if distance == u32::MAX {
+                    return None;
+                }
+                Some((goal, usize::try_from(distance).ok()?))
+            })
+            .min_by_key(|(goal, distance)| (*distance, goal.y(), goal.x()))
     }
 }
 
@@ -332,19 +458,21 @@ pub fn drive_npc_routes(world: &mut World) {
         return;
     };
 
-    let mut query = world
-        .query_filtered::<(Entity, &NpcPosition, &NpcRoute, Option<&MovementTarget>), With<Npc>>();
-    let mut routed_npcs = query
-        .iter(world)
-        .map(|(entity, position, route, movement)| {
-            (entity, *position, route.clone(), movement.copied())
-        })
-        .collect::<Vec<_>>();
-    routed_npcs.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
+    let mut query = world.query_filtered::<Entity, (With<Npc>, With<NpcRoute>)>();
+    let mut routed_npcs = query.iter(world).collect::<Vec<_>>();
+    routed_npcs.sort_unstable_by_key(|entity| entity.to_bits());
 
-    for (entity, position, mut route, movement) in routed_npcs {
-        let must_replan = route.planned_fingerprint != Some(snapshot.fingerprint());
-        if must_replan {
+    let mut actions = Vec::with_capacity(routed_npcs.len());
+    for entity in routed_npcs {
+        let Some(position) = world.get::<NpcPosition>(entity).copied() else {
+            continue;
+        };
+        let movement = world.get::<MovementTarget>(entity).copied();
+        let Some(mut route) = world.get_mut::<NpcRoute>(entity) else {
+            continue;
+        };
+
+        if route.planned_fingerprint != Some(snapshot.fingerprint()) {
             route.plan(&snapshot, position.coord);
         }
 
@@ -358,51 +486,72 @@ pub fn drive_npc_routes(world: &mut World) {
             }
         }
 
-        if route.destination == Some(position.coord)
+        let action = if route.destination == Some(position.coord)
             && route.waypoints.is_empty()
             && movement.is_none()
         {
-            world.entity_mut(entity).remove::<NpcRoute>();
-            continue;
-        }
-
-        if route.destination.is_none() {
-            world.entity_mut(entity).remove::<MovementTarget>();
-            world.entity_mut(entity).insert(route);
-            continue;
-        }
-
-        let next = route.waypoints.front().copied();
-        let movement_matches = movement.map(|target| target.coord) == next;
-        let mut entity_mut = world.entity_mut(entity);
-        entity_mut.insert(route);
-        match next {
-            Some(next) if !movement_matches => {
-                entity_mut.insert(MovementTarget::new(next));
+            RouteAction::RemoveRoute
+        } else if route.destination.is_none() {
+            RouteAction::RemoveMovement
+        } else {
+            let next = route.waypoints.front().copied();
+            match next {
+                Some(next) if movement.map(|target| target.coord) != Some(next) => {
+                    RouteAction::SetMovement(next)
+                }
+                None => RouteAction::RemoveMovement,
+                Some(_) => RouteAction::None,
             }
-            None => {
+        };
+        actions.push((entity, action));
+    }
+
+    for (entity, action) in actions {
+        let mut entity_mut = world.entity_mut(entity);
+        match action {
+            RouteAction::RemoveRoute => {
+                entity_mut.remove::<NpcRoute>();
+            }
+            RouteAction::RemoveMovement => {
                 entity_mut.remove::<MovementTarget>();
             }
-            Some(_) => {}
+            RouteAction::SetMovement(coord) => {
+                entity_mut.insert(MovementTarget::new(coord));
+            }
+            RouteAction::None => {}
         }
     }
 }
 
-fn cardinal_coords(coord: CellCoord) -> Vec<CellCoord> {
-    let mut cells = Vec::with_capacity(4);
-    if let Some(y) = coord.y().checked_sub(1) {
-        cells.push(CellCoord::new(coord.x(), y));
-    }
-    if let Some(x) = coord.x().checked_sub(1) {
-        cells.push(CellCoord::new(x, coord.y()));
-    }
-    if let Some(x) = coord.x().checked_add(1) {
-        cells.push(CellCoord::new(x, coord.y()));
-    }
-    if let Some(y) = coord.y().checked_add(1) {
-        cells.push(CellCoord::new(coord.x(), y));
-    }
-    cells
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteAction {
+    RemoveRoute,
+    RemoveMovement,
+    SetMovement(CellCoord),
+    None,
+}
+
+fn cardinal_coords(coord: CellCoord) -> impl Iterator<Item = CellCoord> {
+    [
+        coord
+            .y()
+            .checked_sub(1)
+            .map(|y| CellCoord::new(coord.x(), y)),
+        coord
+            .x()
+            .checked_sub(1)
+            .map(|x| CellCoord::new(x, coord.y())),
+        coord
+            .x()
+            .checked_add(1)
+            .map(|x| CellCoord::new(x, coord.y())),
+        coord
+            .y()
+            .checked_add(1)
+            .map(|y| CellCoord::new(coord.x(), y)),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 fn sort_and_deduplicate(cells: &mut Vec<CellCoord>) {
@@ -431,6 +580,15 @@ fn set_walkability(size: GridSize, walkable: &mut [bool], coord: CellCoord, valu
     }
 }
 
+fn navigation_index(size: GridSize, coord: CellCoord) -> Option<usize> {
+    if !size.contains(coord) {
+        return None;
+    }
+    let x = usize::try_from(coord.x()).ok()?;
+    let y = usize::try_from(coord.y()).ok()?;
+    y.checked_mul(size.width())?.checked_add(x)
+}
+
 fn walkability_fingerprint(size: GridSize, walkable: &[bool]) -> u64 {
     // Stable FNV-1a; this is a change detector, not a persisted identifier.
     let mut hash = 0xcbf29ce484222325_u64;
@@ -450,6 +608,9 @@ fn walkability_fingerprint(size: GridSize, walkable: &[bool]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buildings::{BuildingBlueprintBundle, BuildingKind};
+    use crate::resources::ResourceKind;
+    use crate::tile::{TileBundle, TileIndex};
 
     #[test]
     fn shortest_path_can_exit_a_starting_cell_that_became_blocked() {
@@ -488,5 +649,146 @@ mod tests {
                 CellCoord::new(2, 2),
             ]
         );
+    }
+
+    #[test]
+    fn reusable_distances_choose_reachable_row_major_ties() {
+        let size = GridSize::new(5, 3);
+        let mut walkable = vec![true; size.cell_count().expect("small test grid")];
+        for y in 0..3 {
+            set_walkability(size, &mut walkable, CellCoord::new(3, y), false);
+        }
+        let snapshot = NavigationSnapshot {
+            size,
+            fingerprint: walkability_fingerprint(size, &walkable),
+            walkable: Arc::new(walkable),
+        };
+
+        let distances = snapshot
+            .distances_from(CellCoord::new(1, 1))
+            .expect("origin should be in bounds");
+
+        assert_eq!(
+            distances.closest_reachable([
+                CellCoord::new(4, 1), // isolated by the wall
+                CellCoord::new(2, 2),
+                CellCoord::new(0, 0),
+                CellCoord::new(2, 2),
+            ]),
+            Some((CellCoord::new(0, 0), 2))
+        );
+        assert_eq!(distances.closest_reachable([CellCoord::new(4, 1)]), None);
+    }
+
+    #[test]
+    fn reusable_distances_can_exit_a_blocked_origin() {
+        let size = GridSize::new(3, 1);
+        let walkable = vec![false, true, true];
+        let snapshot = NavigationSnapshot {
+            size,
+            fingerprint: walkability_fingerprint(size, &walkable),
+            walkable: Arc::new(walkable),
+        };
+        let distances = snapshot
+            .distances_from(CellCoord::new(0, 0))
+            .expect("origin should be in bounds");
+
+        assert_eq!(
+            distances.closest_reachable([CellCoord::new(2, 0), CellCoord::new(0, 0)]),
+            Some((CellCoord::new(0, 0), 0))
+        );
+        assert_eq!(
+            distances.closest_reachable([CellCoord::new(2, 0)]),
+            Some((CellCoord::new(2, 0), 2))
+        );
+    }
+
+    #[test]
+    fn targeted_refresh_changes_revision_only_when_walkability_changes() {
+        let mut world = navigation_world(3, 2);
+        let coord = CellCoord::new(1, 0);
+        let initial = current_navigation_snapshot(&mut world).expect("snapshot should build");
+
+        refresh_navigation_snapshot_cells(&mut world, [coord, coord]);
+        let unchanged = current_navigation_snapshot(&mut world).expect("snapshot should remain");
+        assert_eq!(unchanged.fingerprint(), initial.fingerprint());
+
+        let tile = world
+            .resource::<TileIndex>()
+            .get(coord)
+            .expect("tile should be indexed");
+        world.entity_mut(tile).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 1,
+        });
+        refresh_navigation_snapshot_cells(&mut world, [coord]);
+        let blocked = current_navigation_snapshot(&mut world).expect("snapshot should remain");
+        assert!(!blocked.is_walkable(coord));
+        assert_ne!(blocked.fingerprint(), initial.fingerprint());
+
+        let blocked_revision = blocked.fingerprint();
+        refresh_navigation_snapshot_cells(&mut world, [coord]);
+        assert_eq!(
+            current_navigation_snapshot(&mut world)
+                .expect("snapshot should remain")
+                .fingerprint(),
+            blocked_revision
+        );
+
+        world.entity_mut(tile).remove::<ResourceNode>();
+        refresh_navigation_snapshot_cells(&mut world, [coord]);
+        let reopened = current_navigation_snapshot(&mut world).expect("snapshot should remain");
+        assert!(reopened.is_walkable(coord));
+        assert_ne!(reopened.fingerprint(), blocked_revision);
+    }
+
+    #[test]
+    fn non_blocking_blueprint_does_not_advance_navigation_revision() {
+        let mut world = navigation_world(3, 2);
+        let initial = current_navigation_snapshot(&mut world).expect("snapshot should build");
+        let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 2, 1);
+        world.spawn(BuildingBlueprintBundle::new(BuildingKind::Field, footprint));
+
+        refresh_navigation_snapshot_cells(&mut world, footprint.iter_coords());
+        let refreshed = current_navigation_snapshot(&mut world).expect("snapshot should remain");
+
+        assert_eq!(refreshed.fingerprint(), initial.fingerprint());
+        assert!(footprint
+            .iter_coords()
+            .all(|coord| refreshed.is_walkable(coord)));
+    }
+
+    #[test]
+    fn blocking_blueprint_refreshes_its_footprint_and_advances_revision() {
+        let mut world = navigation_world(4, 2);
+        let initial = current_navigation_snapshot(&mut world).expect("snapshot should build");
+        let footprint = BuildingFootprint::new(CellCoord::new(1, 0), 2, 1);
+        world.spawn(BuildingBlueprintBundle::new(
+            BuildingKind::Warehouse,
+            footprint,
+        ));
+
+        refresh_navigation_snapshot_cells(&mut world, footprint.iter_coords());
+        let refreshed = current_navigation_snapshot(&mut world).expect("snapshot should remain");
+
+        assert_ne!(refreshed.fingerprint(), initial.fingerprint());
+        assert!(footprint
+            .iter_coords()
+            .all(|coord| !refreshed.is_walkable(coord)));
+    }
+
+    fn navigation_world(width: usize, height: usize) -> World {
+        let size = GridSize::new(width, height);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(width, height));
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let tile = world
+                .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+                .id();
+            assert!(index.set(coord, tile));
+        }
+        world.insert_resource(index);
+        world
     }
 }

@@ -3,7 +3,7 @@ use crate::farming::{FarmInventory, FieldCrop};
 use crate::forestry::{ForesterLodgeInventory, TreePlotGrowth};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::housing::House;
-use crate::navigation::invalidate_navigation_snapshot;
+use crate::navigation::refresh_navigation_snapshot_cells;
 use crate::refining::{RefineryInventory, RefineryProduction};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
@@ -434,7 +434,7 @@ pub fn place_building_blueprint(
     let entity = world
         .spawn(BuildingBlueprintBundle::new(kind, footprint))
         .id();
-    invalidate_navigation_snapshot(world);
+    refresh_navigation_snapshot_cells(world, footprint.iter_coords());
 
     Ok(entity)
 }

@@ -8,11 +8,13 @@ use crate::ai::{
 use crate::buildings::{Building, BuildingBlueprint, ConstructionProgress};
 use crate::components::{
     AiKeepEnoughFoodInInventory, MovementTarget, Npc, NpcInventory, NpcPosition, ResourceNode,
+    TilePosition,
 };
 use crate::farming::{AiHarvestField, AiSeedField};
 use crate::forestry::{AiCutTreePlot, AiSeedTreePlot};
 use crate::navigation::{
-    current_navigation_snapshot, invalidate_navigation_snapshot, NavigationSnapshot, NpcRoute,
+    current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
+    NavigationSnapshot, NpcRoute,
 };
 use crate::refining::{
     endpoint_entity, source_interaction_cells, source_stock, stock_sources, withdraw_source,
@@ -225,8 +227,15 @@ pub fn manage_construction_logistics(world: &mut World) {
         .iter(world)
         .map(|(entity, blueprint, progress)| (entity, *blueprint, *progress))
         .collect::<Vec<_>>();
+    // Construction only looks sources up when the worker is not already carrying
+    // the requested kind, so these lists are worker-independent. Populate each
+    // kind on first use to keep ticks with no matching demand cheap.
+    let mut stock_sources_by_kind: [Option<Vec<StockEndpoint>>; ResourceKind::ALL.len()] =
+        std::array::from_fn(|_| None);
     for (npc, position, inventory) in npcs {
         let mut candidates = Vec::new();
+        let mut distances = None;
+        let mut distances_initialized = false;
         for (blueprint_entity, blueprint, progress) in &blueprints {
             let cost = blueprint.kind.definition().construction_cost();
             for kind in ResourceKind::ALL {
@@ -245,9 +254,15 @@ pub fn manage_construction_logistics(world: &mut World) {
                 }
                 if inventory.contents().get(kind) > 0 {
                     let goals = blueprint_goals(&snapshot, *blueprint);
-                    if let Some(path) = snapshot.shortest_path_to_any(position.coord, goals) {
+                    if let Some(distance) = distance_to_any(
+                        &snapshot,
+                        position.coord,
+                        &mut distances,
+                        &mut distances_initialized,
+                        goals,
+                    ) {
                         candidates.push((
-                            path.distance(),
+                            distance,
                             blueprint_entity.to_bits(),
                             kind as usize,
                             *blueprint_entity,
@@ -258,7 +273,10 @@ pub fn manage_construction_logistics(world: &mut World) {
                     }
                     continue;
                 }
-                for source in stock_sources(world, kind, Entity::PLACEHOLDER, npc) {
+                let sources = stock_sources_by_kind[kind as usize].get_or_insert_with(|| {
+                    stock_sources(world, kind, Entity::PLACEHOLDER, Entity::PLACEHOLDER)
+                });
+                for &source in sources.iter() {
                     if source_stock(world, source, kind)
                         <= world
                             .resource::<ReservationLedger>()
@@ -267,7 +285,13 @@ pub fn manage_construction_logistics(world: &mut World) {
                         continue;
                     }
                     let goals = source_interaction_cells(world, &snapshot, source, npc);
-                    let Some(path) = snapshot.shortest_path_to_any(position.coord, goals) else {
+                    let Some(distance) = distance_to_any(
+                        &snapshot,
+                        position.coord,
+                        &mut distances,
+                        &mut distances_initialized,
+                        goals,
+                    ) else {
                         continue;
                     };
                     let available = source_stock(world, source, kind).saturating_sub(
@@ -276,7 +300,7 @@ pub fn manage_construction_logistics(world: &mut World) {
                             .reserved_from(source, kind),
                     );
                     candidates.push((
-                        path.distance(),
+                        distance,
                         blueprint_entity.to_bits(),
                         kind as usize,
                         *blueprint_entity,
@@ -406,11 +430,19 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     clear_construction_haul(world, npc);
                     continue;
                 }
-                if let Some(mut node) = world.get_mut::<ResourceNode>(node_entity) {
+                let depleted = if let Some(mut node) = world.get_mut::<ResourceNode>(node_entity) {
                     node.quantity = node.quantity.saturating_sub(1);
-                    if node.quantity == 0 {
-                        world.entity_mut(node_entity).remove::<ResourceNode>();
-                        invalidate_navigation_snapshot(world);
+                    node.quantity == 0
+                } else {
+                    false
+                };
+                if depleted {
+                    let coord = world
+                        .get::<TilePosition>(node_entity)
+                        .map(|position| position.coord);
+                    world.entity_mut(node_entity).remove::<ResourceNode>();
+                    if let Some(coord) = coord {
+                        refresh_navigation_snapshot_cells(world, [coord]);
                     }
                 }
                 if let Some(mut skills) = world.get_mut::<NpcSkills>(npc) {
@@ -500,7 +532,7 @@ fn choose_food_source(
     if amount == 0 {
         return None;
     }
-    sources
+    let viable_sources = sources
         .iter()
         .copied()
         .filter_map(|source| {
@@ -513,13 +545,21 @@ fn choose_food_source(
             if available == 0 {
                 return None;
             }
-            let path = snapshot.shortest_path_to_any(
-                origin,
-                source_interaction_cells(world, snapshot, source, npc),
-            )?;
+            Some((source, entity.to_bits(), available))
+        })
+        .collect::<Vec<_>>();
+    if viable_sources.is_empty() {
+        return None;
+    }
+    let distances = snapshot.distances_from(origin)?;
+    viable_sources
+        .into_iter()
+        .filter_map(|(source, entity_bits, available)| {
+            let (_, distance) = distances
+                .closest_reachable(source_interaction_cells(world, snapshot, source, npc))?;
             Some((
-                path.distance(),
-                entity.to_bits(),
+                distance,
+                entity_bits,
                 AiFoodHaul {
                     source,
                     amount: amount.min(available),
@@ -528,6 +568,23 @@ fn choose_food_source(
         })
         .min_by_key(|candidate| (candidate.0, candidate.1))
         .map(|candidate| candidate.2)
+}
+
+fn distance_to_any(
+    snapshot: &NavigationSnapshot,
+    origin: crate::grid::CellCoord,
+    distances: &mut Option<NavigationDistances>,
+    initialized: &mut bool,
+    goals: impl IntoIterator<Item = crate::grid::CellCoord>,
+) -> Option<usize> {
+    if !*initialized {
+        *distances = snapshot.distances_from(origin);
+        *initialized = true;
+    }
+    distances
+        .as_ref()?
+        .closest_reachable(goals)
+        .map(|(_, distance)| distance)
 }
 
 fn food_source_available(world: &World, source: StockEndpoint) -> u32 {

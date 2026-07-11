@@ -4,10 +4,13 @@ use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
     WarehouseInventory,
 };
-use game_engine::components::{Npc, NpcInventory, NpcPosition};
+use game_engine::components::{Npc, NpcInventory, NpcPosition, Terrain, TerrainKind};
 use game_engine::grid::{CellCoord, Grid, GridSize};
-use game_engine::logistics::{manage_construction_logistics, manage_food_logistics};
-use game_engine::refining::{RefineryInventory, RefineryProduction, ReservationLedger};
+use game_engine::logistics::{manage_construction_logistics, manage_food_logistics, AiFoodHaul};
+use game_engine::refining::{
+    RefineryInventory, RefineryProduction, Reservation, ReservationLedger, SinkEndpoint,
+    StockEndpoint,
+};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::tile::{TileBundle, TileIndex};
 
@@ -88,6 +91,76 @@ fn hungry_npc_can_withdraw_food_from_kitchen_output() {
 }
 
 #[test]
+fn equidistant_food_sources_use_the_lower_entity_id() {
+    let mut world = navigation_world();
+    let first = spawn_food_warehouse(&mut world, CellCoord::new(1, 1), 10);
+    let second = spawn_food_warehouse(&mut world, CellCoord::new(5, 1), 10);
+    let npc = hungry_npc(&mut world, CellCoord::new(3, 6));
+
+    manage_food_logistics(&mut world);
+
+    let expected = [first, second]
+        .into_iter()
+        .min_by_key(|entity| entity.to_bits())
+        .unwrap();
+    assert_eq!(
+        world.get::<AiFoodHaul>(npc).unwrap().source(),
+        StockEndpoint::Warehouse(expected)
+    );
+}
+
+#[test]
+fn food_source_selection_skips_fully_reserved_nearer_stock() {
+    let mut world = navigation_world();
+    let nearer = spawn_food_warehouse(&mut world, CellCoord::new(3, 3), 10);
+    let farther = spawn_food_warehouse(&mut world, CellCoord::new(0, 0), 10);
+    let reserving_worker = world.spawn_empty().id();
+    let task = world.spawn_empty().id();
+    assert!(world
+        .resource_mut::<ReservationLedger>()
+        .claim(Reservation {
+            worker: reserving_worker,
+            source: Some(StockEndpoint::Warehouse(nearer)),
+            sink: SinkEndpoint::NpcInventory(reserving_worker),
+            kind: ResourceKind::Food,
+            amount: 10,
+            task,
+        }));
+    let npc = hungry_npc(&mut world, CellCoord::new(3, 7));
+
+    manage_food_logistics(&mut world);
+
+    assert_eq!(
+        world.get::<AiFoodHaul>(npc).unwrap().source(),
+        StockEndpoint::Warehouse(farther)
+    );
+}
+
+#[test]
+fn food_source_selection_skips_an_unreachable_nearer_inventory() {
+    let mut world = navigation_world();
+    let unreachable = spawn_food_warehouse(&mut world, CellCoord::new(3, 3), 10);
+    for coord in [
+        CellCoord::new(2, 3),
+        CellCoord::new(4, 3),
+        CellCoord::new(3, 2),
+        CellCoord::new(3, 4),
+    ] {
+        set_terrain(&mut world, coord, TerrainKind::Water);
+    }
+    let reachable = spawn_food_warehouse(&mut world, CellCoord::new(0, 0), 10);
+    let npc = hungry_npc(&mut world, CellCoord::new(3, 7));
+
+    manage_food_logistics(&mut world);
+
+    assert_ne!(unreachable, reachable);
+    assert_eq!(
+        world.get::<AiFoodHaul>(npc).unwrap().source(),
+        StockEndpoint::Warehouse(reachable)
+    );
+}
+
+#[test]
 fn construction_withdraws_refined_material_from_owned_inventory() {
     let mut world = navigation_world();
     let warehouse = world
@@ -160,6 +233,25 @@ fn hungry_npc(world: &mut World, coord: CellCoord) -> Entity {
             AiKeepEnoughFoodInInventory::new(5, 20),
         ))
         .id()
+}
+
+fn spawn_food_warehouse(world: &mut World, coord: CellCoord, amount: u32) -> Entity {
+    let entity = world
+        .spawn((
+            Building::new(BuildingKind::Warehouse, BuildingFootprint::new(coord, 1, 1)),
+            WarehouseInventory::empty(),
+        ))
+        .id();
+    assert!(world
+        .get_mut::<WarehouseInventory>(entity)
+        .unwrap()
+        .add(ResourceKind::Food, amount));
+    entity
+}
+
+fn set_terrain(world: &mut World, coord: CellCoord, kind: TerrainKind) {
+    let tile = world.resource::<TileIndex>().get(coord).unwrap();
+    world.get_mut::<Terrain>(tile).unwrap().kind = kind;
 }
 
 fn navigation_world() -> World {
