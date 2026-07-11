@@ -185,10 +185,9 @@ fn generate_terrain(
         .into_iter()
         .zip(terrain)
         .map(|(coord, terrain)| {
-            let terrain = if generation.protects(size, coord) {
-                TerrainKind::Grass
-            } else {
-                terrain
+            let terrain = match (generation.protects(size, coord), terrain) {
+                (true, TerrainKind::Water) => TerrainKind::Sand,
+                _ => terrain,
             };
             (coord, terrain)
         })
@@ -336,16 +335,47 @@ mod tests {
     }
 
     #[test]
-    fn protected_start_area_is_grass_and_clipped_to_the_surface() {
-        for size in [GridSize::new(256, 256), GridSize::new(2, 2)] {
-            let generation = SurfaceGeneration::new(TEST_SEED, true);
-            let terrain = generate_terrain(size, generation);
+    fn protected_start_area_only_replaces_water_with_sand() {
+        const GRASS_START_SEED: u64 = 1;
+        const DIRT_START_SEED: u64 = 2;
+        const WATER_START_SEED: u64 = 3;
 
-            for (coord, kind) in terrain {
-                if generation.protects(size, coord) {
-                    assert_eq!(kind, TerrainKind::Grass);
+        let cases = [
+            (GridSize::new(256, 256), TEST_SEED),
+            (GridSize::new(256, 256), GRASS_START_SEED),
+            (GridSize::new(256, 256), DIRT_START_SEED),
+            (GridSize::new(256, 256), WATER_START_SEED),
+            (GridSize::new(2, 2), WATER_START_SEED),
+        ];
+        let mut original_protected_terrains = Vec::new();
+
+        for (size, seed) in cases {
+            let unprotected = generate_terrain(size, SurfaceGeneration::new(seed, false));
+            let generation = SurfaceGeneration::new(seed, true);
+            let protected = generate_terrain(size, generation);
+
+            for ((coord, original), (protected_coord, actual)) in
+                unprotected.into_iter().zip(protected)
+            {
+                assert_eq!(coord, protected_coord);
+                let is_protected = generation.protects(size, coord);
+                if is_protected && !original_protected_terrains.contains(&original) {
+                    original_protected_terrains.push(original);
+                }
+                let expected = if is_protected && original == TerrainKind::Water {
+                    TerrainKind::Sand
+                } else {
+                    original
+                };
+                assert_eq!(actual, expected);
+                if is_protected {
+                    assert_ne!(actual, TerrainKind::Water);
                 }
             }
+        }
+
+        for terrain in TerrainKind::ALL {
+            assert!(original_protected_terrains.contains(&terrain));
         }
     }
 }

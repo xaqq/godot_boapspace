@@ -439,7 +439,7 @@ fn test_resource_nodes_only_spawn_on_allowed_terrain_at_target_density() {
 }
 
 #[test]
-fn test_default_start_area_is_grass_and_resource_free() {
+fn test_default_start_area_is_non_water_and_resource_free() {
     let simulation = GameSimulation::new(TEST_GENERATION_SEED);
     let surface = simulation.default_surface_id();
     let center = CellCoord::from_usize(
@@ -455,10 +455,10 @@ fn test_default_start_area_is_grass_and_resource_free() {
     for y_offset in -1..=1 {
         for x_offset in -1..=1 {
             let coord = CellCoord::new(center.x() + x_offset, center.y() + y_offset);
-            assert_eq!(
-                simulation.tile_terrain_at(surface, coord),
-                Some(TerrainKind::Grass)
-            );
+            let terrain = simulation
+                .tile_terrain_at(surface, coord)
+                .expect("default start area should contain a terrain tile");
+            assert_ne!(terrain, TerrainKind::Water);
             assert!(!resource_coords.contains(&coord));
         }
     }
