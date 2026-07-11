@@ -292,6 +292,8 @@ impl AiConstructBuilding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiIdleRoam {
     origin: CellCoord,
+    house: Option<Entity>,
+    house_slot: Option<usize>,
     dwell_ticks_remaining: u32,
     next_offset_index: usize,
 }
@@ -300,13 +302,39 @@ impl AiIdleRoam {
     pub const fn new(origin: CellCoord, dwell_ticks_remaining: u32) -> Self {
         Self {
             origin,
+            house: None,
+            house_slot: None,
             dwell_ticks_remaining,
             next_offset_index: 0,
         }
     }
 
+    pub const fn around_house(
+        origin: CellCoord,
+        house: Entity,
+        house_slot: usize,
+        dwell_ticks_remaining: u32,
+        next_offset_index: usize,
+    ) -> Self {
+        Self {
+            origin,
+            house: Some(house),
+            house_slot: Some(house_slot),
+            dwell_ticks_remaining,
+            next_offset_index,
+        }
+    }
+
     pub const fn origin(self) -> CellCoord {
         self.origin
+    }
+
+    pub const fn house(self) -> Option<Entity> {
+        self.house
+    }
+
+    pub const fn house_slot(self) -> Option<usize> {
+        self.house_slot
     }
 
     pub const fn dwell_ticks_remaining(self) -> u32 {

@@ -16,8 +16,9 @@ use crate::forestry::{
     TreePlotOwner,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::housing::{House, HousingAssignment};
 use crate::logistics::AiConstructionHaul;
-use crate::navigation::NpcRoute;
+use crate::navigation::{NavigationSnapshot, NpcRoute};
 use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::skills::{NpcSkills, SkillKind};
 use crate::tasks::ProgressBuildingConstruction;
@@ -600,10 +601,13 @@ pub fn system_deposit_construction_resources(
 pub fn system_npc_idle(
     mut commands: Commands,
     grid: Res<Grid>,
+    navigation: Res<NavigationSnapshot>,
+    houses: Query<(&Building, &House)>,
     mut npcs: Query<
         (
             Entity,
             &NpcPosition,
+            Option<&HousingAssignment>,
             Option<&MovementTarget>,
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
@@ -621,6 +625,7 @@ pub fn system_npc_idle(
     for (
         entity,
         position,
+        housing_assignment,
         movement_target,
         search,
         gather,
@@ -644,15 +649,41 @@ pub fn system_npc_idle(
             continue;
         }
 
+        let assigned_house = housing_assignment.and_then(|assignment| {
+            let (building, house) = houses.get(assignment.house()).ok()?;
+            (building.kind.definition().housing_capacity().is_some()
+                && building.footprint.is_within(size)
+                && house.capacity() > 0
+                && assignment.slot() < house.capacity())
+            .then_some((
+                assignment.house(),
+                building.footprint,
+                house.capacity(),
+                assignment.slot(),
+            ))
+        });
+        let assigned_house_slot = assigned_house.map(|(house, _, _, slot)| (house, slot));
+
+        if idle
+            .as_deref()
+            .is_some_and(|idle| idle.house().zip(idle.house_slot()) != assigned_house_slot)
+        {
+            commands
+                .entity(entity)
+                .remove::<NpcRoute>()
+                .remove::<MovementTarget>()
+                .insert(idle_state(position.coord, assigned_house, size));
+            continue;
+        }
+
         if movement_target.is_some() {
             continue;
         }
 
         let Some(mut idle) = idle else {
-            commands.entity(entity).insert(AiIdleRoam::new(
-                position.coord,
-                DEFAULT_NPC_IDLE_DWELL_TICKS,
-            ));
+            commands
+                .entity(entity)
+                .insert(idle_state(position.coord, assigned_house, size));
             continue;
         };
 
@@ -663,12 +694,24 @@ pub fn system_npc_idle(
             }
         }
 
-        if let Some((target, next_offset_index)) = idle_roam_target(
-            idle.origin(),
-            position.coord,
-            size,
-            idle.next_offset_index(),
-        ) {
+        let next_target = if let Some((_, footprint, _, _)) = assigned_house {
+            house_idle_roam_target(
+                footprint,
+                position.coord,
+                size,
+                idle.next_offset_index(),
+                &navigation,
+            )
+        } else {
+            idle_roam_target(
+                idle.origin(),
+                position.coord,
+                size,
+                idle.next_offset_index(),
+            )
+        };
+
+        if let Some((target, next_offset_index)) = next_target {
             idle.set_next_offset_index(next_offset_index);
             commands
                 .entity(entity)
@@ -676,6 +719,26 @@ pub fn system_npc_idle(
         }
         idle.reset_dwell(DEFAULT_NPC_IDLE_DWELL_TICKS);
     }
+}
+
+fn idle_state(
+    position: CellCoord,
+    assigned_house: Option<(Entity, BuildingFootprint, usize, usize)>,
+    size: GridSize,
+) -> AiIdleRoam {
+    let Some((house, footprint, capacity, slot)) = assigned_house else {
+        return AiIdleRoam::new(position, DEFAULT_NPC_IDLE_DWELL_TICKS);
+    };
+
+    let candidate_count = house_idle_roam_candidates(footprint, size).len();
+    let next_offset_index = slot.saturating_mul(candidate_count) / capacity;
+    AiIdleRoam::around_house(
+        footprint.origin(),
+        house,
+        slot,
+        DEFAULT_NPC_IDLE_DWELL_TICKS,
+        next_offset_index,
+    )
 }
 
 pub fn system_gather_resource(
@@ -1098,6 +1161,146 @@ fn idle_roam_target(
     }
 
     None
+}
+
+fn house_idle_roam_target(
+    footprint: BuildingFootprint,
+    current: CellCoord,
+    size: GridSize,
+    start_offset_index: usize,
+    navigation: &NavigationSnapshot,
+) -> Option<(CellCoord, usize)> {
+    let candidates = house_idle_roam_candidates(footprint, size);
+    if candidates.is_empty() {
+        return None;
+    }
+    let distances = navigation.distances_from(current)?;
+
+    for step in 0..candidates.len() {
+        let index = (start_offset_index + step) % candidates.len();
+        let target = candidates[index];
+        if target != current && distances.is_reachable(target) {
+            return Some((target, (index + 1) % candidates.len()));
+        }
+    }
+
+    None
+}
+
+fn house_idle_roam_candidates(footprint: BuildingFootprint, size: GridSize) -> Vec<CellCoord> {
+    let Ok(width) = i32::try_from(footprint.width()) else {
+        return Vec::new();
+    };
+    let Ok(height) = i32::try_from(footprint.height()) else {
+        return Vec::new();
+    };
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+
+    let left = footprint.origin().x();
+    let top = footprint.origin().y();
+    let Some(right) = left.checked_add(width - 1) else {
+        return Vec::new();
+    };
+    let Some(bottom) = top.checked_add(height - 1) else {
+        return Vec::new();
+    };
+    let mut candidates = Vec::new();
+
+    for distance in 1..=DEFAULT_NPC_IDLE_ROAM_RADIUS as i32 {
+        let Some(ring_top) = top.checked_sub(distance) else {
+            continue;
+        };
+        let Some(ring_right) = right.checked_add(distance) else {
+            continue;
+        };
+        let Some(ring_bottom) = bottom.checked_add(distance) else {
+            continue;
+        };
+        let Some(ring_left) = left.checked_sub(distance) else {
+            continue;
+        };
+
+        push_horizontal(&mut candidates, size, left, right, ring_top, false);
+        for diagonal in 1..distance {
+            push_candidate(
+                &mut candidates,
+                size,
+                CellCoord::new(right + diagonal, top - (distance - diagonal)),
+            );
+        }
+        push_vertical(&mut candidates, size, top, bottom, ring_right, false);
+        for diagonal in 1..distance {
+            push_candidate(
+                &mut candidates,
+                size,
+                CellCoord::new(right + (distance - diagonal), bottom + diagonal),
+            );
+        }
+        push_horizontal(&mut candidates, size, left, right, ring_bottom, true);
+        for diagonal in 1..distance {
+            push_candidate(
+                &mut candidates,
+                size,
+                CellCoord::new(left - diagonal, bottom + (distance - diagonal)),
+            );
+        }
+        push_vertical(&mut candidates, size, top, bottom, ring_left, true);
+        for diagonal in 1..distance {
+            push_candidate(
+                &mut candidates,
+                size,
+                CellCoord::new(left - (distance - diagonal), top - diagonal),
+            );
+        }
+    }
+
+    candidates
+}
+
+fn push_horizontal(
+    candidates: &mut Vec<CellCoord>,
+    size: GridSize,
+    left: i32,
+    right: i32,
+    y: i32,
+    reverse: bool,
+) {
+    if reverse {
+        for x in (left..=right).rev() {
+            push_candidate(candidates, size, CellCoord::new(x, y));
+        }
+    } else {
+        for x in left..=right {
+            push_candidate(candidates, size, CellCoord::new(x, y));
+        }
+    }
+}
+
+fn push_vertical(
+    candidates: &mut Vec<CellCoord>,
+    size: GridSize,
+    top: i32,
+    bottom: i32,
+    x: i32,
+    reverse: bool,
+) {
+    if reverse {
+        for y in (top..=bottom).rev() {
+            push_candidate(candidates, size, CellCoord::new(x, y));
+        }
+    } else {
+        for y in top..=bottom {
+            push_candidate(candidates, size, CellCoord::new(x, y));
+        }
+    }
+}
+
+fn push_candidate(candidates: &mut Vec<CellCoord>, size: GridSize, candidate: CellCoord) {
+    if size.contains(candidate) {
+        candidates.push(candidate);
+    }
 }
 
 fn offset_coord(origin: CellCoord, offset: (i32, i32)) -> Option<CellCoord> {

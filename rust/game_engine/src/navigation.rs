@@ -417,6 +417,12 @@ pub(crate) struct NavigationDistances {
 }
 
 impl NavigationDistances {
+    pub(crate) fn is_reachable(&self, goal: CellCoord) -> bool {
+        navigation_index(self.size, goal)
+            .and_then(|index| self.distances.get(index))
+            .is_some_and(|distance| *distance != u32::MAX)
+    }
+
     /// Returns the reachable goal ordered by travel cost, then row and column.
     pub(crate) fn closest_reachable(
         &self,

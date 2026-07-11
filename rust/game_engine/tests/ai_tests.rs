@@ -17,8 +17,9 @@ use game_engine::components::{
     ResourceNode, TerrainKind, Tile, TilePosition, Velocity, DEFAULT_NPC_INVENTORY_MAX_SIZE,
 };
 use game_engine::grid::{CellCoord, Grid};
+use game_engine::housing::{House, HousingAssignment};
 use game_engine::logistics::manage_food_logistics;
-use game_engine::navigation::NpcRoute;
+use game_engine::navigation::{refresh_navigation_snapshot, NpcRoute};
 use game_engine::npcs::{Npc, NpcPosition, NpcSkills, SkillKind};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::simulation::GameSimulation;
@@ -464,6 +465,248 @@ fn test_idle_roam_restarts_with_current_position_after_interruption() {
             .origin(),
         CellCoord::new(4, 4)
     );
+}
+
+#[test]
+fn test_idle_roam_uses_assigned_house_as_its_anchor() {
+    let mut world = idle_world(12, 12);
+    let footprint = BuildingFootprint::new(CellCoord::new(6, 6), 2, 2);
+    let house = spawn_house(&mut world, BuildingKind::MediumHouse, footprint, 0);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            HousingAssignment::new(house, 0),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    let idle = idle_roam(&world, npc).expect("resident should start idle roaming");
+    assert_eq!(idle.house(), Some(house));
+    assert_eq!(idle.house_slot(), Some(0));
+    assert_eq!(idle.origin(), footprint.origin());
+    assert_eq!(idle.dwell_ticks_remaining(), DEFAULT_NPC_IDLE_DWELL_TICKS);
+}
+
+#[test]
+fn test_idle_roam_targets_home_zone_for_every_house_size() {
+    for (kind, footprint) in [
+        (
+            BuildingKind::SmallHouse,
+            BuildingFootprint::new(CellCoord::new(5, 5), 1, 1),
+        ),
+        (
+            BuildingKind::MediumHouse,
+            BuildingFootprint::new(CellCoord::new(5, 5), 2, 2),
+        ),
+        (
+            BuildingKind::LargeHouse,
+            BuildingFootprint::new(CellCoord::new(5, 5), 3, 3),
+        ),
+    ] {
+        let mut world = idle_world(14, 14);
+        let house = spawn_house(&mut world, kind, footprint, 0);
+        let npc = world
+            .spawn((
+                Npc,
+                NpcPosition::new(CellCoord::new(0, 0)),
+                HousingAssignment::new(house, 0),
+                AiIdleRoam::around_house(footprint.origin(), house, 0, 1, 0),
+            ))
+            .id();
+
+        run_idle(&mut world);
+
+        let target = world
+            .get::<NpcRoute>(npc)
+            .expect("resident should route toward its home zone")
+            .goals()[0];
+        let distance = footprint_distance(footprint, target);
+        assert!(!footprint.contains(target));
+        assert!((1..=DEFAULT_NPC_IDLE_ROAM_RADIUS).contains(&distance));
+    }
+}
+
+#[test]
+fn test_idle_roam_staggers_housemates_by_housing_slot() {
+    let mut world = idle_world(12, 12);
+    let footprint = BuildingFootprint::new(CellCoord::new(5, 5), 2, 2);
+    let house = spawn_house(&mut world, BuildingKind::MediumHouse, footprint, 0);
+    let residents = (0..4)
+        .map(|slot| {
+            world
+                .spawn((
+                    Npc,
+                    NpcPosition::new(CellCoord::new(1, 1)),
+                    HousingAssignment::new(house, slot),
+                ))
+                .id()
+        })
+        .collect::<Vec<_>>();
+
+    run_idle(&mut world);
+
+    let offsets = residents
+        .iter()
+        .map(|resident| idle_roam(&world, *resident).unwrap().next_offset_index())
+        .collect::<Vec<_>>();
+    assert_eq!(offsets, vec![0, 9, 18, 27]);
+}
+
+#[test]
+fn test_idle_roam_skips_blocked_home_zone_candidate() {
+    let mut world = idle_world(10, 10);
+    let footprint = BuildingFootprint::new(CellCoord::new(4, 4), 1, 1);
+    let house = spawn_house(&mut world, BuildingKind::SmallHouse, footprint, 0);
+    let blocked = CellCoord::new(4, 3);
+    spawn_resource_node(&mut world, blocked, ResourceKind::Wood, 1);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 1)),
+            HousingAssignment::new(house, 0),
+            AiIdleRoam::around_house(footprint.origin(), house, 0, 1, 0),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    let target = world.get::<NpcRoute>(npc).unwrap().goals()[0];
+    assert_ne!(target, blocked);
+    assert!((1..=DEFAULT_NPC_IDLE_ROAM_RADIUS).contains(&footprint_distance(footprint, target)));
+}
+
+#[test]
+fn test_idle_roam_waits_when_home_zone_is_unreachable() {
+    let mut world = idle_world(10, 9);
+    let footprint = BuildingFootprint::new(CellCoord::new(7, 4), 1, 1);
+    let house = spawn_house(&mut world, BuildingKind::SmallHouse, footprint, 0);
+    for y in 0..9 {
+        spawn_resource_node(&mut world, CellCoord::new(4, y), ResourceKind::Wood, 1);
+    }
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(1, 4)),
+            HousingAssignment::new(house, 0),
+            AiIdleRoam::around_house(footprint.origin(), house, 0, 1, 0),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    assert!(world.get::<NpcRoute>(npc).is_none());
+    assert!(world.get::<MovementTarget>(npc).is_none());
+    assert_eq!(
+        idle_roam(&world, npc).unwrap().dwell_ticks_remaining(),
+        DEFAULT_NPC_IDLE_DWELL_TICKS
+    );
+}
+
+#[test]
+fn test_idle_roam_waits_when_house_has_no_home_zone_cells() {
+    let mut world = idle_world(1, 1);
+    let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 1, 1);
+    let house = spawn_house(&mut world, BuildingKind::SmallHouse, footprint, 0);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            HousingAssignment::new(house, 0),
+            AiIdleRoam::around_house(footprint.origin(), house, 0, 1, 0),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    assert!(world.get::<NpcRoute>(npc).is_none());
+    assert!(world.get::<MovementTarget>(npc).is_none());
+    assert_eq!(
+        idle_roam(&world, npc).unwrap().dwell_ticks_remaining(),
+        DEFAULT_NPC_IDLE_DWELL_TICKS
+    );
+}
+
+#[test]
+fn test_idle_roam_retargets_when_house_assignment_changes() {
+    let mut world = idle_world(12, 12);
+    let old_footprint = BuildingFootprint::new(CellCoord::new(2, 2), 1, 1);
+    let new_footprint = BuildingFootprint::new(CellCoord::new(8, 8), 1, 1);
+    let old_house = spawn_house(&mut world, BuildingKind::SmallHouse, old_footprint, 0);
+    let new_house = spawn_house(&mut world, BuildingKind::SmallHouse, new_footprint, 1);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(4, 4)),
+            HousingAssignment::new(new_house, 0),
+            AiIdleRoam::around_house(old_footprint.origin(), old_house, 0, 0, 0),
+            NpcRoute::to_cell(CellCoord::new(2, 1)),
+            MovementTarget::new(CellCoord::new(2, 1)),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    let idle = idle_roam(&world, npc).unwrap();
+    assert_eq!(idle.house(), Some(new_house));
+    assert_eq!(idle.origin(), new_footprint.origin());
+    assert_eq!(idle.dwell_ticks_remaining(), DEFAULT_NPC_IDLE_DWELL_TICKS);
+    assert!(world.get::<NpcRoute>(npc).is_none());
+    assert!(world.get::<MovementTarget>(npc).is_none());
+}
+
+#[test]
+fn test_idle_roam_rephases_when_housing_slot_changes() {
+    let mut world = idle_world(12, 12);
+    let footprint = BuildingFootprint::new(CellCoord::new(5, 5), 2, 2);
+    let house = spawn_house(&mut world, BuildingKind::MediumHouse, footprint, 0);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(3, 3)),
+            HousingAssignment::new(house, 3),
+            AiIdleRoam::around_house(footprint.origin(), house, 0, 0, 0),
+            NpcRoute::to_cell(CellCoord::new(5, 4)),
+            MovementTarget::new(CellCoord::new(5, 4)),
+        ))
+        .id();
+
+    run_idle(&mut world);
+
+    let idle = idle_roam(&world, npc).unwrap();
+    assert_eq!(idle.house(), Some(house));
+    assert_eq!(idle.house_slot(), Some(3));
+    assert_eq!(idle.next_offset_index(), 27);
+    assert!(world.get::<NpcRoute>(npc).is_none());
+    assert!(world.get::<MovementTarget>(npc).is_none());
+}
+
+#[test]
+fn test_idle_roam_falls_back_locally_when_assigned_house_is_removed() {
+    let mut world = idle_world(10, 10);
+    let footprint = BuildingFootprint::new(CellCoord::new(6, 6), 1, 1);
+    let house = spawn_house(&mut world, BuildingKind::SmallHouse, footprint, 0);
+    let position = CellCoord::new(3, 3);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(position),
+            HousingAssignment::new(house, 0),
+            AiIdleRoam::around_house(footprint.origin(), house, 0, 0, 0),
+            NpcRoute::to_cell(CellCoord::new(6, 5)),
+            MovementTarget::new(CellCoord::new(6, 5)),
+        ))
+        .id();
+    world.despawn(house);
+
+    run_idle(&mut world);
+
+    let idle = idle_roam(&world, npc).unwrap();
+    assert_eq!(idle.house(), None);
+    assert_eq!(idle.origin(), position);
+    assert!(world.get::<NpcRoute>(npc).is_none());
+    assert!(world.get::<MovementTarget>(npc).is_none());
 }
 
 #[test]
@@ -1121,13 +1364,44 @@ fn spawn_gathering_npc(world: &mut World, coord: CellCoord, target: Entity) -> E
 }
 
 fn idle_world(width: usize, height: usize) -> World {
+    world_with_tiles(width, height)
+}
+
+fn world_with_tiles(width: usize, height: usize) -> World {
     let mut world = World::new();
-    world.insert_resource(Grid::new(width, height));
+    let grid = Grid::new(width, height);
+    let mut tile_index = TileIndex::new(grid.size());
+    for coord in grid.size().iter_coords() {
+        let tile = world
+            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+            .id();
+        assert!(tile_index.set(coord, tile));
+    }
+    world.insert_resource(grid);
+    world.insert_resource(tile_index);
     world
 }
 
 fn spawn_idle_npc(world: &mut World, coord: CellCoord) -> Entity {
     world.spawn((Npc, NpcPosition::new(coord))).id()
+}
+
+fn spawn_house(
+    world: &mut World,
+    kind: BuildingKind,
+    footprint: BuildingFootprint,
+    completion_order: u64,
+) -> Entity {
+    let capacity = kind
+        .definition()
+        .housing_capacity()
+        .expect("test building kind should provide housing");
+    world
+        .spawn((
+            Building::new(kind, footprint),
+            House::new(capacity, completion_order),
+        ))
+        .id()
 }
 
 fn spawn_resource_node(
@@ -1166,18 +1440,7 @@ fn spawn_construction_blueprint_with_progress(
 }
 
 fn construction_world() -> World {
-    let mut world = World::new();
-    let grid = Grid::new(8, 8);
-    let mut tile_index = TileIndex::new(grid.size());
-    for coord in grid.size().iter_coords() {
-        let tile = world
-            .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
-            .id();
-        assert!(tile_index.set(coord, tile));
-    }
-    world.insert_resource(grid);
-    world.insert_resource(tile_index);
-    world
+    world_with_tiles(8, 8)
 }
 
 fn spawn_food_warehouse(world: &mut World, origin: CellCoord, amount: u32) -> Entity {
@@ -1248,6 +1511,7 @@ fn run_deposit_construction(world: &mut World) {
 }
 
 fn run_idle(world: &mut World) {
+    refresh_navigation_snapshot(world);
     world
         .run_system_once(system_npc_idle)
         .expect("idle system should run");
@@ -1259,6 +1523,14 @@ fn idle_roam(world: &World, npc: Entity) -> Option<AiIdleRoam> {
 
 fn manhattan_distance(a: CellCoord, b: CellCoord) -> u32 {
     a.x().abs_diff(b.x()).saturating_add(a.y().abs_diff(b.y()))
+}
+
+fn footprint_distance(footprint: BuildingFootprint, coord: CellCoord) -> u32 {
+    footprint
+        .iter_coords()
+        .map(|footprint_coord| manhattan_distance(footprint_coord, coord))
+        .min()
+        .expect("test footprints are non-empty")
 }
 
 fn npc_food(world: &World, npc: Entity) -> u32 {
