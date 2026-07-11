@@ -39,7 +39,7 @@ speed_4x_button = NodePath("Speed4xButton")
 speed_50x_button = NodePath("Speed50xButton")
 speed_100x_button = NodePath("Speed100xButton")
 datetime_label = NodePath("DateTimeLabel")
-game_world = NodePath("../HBoxContainer/SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 theme_override_constants/separation = 8
 
@@ -110,46 +110,57 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
 [node name="SurfaceSelector" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1719837742 node_paths=PackedStringArray("game_world") instance=ExtResource("4_surface_selector")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="HSeparatorBuild" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709327]
 layout_mode = 2
 
 [node name="BuildingPalette" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1719837743 node_paths=PackedStringArray("game_world") instance=ExtResource("6_build_palette")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="RoadsPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" node_paths=PackedStringArray("game_world") instance=ExtResource("13_roads_panel")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709325]
 layout_mode = 2
 
 [node name="TileInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781406 node_paths=PackedStringArray("game_world") instance=ExtResource("3_tile_info_panel")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
 [node name="HSeparator2" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709326]
 layout_mode = 2
 
 [node name="NpcInfoPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1842781407 node_paths=PackedStringArray("game_world") instance=ExtResource("5_npc_info_panel")]
-game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer" unique_id=101000001]
+[node name="GameArea" type="Control" parent="VBoxContainer/HBoxContainer"]
 clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="SubViewportContainer" type="SubViewportContainer" parent="VBoxContainer/HBoxContainer/GameArea" unique_id=101000001]
+clip_contents = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 stretch = true
 
-[node name="SubViewport" type="SubViewport" parent="VBoxContainer/HBoxContainer/SubViewportContainer" unique_id=101000002]
+[node name="SubViewport" type="SubViewport" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer" unique_id=101000002]
 handle_input_locally = false
 size = Vector2i(948, 621)
 render_target_update_mode = 4
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "road_map", "road_blueprint_map", "camera")]
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "road_map", "road_blueprint_map", "camera")]
 tile_map = NodePath("TileMap")
 resource_node_map = NodePath("ResourceNodeMap")
 crop_map = NodePath("CropMap")
@@ -159,35 +170,35 @@ road_blueprint_map = NodePath("RoadBlueprintMap")
 camera = NodePath("Camera2D")
 physics_interpolation_mode = 2
 
-[node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
+[node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
 
-[node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
+[node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
 collision_enabled = false
 navigation_enabled = false
 
-[node name="RoadMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld"]
+[node name="RoadMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
 navigation_enabled = false
 
-[node name="RoadBlueprintMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld"]
+[node name="RoadBlueprintMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
 navigation_enabled = false
 
-[node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
+[node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
 navigation_enabled = false
 
-[node name="CropMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000007]
+[node name="CropMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000007]
 navigation_enabled = false
 
-[node name="TreePlotMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld"]
+[node name="TreePlotMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
 navigation_enabled = false
 
-[node name="MapEntityTooltipPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("9_map_entity_tooltip_panel")]
-game_world = NodePath("../SubViewport/GameWorld")
+[node name="MapEntityTooltipPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world") instance=ExtResource("9_map_entity_tooltip_panel")]
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 
-[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
-game_world = NodePath("../SubViewport/GameWorld")
+[node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 
-[node name="PerformanceInfo" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("14_performance_info")]
-game_world = NodePath("../SubViewport/GameWorld")
+[node name="PerformanceInfo" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world") instance=ExtResource("14_performance_info")]
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -198,9 +209,9 @@ offset_right = -12.0
 offset_bottom = 92.0
 grow_horizontal = 0
 
-[node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
+[node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
 visible = false
-game_world = NodePath("../SubViewport/GameWorld")
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 toggle_button = NodePath("../../../HeaderBar/TasksButton")
 layout_mode = 1
 anchors_preset = 15
@@ -213,9 +224,9 @@ offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="NpcDetailsPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "open_button") instance=ExtResource("10_npc_details_panel")]
+[node name="NpcDetailsPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world", "open_button") instance=ExtResource("10_npc_details_panel")]
 visible = false
-game_world = NodePath("../SubViewport/GameWorld")
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 open_button = NodePath("../../LeftMenuScroll/LeftMenu/NpcInfoPanel/MarginContainer/VBoxContainer/DetailsButton")
 layout_mode = 1
 anchors_preset = 15
@@ -228,9 +239,9 @@ offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HousingPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("11_housing_panel")]
+[node name="HousingPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("11_housing_panel")]
 visible = false
-game_world = NodePath("../SubViewport/GameWorld")
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 toggle_button = NodePath("../../../HeaderBar/HousingButton")
 layout_mode = 1
 anchors_preset = 15
@@ -243,9 +254,9 @@ offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ResourcePanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("12_resource_panel")]
+[node name="ResourcePanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("12_resource_panel")]
 visible = false
-game_world = NodePath("../SubViewport/GameWorld")
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
 toggle_button = NodePath("../../../HeaderBar/ResourcesButton")
 layout_mode = 1
 anchors_preset = 15
