@@ -45,7 +45,7 @@ use godot::obj::{OnEditor, Singleton};
 use godot::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
@@ -231,6 +231,13 @@ struct RenderedNpcSprite {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TickPerformanceSample {
+    pub(crate) sequence: u64,
+    pub(crate) wall_time: Duration,
+    pub(crate) fixed_tick_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BuildingRenderInfo {
     entity: Entity,
     kind: BuildingKind,
@@ -344,6 +351,8 @@ pub(crate) struct GameWorld {
     npc_sprites: HashMap<Entity, RenderedNpcSprite>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
+    tick_performance_sample: Option<TickPerformanceSample>,
+    tick_performance_sequence: u64,
 
     base: Base<Node2D>,
 }
@@ -381,6 +390,8 @@ impl INode2D for GameWorld {
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
             building_sprites: HashMap::new(),
+            tick_performance_sample: None,
+            tick_performance_sequence: 0,
             base,
         }
     }
@@ -532,7 +543,19 @@ impl INode2D for GameWorld {
             cam.set_position(pos + dir * speed * delta as f32);
         }
 
+        let fixed_tick_count = if self.game.is_playing() {
+            u64::from(self.game.simulation_speed().multiplier())
+        } else {
+            0
+        };
+        let tick_started = Instant::now();
         self.game.tick();
+        self.tick_performance_sequence = self.tick_performance_sequence.wrapping_add(1);
+        self.tick_performance_sample = Some(TickPerformanceSample {
+            sequence: self.tick_performance_sequence,
+            wall_time: tick_started.elapsed(),
+            fixed_tick_count,
+        });
         let mut resource_map = self.resource_node_map.clone();
         self.populate_resource_node_map(&mut resource_map);
         let mut crop_map = self.crop_map.clone();
@@ -816,6 +839,10 @@ impl INode2D for GameWorld {
 }
 
 impl GameWorld {
+    pub(crate) const fn tick_performance_sample(&self) -> Option<TickPerformanceSample> {
+        self.tick_performance_sample
+    }
+
     fn disable_processing(&mut self) {
         self.base_mut().set_process_input(false);
         self.base_mut().set_process(false);

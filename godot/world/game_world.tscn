@@ -12,6 +12,7 @@
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
 [ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
 [ext_resource type="PackedScene" path="res://panel/roads_panel.tscn" id="13_roads_panel"]
+[ext_resource type="PackedScene" path="res://panel/performance_info.tscn" id="14_performance_info"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -184,6 +185,18 @@ game_world = NodePath("../SubViewport/GameWorld")
 
 [node name="BuildingInfoPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("7_building_info_panel")]
 game_world = NodePath("../SubViewport/GameWorld")
+
+[node name="PerformanceInfo" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world") instance=ExtResource("14_performance_info")]
+game_world = NodePath("../SubViewport/GameWorld")
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -210.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 92.0
+grow_horizontal = 0
 
 [node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/SubViewportContainer" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
 visible = false

@@ -1,0 +1,21 @@
+[gd_scene format=3]
+
+[node name="PerformanceInfo" type="PerformanceInfo" node_paths=PackedStringArray("info_label")]
+visible = false
+z_index = 30
+mouse_filter = 2
+info_label = NodePath("MarginContainer/InfoLabel")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="InfoLabel" type="Label" parent="MarginContainer"]
+custom_minimum_size = Vector2(178, 0)
+layout_mode = 2
+text = "FPS: 0
+World tick: Sampling...
+Fixed tick: Sampling..."
