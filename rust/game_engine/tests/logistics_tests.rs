@@ -1,12 +1,18 @@
 use bevy_ecs::prelude::*;
+use bevy_ecs::system::RunSystemOnce;
+use game_engine::ai::RESOURCE_GATHER_TICKS_PER_UNIT;
 use game_engine::ai::{AiKeepEnoughFoodInInventory, AiSearchForFood};
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
-    WarehouseInventory,
+    system_complete_building_construction, Building, BuildingBlueprint, BuildingFootprint,
+    BuildingKind, ConstructionProgress, WarehouseInventory,
 };
-use game_engine::components::{Npc, NpcInventory, NpcPosition, Terrain, TerrainKind};
+use game_engine::components::{
+    Npc, NpcInventory, NpcPosition, ResourceNode, Terrain, TerrainKind, TilePosition,
+};
 use game_engine::grid::{CellCoord, Grid, GridSize};
-use game_engine::logistics::{manage_construction_logistics, manage_food_logistics, AiFoodHaul};
+use game_engine::logistics::{
+    manage_construction_logistics, manage_food_logistics, AiConstructionHaul, AiFoodHaul,
+};
 use game_engine::refining::{
     RefineryInventory, RefineryProduction, Reservation, ReservationLedger, SinkEndpoint,
     StockEndpoint,
@@ -224,6 +230,129 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
     );
 }
 
+#[test]
+fn natural_construction_reservations_match_one_unit_hauls_for_all_available_npcs() {
+    let mut world = navigation_world();
+    let blueprint = spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
+    let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 20);
+    let stone = spawn_resource_node(&mut world, CellCoord::new(4, 3), ResourceKind::Stone, 10);
+    let npcs = (0..5)
+        .map(|x| spawn_available_npc(&mut world, CellCoord::new(x, 7)))
+        .collect::<Vec<_>>();
+
+    manage_construction_logistics(&mut world);
+
+    let hauls = npcs
+        .iter()
+        .map(|npc| {
+            world
+                .get::<AiConstructionHaul>(*npc)
+                .copied()
+                .expect("every available NPC should receive construction work")
+        })
+        .collect::<Vec<_>>();
+    assert!(hauls.iter().all(|haul| {
+        haul.blueprint() == blueprint
+            && haul.amount() == 1
+            && matches!(haul.source(), Some(StockEndpoint::NaturalNode(_)))
+    }));
+
+    let ledger = world.resource::<ReservationLedger>();
+    assert_eq!(ledger.claims().len(), 5);
+    assert!(ledger.claims().iter().all(|claim| claim.amount == 1));
+    assert_eq!(
+        ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Wood)
+            + ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Stone),
+        5
+    );
+    assert!(ledger.reserved_from(StockEndpoint::NaturalNode(wood), ResourceKind::Wood) <= 20);
+    assert!(ledger.reserved_from(StockEndpoint::NaturalNode(stone), ResourceKind::Stone) <= 10);
+}
+
+#[test]
+fn natural_construction_does_not_reserve_more_workers_than_source_stock() {
+    let mut world = navigation_world();
+    let blueprint = spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
+    world
+        .get_mut::<ConstructionProgress>(blueprint)
+        .unwrap()
+        .deposit(
+            ResourceKind::Stone,
+            10,
+            BuildingKind::Sawmill.definition().construction_cost(),
+        );
+    let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 2);
+    let npcs = (0..5)
+        .map(|x| spawn_available_npc(&mut world, CellCoord::new(x, 7)))
+        .collect::<Vec<_>>();
+
+    manage_construction_logistics(&mut world);
+
+    assert_eq!(
+        npcs.iter()
+            .filter(|npc| world.get::<AiConstructionHaul>(**npc).is_some())
+            .count(),
+        2
+    );
+    let ledger = world.resource::<ReservationLedger>();
+    assert_eq!(
+        ledger.reserved_from(StockEndpoint::NaturalNode(wood), ResourceKind::Wood),
+        2
+    );
+    assert_eq!(
+        ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Wood),
+        2
+    );
+}
+
+#[test]
+fn concurrent_natural_construction_deposits_exact_claims_and_completes_blueprint() {
+    let mut world = navigation_world();
+    let blueprint = spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
+    let cost = BuildingKind::Sawmill.definition().construction_cost();
+    {
+        let mut progress = world.get_mut::<ConstructionProgress>(blueprint).unwrap();
+        progress.deposit(ResourceKind::Wood, 18, cost);
+        progress.deposit(ResourceKind::Stone, 10, cost);
+    }
+    let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 2);
+    let npcs = [
+        spawn_available_npc(&mut world, CellCoord::new(3, 2)),
+        spawn_available_npc(&mut world, CellCoord::new(3, 2)),
+    ];
+
+    manage_construction_logistics(&mut world); // assign both one-unit claims
+    manage_construction_logistics(&mut world); // enter gathering
+    for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
+        manage_construction_logistics(&mut world);
+    }
+
+    assert!(world.get::<ResourceNode>(wood).is_none());
+    for npc in npcs {
+        world.get_mut::<NpcPosition>(npc).unwrap().coord = CellCoord::new(4, 5);
+    }
+    manage_construction_logistics(&mut world);
+
+    assert!(world
+        .get::<ConstructionProgress>(blueprint)
+        .unwrap()
+        .is_complete(cost));
+    assert!(world.resource::<ReservationLedger>().claims().is_empty());
+    assert!(npcs
+        .iter()
+        .all(|npc| world.get::<AiConstructionHaul>(*npc).is_none()));
+
+    world
+        .run_system_once(system_complete_building_construction)
+        .expect("building completion should run");
+    assert_eq!(
+        world
+            .get::<Building>(blueprint)
+            .map(|building| building.kind),
+        Some(BuildingKind::Sawmill)
+    );
+}
+
 fn hungry_npc(world: &mut World, coord: CellCoord) -> Entity {
     world
         .spawn((
@@ -247,6 +376,37 @@ fn spawn_food_warehouse(world: &mut World, coord: CellCoord, amount: u32) -> Ent
         .unwrap()
         .add(ResourceKind::Food, amount));
     entity
+}
+
+fn spawn_sawmill_blueprint(world: &mut World, coord: CellCoord) -> Entity {
+    world
+        .spawn((
+            BuildingBlueprint {
+                kind: BuildingKind::Sawmill,
+                footprint: BuildingFootprint::new(coord, 2, 2),
+            },
+            ConstructionProgress::new(ResourceAmounts::zero()),
+        ))
+        .id()
+}
+
+fn spawn_resource_node(
+    world: &mut World,
+    coord: CellCoord,
+    kind: ResourceKind,
+    quantity: u32,
+) -> Entity {
+    let entity = world.resource::<TileIndex>().get(coord).unwrap();
+    world
+        .entity_mut(entity)
+        .insert((TilePosition { coord }, ResourceNode { kind, quantity }));
+    entity
+}
+
+fn spawn_available_npc(world: &mut World, coord: CellCoord) -> Entity {
+    world
+        .spawn((Npc, NpcPosition::new(coord), NpcInventory::default()))
+        .id()
 }
 
 fn set_terrain(world: &mut World, coord: CellCoord, kind: TerrainKind) {

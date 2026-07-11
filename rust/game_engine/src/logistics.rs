@@ -24,6 +24,8 @@ use crate::refining::{
 use crate::resources::ResourceKind;
 use crate::skills::{NpcSkills, SkillKind};
 
+const NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE: u32 = 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiFoodHaul {
     source: StockEndpoint,
@@ -181,8 +183,8 @@ pub fn manage_food_logistics(world: &mut World) {
 }
 
 /// Construction hauling uses the same source endpoint and reservation model as
-/// refining. It handles carried stock, natural gathering and owned inventories
-/// in ten-unit batches.
+/// refining. It handles natural gathering one unit at a time, while carried
+/// stock and owned inventories use ten-unit batches.
 pub fn manage_construction_logistics(world: &mut World) {
     if world.get_resource::<ReservationLedger>().is_none() {
         world.insert_resource(ReservationLedger::default());
@@ -299,6 +301,10 @@ pub fn manage_construction_logistics(world: &mut World) {
                             .resource::<ReservationLedger>()
                             .reserved_from(source, kind),
                     );
+                    let source_batch_size = match source {
+                        StockEndpoint::NaturalNode(_) => NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE,
+                        _ => CONSTRUCTION_RESOURCE_DEPOSIT_BATCH_SIZE,
+                    };
                     candidates.push((
                         distance,
                         blueprint_entity.to_bits(),
@@ -306,7 +312,7 @@ pub fn manage_construction_logistics(world: &mut World) {
                         *blueprint_entity,
                         kind,
                         Some(source),
-                        amount.min(available),
+                        amount.min(available).min(source_batch_size),
                     ));
                 }
             }
@@ -386,7 +392,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     continue;
                 }
                 if matches!(source, StockEndpoint::NaturalNode(_)) {
-                    haul.amount = 1;
+                    debug_assert_eq!(haul.amount, NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE);
                     haul.phase = ConstructionHaulPhase::Gathering { progress_ticks: 0 };
                 } else if world
                     .get::<NpcInventory>(npc)
