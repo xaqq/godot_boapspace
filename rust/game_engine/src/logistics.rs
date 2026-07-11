@@ -612,6 +612,34 @@ fn construction_cargo_consume(
     }
 }
 
+#[derive(Debug)]
+struct BuildingHaulOpportunity {
+    source_goals: Vec<crate::grid::CellCoord>,
+    source_bits: u64,
+    sink_bits: u64,
+    kind: ResourceKind,
+    source: StockEndpoint,
+    sink: SinkEndpoint,
+    amount: u32,
+    uses_wheelbarrow: bool,
+}
+
+impl BuildingHaulOpportunity {
+    fn into_candidate(self, distances: &NavigationDistances) -> Option<BuildingHaulCandidate> {
+        let (_, distance) = distances.closest_reachable(self.source_goals)?;
+        Some(BuildingHaulCandidate {
+            distance,
+            source_bits: self.source_bits,
+            sink_bits: self.sink_bits,
+            kind: self.kind,
+            source: self.source,
+            sink: self.sink,
+            amount: self.amount,
+            uses_wheelbarrow: self.uses_wheelbarrow,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct BuildingHaulCandidate {
     distance: usize,
@@ -652,19 +680,27 @@ pub fn manage_building_logistics(world: &mut World) {
     workers.sort_unstable_by_key(|(entity, _)| entity.to_bits());
 
     for (worker, position) in workers {
+        let opportunities = building_haul_opportunities(world, &snapshot);
+        if opportunities.is_empty() {
+            // Reservations created below can only reduce the available work, so
+            // no later worker can become eligible during this system run.
+            break;
+        }
         let Some(distances) = snapshot.distances_from(position.coord) else {
             continue;
         };
-        let mut candidates = storage_pull_candidates(world, &snapshot, &distances);
-        candidates.extend(refinery_supply_candidates(world, &snapshot, &distances));
-        let Some(candidate) = candidates.into_iter().min_by_key(|candidate| {
-            (
-                candidate.distance,
-                candidate.source_bits,
-                candidate.sink_bits,
-                candidate.kind as usize,
-            )
-        }) else {
+        let Some(candidate) = opportunities
+            .into_iter()
+            .filter_map(|opportunity| opportunity.into_candidate(&distances))
+            .min_by_key(|candidate| {
+                (
+                    candidate.distance,
+                    candidate.source_bits,
+                    candidate.sink_bits,
+                    candidate.kind as usize,
+                )
+            })
+        else {
             continue;
         };
         let reservation = Reservation {
@@ -692,11 +728,19 @@ pub fn manage_building_logistics(world: &mut World) {
     }
 }
 
-fn storage_pull_candidates(
+fn building_haul_opportunities(
     world: &mut World,
     snapshot: &NavigationSnapshot,
-    distances: &NavigationDistances,
-) -> Vec<BuildingHaulCandidate> {
+) -> Vec<BuildingHaulOpportunity> {
+    let mut opportunities = storage_pull_opportunities(world, snapshot);
+    opportunities.extend(refinery_supply_opportunities(world, snapshot));
+    opportunities
+}
+
+fn storage_pull_opportunities(
+    world: &mut World,
+    snapshot: &NavigationSnapshot,
+) -> Vec<BuildingHaulOpportunity> {
     let mut storages = world
         .query::<(Entity, &Building, &StorageInventory, &StoragePullConfig)>()
         .iter(world)
@@ -714,7 +758,7 @@ fn storage_pull_candidates(
         .collect::<Vec<_>>();
     refineries.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
-    let mut candidates = Vec::new();
+    let mut opportunities = Vec::new();
     for (storage, _, inventory, pull) in storages {
         for kind in StoragePullConfig::SUPPORTED_RESOURCES {
             if !pull.pulls_from_refineries(kind) || !inventory.is_allowed(kind) {
@@ -737,12 +781,13 @@ fn storage_pull_candidates(
                 if available == 0 {
                     continue;
                 }
-                let goals = source_interaction_cells(world, snapshot, source, Entity::PLACEHOLDER);
-                let Some((_, distance)) = distances.closest_reachable(goals) else {
+                let source_goals =
+                    source_interaction_cells(world, snapshot, source, Entity::PLACEHOLDER);
+                if source_goals.is_empty() {
                     continue;
-                };
-                candidates.push(BuildingHaulCandidate {
-                    distance,
+                }
+                opportunities.push(BuildingHaulOpportunity {
+                    source_goals,
                     source_bits: source_entity.to_bits(),
                     sink_bits: storage.to_bits(),
                     kind,
@@ -754,14 +799,13 @@ fn storage_pull_candidates(
             }
         }
     }
-    candidates
+    opportunities
 }
 
-fn refinery_supply_candidates(
+fn refinery_supply_opportunities(
     world: &mut World,
     snapshot: &NavigationSnapshot,
-    distances: &NavigationDistances,
-) -> Vec<BuildingHaulCandidate> {
+) -> Vec<BuildingHaulOpportunity> {
     let mut refineries = world
         .query::<(Entity, &Building, &RefineryInventory, &RefineryPullConfig)>()
         .iter(world)
@@ -769,7 +813,7 @@ fn refinery_supply_candidates(
         .map(|(entity, building, inventory, pull)| (entity, *building, *inventory, *pull))
         .collect::<Vec<_>>();
     refineries.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
-    let mut candidates = Vec::new();
+    let mut opportunities = Vec::new();
     for (refinery, building, inventory, pull) in refineries {
         for recipe in recipes_for_building(building.kind) {
             let kind = recipe.definition().input();
@@ -789,10 +833,11 @@ fn refinery_supply_candidates(
                 if available == 0 {
                     continue;
                 }
-                let goals = source_interaction_cells(world, snapshot, source, Entity::PLACEHOLDER);
-                let Some((_, distance)) = distances.closest_reachable(goals) else {
+                let source_goals =
+                    source_interaction_cells(world, snapshot, source, Entity::PLACEHOLDER);
+                if source_goals.is_empty() {
                     continue;
-                };
+                }
                 let uses_wheelbarrow = matches!(source, StockEndpoint::Warehouse(_));
                 let capacity = if uses_wheelbarrow {
                     WHEELBARROW_CAPACITY
@@ -801,8 +846,8 @@ fn refinery_supply_candidates(
                 } else {
                     CARRIED_RESOURCE_CAPACITY
                 };
-                candidates.push(BuildingHaulCandidate {
-                    distance,
+                opportunities.push(BuildingHaulOpportunity {
+                    source_goals,
                     source_bits: endpoint_entity(source).to_bits(),
                     sink_bits: refinery.to_bits(),
                     kind,
@@ -814,7 +859,7 @@ fn refinery_supply_candidates(
             }
         }
     }
-    candidates
+    opportunities
 }
 
 fn supply_sources(world: &mut World, kind: ResourceKind, storage_only: bool) -> Vec<StockEndpoint> {
@@ -1569,5 +1614,111 @@ fn set_route(world: &mut World, npc: Entity, goals: Vec<crate::grid::CellCoord>)
     {
         world.entity_mut(npc).insert(NpcRoute::new(goals));
         world.entity_mut(npc).remove::<MovementTarget>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buildings::{BuildingActivity, BuildingFootprint, BuildingKind};
+    use crate::grid::{CellCoord, Grid, GridSize};
+    use crate::tile::{TileBundle, TileIndex};
+
+    #[test]
+    fn fresh_world_has_no_building_haul_opportunities() {
+        let mut world = navigation_world();
+        let workers = (0..5)
+            .map(|x| {
+                world
+                    .spawn((
+                        Npc,
+                        NpcPosition::new(CellCoord::new(x + 1, 1)),
+                        CarriedResource::empty(),
+                    ))
+                    .id()
+            })
+            .collect::<Vec<_>>();
+        let snapshot = current_navigation_snapshot(&mut world).unwrap();
+
+        assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+        manage_building_logistics(&mut world);
+        assert!(workers
+            .into_iter()
+            .all(|worker| world.get::<AiBuildingHaul>(worker).is_none()));
+    }
+
+    #[test]
+    fn opportunity_discovery_filters_non_actionable_endpoints() {
+        let mut world = navigation_world();
+        let source = spawn_refinery(&mut world, CellCoord::new(2, 2));
+        let storage = spawn_storage(&mut world, CellCoord::new(5, 2));
+        let snapshot = current_navigation_snapshot(&mut world).unwrap();
+
+        assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+
+        world
+            .get_mut::<StoragePullConfig>(storage)
+            .unwrap()
+            .set_pulls_from_refineries(ResourceKind::Planks, true);
+        assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+
+        assert!(world
+            .get_mut::<RefineryInventory>(source)
+            .unwrap()
+            .add_output(BuildingKind::Sawmill, ResourceKind::Planks, 10));
+        world
+            .get_mut::<BuildingActivity>(source)
+            .unwrap()
+            .set_active(false);
+        assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+
+        world
+            .get_mut::<BuildingActivity>(source)
+            .unwrap()
+            .set_active(true);
+        assert_eq!(building_haul_opportunities(&mut world, &snapshot).len(), 1);
+
+        let free = world.get::<StorageInventory>(storage).unwrap().free_size();
+        assert!(world
+            .get_mut::<StorageInventory>(storage)
+            .unwrap()
+            .add(ResourceKind::Planks, free));
+        assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+    }
+
+    fn navigation_world() -> World {
+        let size = GridSize::new(8, 6);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(size.width(), size.height()));
+        world.insert_resource(ReservationLedger::default());
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let tile = world.spawn(TileBundle::new(coord)).id();
+            assert!(index.set(coord, tile));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn spawn_storage(world: &mut World, coord: CellCoord) -> Entity {
+        world
+            .spawn((
+                Building::new(BuildingKind::Depot, BuildingFootprint::new(coord, 1, 1)),
+                StorageInventory::for_kind(BuildingKind::Depot),
+                BuildingActivity::active(),
+                StoragePullConfig::default(),
+            ))
+            .id()
+    }
+
+    fn spawn_refinery(world: &mut World, coord: CellCoord) -> Entity {
+        world
+            .spawn((
+                Building::new(BuildingKind::Sawmill, BuildingFootprint::new(coord, 1, 1)),
+                RefineryInventory::empty(),
+                RefineryPullConfig::default(),
+                BuildingActivity::active(),
+            ))
+            .id()
     }
 }
