@@ -3,7 +3,7 @@
 [ext_resource type="PackedScene" uid="uid://resourcequantity0001" path="res://panel/resource_quantity.tscn" id="1_resource_quantity"]
 [ext_resource type="PackedScene" path="res://panel/resource_quantity_progress.tscn" id="2_resource_quantity_progress"]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("name_label", "footprint_label", "farming_info_label", "fields_button", "construction_container", "wood_construction_progress", "stone_construction_progress", "food_construction_progress", "gold_construction_progress", "inventory_container", "inventory_label", "wood_inventory_quantity", "stone_inventory_quantity", "food_inventory_quantity", "gold_inventory_quantity", "housing_container", "housing_occupancy_label", "housing_rows")]
 name_label = NodePath("MarginContainer/VBoxContainer/name_label")
 footprint_label = NodePath("MarginContainer/VBoxContainer/footprint_label")
 farming_info_label = NodePath("MarginContainer/VBoxContainer/farming_info_label")
@@ -19,6 +19,9 @@ wood_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryConta
 stone_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/StoneInventoryQuantity")
 food_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/FoodInventoryQuantity")
 gold_inventory_quantity = NodePath("MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid/GoldInventoryQuantity")
+housing_container = NodePath("MarginContainer/VBoxContainer/HousingContainer")
+housing_occupancy_label = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingOccupancyLabel")
+housing_rows = NodePath("MarginContainer/VBoxContainer/HousingContainer/HousingRows")
 custom_minimum_size = Vector2(240, 0)
 anchors_preset = 15
 anchor_right = 1.0
@@ -121,3 +124,16 @@ kind = 2
 [node name="GoldInventoryQuantity" parent="MarginContainer/VBoxContainer/InventoryContainer/InventoryGrid" unique_id=1173271523 instance=ExtResource("1_resource_quantity")]
 layout_mode = 2
 kind = 3
+
+[node name="HousingContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HousingOccupancyLabel" type="Label" parent="MarginContainer/VBoxContainer/HousingContainer"]
+layout_mode = 2
+text = "Housing: 0/0"
+
+[node name="HousingRows" type="VBoxContainer" parent="MarginContainer/VBoxContainer/HousingContainer"]
+layout_mode = 2
+theme_override_constants/separation = 3

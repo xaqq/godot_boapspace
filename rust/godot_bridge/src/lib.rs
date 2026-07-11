@@ -10,6 +10,7 @@ mod menu {
 mod panel {
     mod building_info_panel;
     mod building_palette;
+    mod housing_panel;
     mod map_entity_tooltip_panel;
     mod npc_details;
     mod npc_info_panel;

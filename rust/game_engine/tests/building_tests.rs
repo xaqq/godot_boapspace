@@ -7,6 +7,7 @@ use game_engine::buildings::{
 };
 use game_engine::components::{Terrain, TerrainKind};
 use game_engine::grid::{CellCoord, Grid, GridSize};
+use game_engine::housing::House;
 use game_engine::npcs::{Npc, NpcPosition};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
@@ -49,6 +50,45 @@ fn test_building_definitions_include_dimensions_and_costs() {
     assert_eq!(field.construction_cost().get(ResourceKind::Stone), 1);
     assert_eq!(field.construction_cost().get(ResourceKind::Food), 0);
     assert_eq!(field.construction_cost().get(ResourceKind::Gold), 0);
+
+    for (kind, width, height, cost, capacity) in [
+        (
+            BuildingKind::SmallHouse,
+            1,
+            1,
+            ResourceAmounts::new(10, 5, 0, 0),
+            2,
+        ),
+        (
+            BuildingKind::MediumHouse,
+            2,
+            2,
+            ResourceAmounts::new(30, 15, 0, 0),
+            4,
+        ),
+        (
+            BuildingKind::LargeHouse,
+            3,
+            3,
+            ResourceAmounts::new(60, 30, 0, 0),
+            8,
+        ),
+    ] {
+        let definition = kind.definition();
+        assert_eq!(definition.kind(), kind);
+        assert_eq!(definition.width(), width);
+        assert_eq!(definition.height(), height);
+        assert_eq!(definition.construction_cost(), cost);
+        assert_eq!(definition.housing_capacity(), Some(capacity));
+    }
+    for kind in [
+        BuildingKind::Warehouse,
+        BuildingKind::TownHall,
+        BuildingKind::Farm,
+        BuildingKind::Field,
+    ] {
+        assert_eq!(kind.definition().housing_capacity(), None);
+    }
 }
 
 #[test]
@@ -241,6 +281,26 @@ fn test_completed_town_hall_does_not_get_warehouse_inventory() {
 
     assert!(world.get::<Building>(blueprint).is_some());
     assert!(world.get::<WarehouseInventory>(blueprint).is_none());
+}
+
+#[test]
+fn test_completed_house_gets_capacity_and_blueprint_does_not() {
+    let mut world = World::new();
+    let blueprint = spawn_blueprint_with_progress(
+        &mut world,
+        BuildingKind::MediumHouse,
+        ResourceAmounts::new(30, 15, 0, 0),
+    );
+    assert!(world.get::<House>(blueprint).is_none());
+
+    world
+        .run_system_once(system_complete_building_construction)
+        .expect("completion system should run");
+
+    assert_eq!(
+        world.get::<House>(blueprint).copied(),
+        Some(House::new(4, 0))
+    );
 }
 
 #[test]

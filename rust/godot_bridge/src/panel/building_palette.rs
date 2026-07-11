@@ -16,6 +16,15 @@ pub(crate) struct BuildingPalette {
     farm_button: OnEditor<Gd<Button>>,
 
     #[export]
+    small_house_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    medium_house_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    large_house_button: OnEditor<Gd<Button>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     base: Base<PanelContainer>,
@@ -28,6 +37,9 @@ impl IPanelContainer for BuildingPalette {
             warehouse_button: OnEditor::default(),
             town_hall_button: OnEditor::default(),
             farm_button: OnEditor::default(),
+            small_house_button: OnEditor::default(),
+            medium_house_button: OnEditor::default(),
+            large_house_button: OnEditor::default(),
             game_world: OnEditor::default(),
             base,
         }
@@ -37,6 +49,9 @@ impl IPanelContainer for BuildingPalette {
         let warehouse_button = self.warehouse_button.clone();
         let town_hall_button = self.town_hall_button.clone();
         let farm_button = self.farm_button.clone();
+        let small_house_button = self.small_house_button.clone();
+        let medium_house_button = self.medium_house_button.clone();
+        let large_house_button = self.large_house_button.clone();
         let game_world = self.game_world.clone();
 
         warehouse_button.signals().pressed().connect_other(
@@ -59,5 +74,26 @@ impl IPanelContainer for BuildingPalette {
             .connect_other(&game_world, |game_world: &mut GameWorld| {
                 game_world.start_farm_blueprint_placement();
             });
+
+        small_house_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_small_house_blueprint_placement();
+            },
+        );
+
+        medium_house_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_medium_house_blueprint_placement();
+            },
+        );
+
+        large_house_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_large_house_blueprint_placement();
+            },
+        );
     }
 }

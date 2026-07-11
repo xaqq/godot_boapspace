@@ -4,6 +4,7 @@ pub mod collision;
 pub mod components;
 pub mod farming;
 pub mod grid;
+pub mod housing;
 pub mod movement;
 pub mod npcs;
 pub mod resource_nodes;

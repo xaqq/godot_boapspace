@@ -8,6 +8,7 @@ use crate::buildings::system_complete_building_construction;
 use crate::farming::{
     maintain_farming_tasks, system_advance_field_growth, system_harvest_fields, system_seed_fields,
 };
+use crate::housing::maintain_housing_assignments;
 use crate::movement::update_npc_movement;
 use crate::npcs::update_npc_hunger;
 use crate::tasks::maintain_construction_tasks;
@@ -34,6 +35,7 @@ pub fn build_surface_schedule() -> Schedule {
             system_seed_fields,
             system_harvest_fields,
             system_complete_building_construction,
+            maintain_housing_assignments,
             update_npc_hunger,
             maintain_construction_tasks,
             maintain_farming_tasks,

@@ -5,6 +5,7 @@ use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, ConstructionProgress,
 };
 use game_engine::components::{Tile, TilePosition};
+use game_engine::housing::housing_snapshot;
 use game_engine::npcs::{BirthDate, Npc, NpcInventory, NpcName, NpcPosition, WorldDateTime};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
@@ -23,6 +24,9 @@ pub(crate) struct MapEntityTooltipPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
+    hovered_target: Option<(MapEntityKind, i64)>,
+    cached_text: Option<String>,
+
     base: Base<PanelContainer>,
 }
 
@@ -32,6 +36,8 @@ impl IPanelContainer for MapEntityTooltipPanel {
         Self {
             text_label: OnEditor::default(),
             game_world: OnEditor::default(),
+            hovered_target: None,
+            cached_text: None,
             base,
         }
     }
@@ -55,6 +61,7 @@ impl IPanelContainer for MapEntityTooltipPanel {
 
     fn process(&mut self, _delta: f64) {
         if self.base().is_visible() {
+            self.refresh_tooltip();
             self.position_near_mouse();
         }
     }
@@ -66,25 +73,41 @@ impl MapEntityTooltipPanel {
             self.hide_tooltip();
             return;
         };
-        let text = {
-            let game_world = self.game_world.bind();
-            map_entity_tooltip_text(&game_world, kind, entity_id)
-        };
-
-        let Some(text) = text else {
-            self.hide_tooltip();
+        self.hovered_target = Some((kind, entity_id));
+        self.cached_text = None;
+        self.refresh_tooltip();
+        if self.hovered_target.is_none() {
             return;
-        };
-
-        let mut text_label = self.text_label.clone();
-        text_label.parse_bbcode(text.as_str());
-        self.base_mut().reset_size();
+        }
         self.base_mut().show();
         self.position_near_mouse();
     }
 
     fn hide_tooltip(&mut self) {
+        self.hovered_target = None;
+        self.cached_text = None;
         self.base_mut().hide();
+    }
+
+    fn refresh_tooltip(&mut self) {
+        let Some((kind, entity_id)) = self.hovered_target else {
+            return;
+        };
+        let text = {
+            let game_world = self.game_world.bind();
+            map_entity_tooltip_text(&game_world, kind, entity_id)
+        };
+        let Some(text) = text else {
+            self.hide_tooltip();
+            return;
+        };
+        if self.cached_text.as_ref() == Some(&text) {
+            return;
+        }
+
+        self.text_label.clone().parse_bbcode(text.as_str());
+        self.cached_text = Some(text);
+        self.base_mut().reset_size();
     }
 
     fn position_near_mouse(&mut self) {
@@ -134,9 +157,13 @@ fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
     }
 
     let building = world.get::<Building>(entity)?;
+    let occupancy = housing_snapshot(world)
+        .house(entity)
+        .map(|house| (house.occupied(), house.capacity()));
     Some(format_finished_building_tooltip(
         building.kind.label(),
         building.footprint,
+        occupancy,
     ))
 }
 
@@ -182,16 +209,24 @@ fn format_building_blueprint_tooltip(
     )
 }
 
-fn format_finished_building_tooltip(label: &str, footprint: BuildingFootprint) -> String {
+fn format_finished_building_tooltip(
+    label: &str,
+    footprint: BuildingFootprint,
+    occupancy: Option<(usize, usize)>,
+) -> String {
     let origin = footprint.origin();
-    format!(
+    let mut text = format!(
         "[b]{}[/b]\nBuilding\nCell: ({}, {})\nFootprint: {}x{}",
         label,
         origin.x(),
         origin.y(),
         footprint.width(),
         footprint.height()
-    )
+    );
+    if let Some((occupied, capacity)) = occupancy {
+        text.push_str(format!("\nOccupancy: {occupied}/{capacity}").as_str());
+    }
+    text
 }
 
 fn format_npc_tooltip(
@@ -278,11 +313,26 @@ mod tests {
         let text = format_finished_building_tooltip(
             "Warehouse",
             BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+            None,
         );
 
         assert_eq!(
             text,
             "[b]Warehouse[/b]\nBuilding\nCell: (4, 7)\nFootprint: 2x2"
+        );
+    }
+
+    #[test]
+    fn finished_house_tooltip_shows_occupancy_without_resident_details() {
+        let text = format_finished_building_tooltip(
+            "Medium House",
+            BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+            Some((3, 4)),
+        );
+
+        assert_eq!(
+            text,
+            "[b]Medium House[/b]\nBuilding\nCell: (4, 7)\nFootprint: 2x2\nOccupancy: 3/4"
         );
     }
 

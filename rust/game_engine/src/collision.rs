@@ -71,7 +71,12 @@ pub fn collision_flags_at(world: &World, coord: CellCoord) -> Option<CollisionFl
 
 pub const fn terrain_allows_building(kind: BuildingKind, terrain: TerrainKind) -> bool {
     match kind {
-        BuildingKind::Warehouse | BuildingKind::TownHall | BuildingKind::Farm => {
+        BuildingKind::Warehouse
+        | BuildingKind::TownHall
+        | BuildingKind::Farm
+        | BuildingKind::SmallHouse
+        | BuildingKind::MediumHouse
+        | BuildingKind::LargeHouse => {
             matches!(
                 terrain,
                 TerrainKind::Grass | TerrainKind::Dirt | TerrainKind::Sand
@@ -173,6 +178,9 @@ mod tests {
             BuildingKind::Warehouse,
             BuildingKind::TownHall,
             BuildingKind::Farm,
+            BuildingKind::SmallHouse,
+            BuildingKind::MediumHouse,
+            BuildingKind::LargeHouse,
         ] {
             let mut constructed_world = world_with_default_terrain(TerrainKind::Grass);
             let footprint = BuildingFootprint::new(coord, 3, 3);

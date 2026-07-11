@@ -1,0 +1,120 @@
+[gd_scene format=3]
+
+[node name="HousingPanel" type="HousingPanel" node_paths=PackedStringArray("close_button", "small_homes_label", "small_occupancy_label", "medium_homes_label", "medium_occupancy_label", "large_homes_label", "large_occupancy_label", "total_homes_label", "total_occupancy_label", "homeless_label")]
+close_button = NodePath("MarginContainer/VBoxContainer/Header/CloseButton")
+small_homes_label = NodePath("MarginContainer/VBoxContainer/Table/SmallHomes")
+small_occupancy_label = NodePath("MarginContainer/VBoxContainer/Table/SmallOccupancy")
+medium_homes_label = NodePath("MarginContainer/VBoxContainer/Table/MediumHomes")
+medium_occupancy_label = NodePath("MarginContainer/VBoxContainer/Table/MediumOccupancy")
+large_homes_label = NodePath("MarginContainer/VBoxContainer/Table/LargeHomes")
+large_occupancy_label = NodePath("MarginContainer/VBoxContainer/Table/LargeOccupancy")
+total_homes_label = NodePath("MarginContainer/VBoxContainer/Summary/TotalHomes")
+total_occupancy_label = NodePath("MarginContainer/VBoxContainer/Summary/TotalOccupancy")
+homeless_label = NodePath("MarginContainer/VBoxContainer/Summary/Homeless")
+custom_minimum_size = Vector2(520, 320)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Header" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Housing"
+
+[node name="CloseButton" type="Button" parent="MarginContainer/VBoxContainer/Header"]
+layout_mode = 2
+text = "Close"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Table" type="GridContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 24
+theme_override_constants/v_separation = 8
+
+[node name="TypeHeader" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Type"
+
+[node name="HomesHeader" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "Homes"
+
+[node name="OccupancyHeader" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "Occupancy"
+
+[node name="SmallType" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "Small House"
+
+[node name="SmallHomes" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0"
+
+[node name="SmallOccupancy" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0/0"
+
+[node name="MediumType" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "Medium House"
+
+[node name="MediumHomes" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0"
+
+[node name="MediumOccupancy" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0/0"
+
+[node name="LargeType" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "Large House"
+
+[node name="LargeHomes" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0"
+
+[node name="LargeOccupancy" type="Label" parent="MarginContainer/VBoxContainer/Table"]
+layout_mode = 2
+text = "0/0"
+
+[node name="HSeparator2" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Summary" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TotalHomes" type="Label" parent="MarginContainer/VBoxContainer/Summary"]
+layout_mode = 2
+text = "Total homes: 0"
+
+[node name="TotalOccupancy" type="Label" parent="MarginContainer/VBoxContainer/Summary"]
+layout_mode = 2
+text = "Housing slots: 0/0"
+
+[node name="Homeless" type="Label" parent="MarginContainer/VBoxContainer/Summary"]
+layout_mode = 2
+text = "Homeless colonists: 0"

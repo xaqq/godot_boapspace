@@ -1,6 +1,7 @@
 use crate::collision::{resource_node_at, terrain_allows_building, terrain_at};
 use crate::farming::{FarmInventory, FieldCrop};
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::housing::House;
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
 
@@ -12,10 +13,21 @@ pub enum BuildingKind {
     TownHall,
     Farm,
     Field,
+    SmallHouse,
+    MediumHouse,
+    LargeHouse,
 }
 
 impl BuildingKind {
-    pub const ALL: [Self; 4] = [Self::Warehouse, Self::TownHall, Self::Farm, Self::Field];
+    pub const ALL: [Self; 7] = [
+        Self::Warehouse,
+        Self::TownHall,
+        Self::Farm,
+        Self::Field,
+        Self::SmallHouse,
+        Self::MediumHouse,
+        Self::LargeHouse,
+    ];
 
     pub const fn label(self) -> &'static str {
         match self {
@@ -23,6 +35,9 @@ impl BuildingKind {
             Self::TownHall => "TownHall",
             Self::Farm => "Farm",
             Self::Field => "Field",
+            Self::SmallHouse => "Small House",
+            Self::MediumHouse => "Medium House",
+            Self::LargeHouse => "Large House",
         }
     }
 
@@ -33,24 +48,49 @@ impl BuildingKind {
                 width: 2,
                 height: 2,
                 construction_cost: ResourceAmounts::new(40, 20, 0, 0),
+                housing_capacity: None,
             },
             Self::TownHall => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
                 construction_cost: ResourceAmounts::new(80, 60, 0, 20),
+                housing_capacity: None,
             },
             Self::Farm => BuildingDefinition {
                 kind: self,
                 width: 3,
                 height: 3,
                 construction_cost: ResourceAmounts::new(20, 30, 0, 0),
+                housing_capacity: None,
             },
             Self::Field => BuildingDefinition {
                 kind: self,
                 width: 1,
                 height: 1,
                 construction_cost: ResourceAmounts::new(5, 1, 0, 0),
+                housing_capacity: None,
+            },
+            Self::SmallHouse => BuildingDefinition {
+                kind: self,
+                width: 1,
+                height: 1,
+                construction_cost: ResourceAmounts::new(10, 5, 0, 0),
+                housing_capacity: Some(2),
+            },
+            Self::MediumHouse => BuildingDefinition {
+                kind: self,
+                width: 2,
+                height: 2,
+                construction_cost: ResourceAmounts::new(30, 15, 0, 0),
+                housing_capacity: Some(4),
+            },
+            Self::LargeHouse => BuildingDefinition {
+                kind: self,
+                width: 3,
+                height: 3,
+                construction_cost: ResourceAmounts::new(60, 30, 0, 0),
+                housing_capacity: Some(8),
             },
         }
     }
@@ -62,6 +102,7 @@ pub struct BuildingDefinition {
     width: usize,
     height: usize,
     construction_cost: ResourceAmounts,
+    housing_capacity: Option<usize>,
 }
 
 impl BuildingDefinition {
@@ -79,6 +120,10 @@ impl BuildingDefinition {
 
     pub const fn construction_cost(self) -> ResourceAmounts {
         self.construction_cost
+    }
+
+    pub const fn housing_capacity(self) -> Option<usize> {
+        self.housing_capacity
     }
 }
 
@@ -390,12 +435,27 @@ fn overlaps_existing_blueprint(world: &World, footprint: BuildingFootprint) -> b
 pub fn system_complete_building_construction(
     mut commands: Commands,
     blueprints: Query<(Entity, &BuildingBlueprint, &ConstructionProgress)>,
+    houses: Query<&House>,
 ) {
-    for (entity, blueprint, progress) in &blueprints {
+    let mut completed = blueprints
+        .iter()
+        .filter(|(_, blueprint, progress)| {
+            progress.is_complete(blueprint.kind.definition().construction_cost())
+        })
+        .collect::<Vec<_>>();
+    completed.sort_by_key(|(entity, _, _)| entity.index());
+
+    let mut next_house_order = houses
+        .iter()
+        .map(|house| house.completion_order())
+        .max()
+        .map_or(0, |order| order.saturating_add(1));
+
+    for (entity, blueprint, _) in completed {
         let cost = blueprint.kind.definition().construction_cost();
-        if !progress.is_complete(cost) {
-            continue;
-        }
+        debug_assert!(blueprints
+            .get(entity)
+            .is_ok_and(|(_, _, progress)| progress.is_complete(cost)));
 
         let mut entity_commands = commands.entity(entity);
         entity_commands
@@ -410,6 +470,10 @@ pub fn system_complete_building_construction(
         }
         if blueprint.kind == BuildingKind::Field {
             entity_commands.insert(FieldCrop::seedable());
+        }
+        if let Some(capacity) = blueprint.kind.definition().housing_capacity() {
+            entity_commands.insert(House::new(capacity, next_house_order));
+            next_house_order = next_house_order.saturating_add(1);
         }
     }
 }

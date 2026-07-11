@@ -11,9 +11,11 @@ use game_engine::farming::{
     farm_field_counts, field_crop_state, FarmInventory, FieldCrop, FieldCropState, FieldOwner,
     FIELD_GROWTH_TICKS, FIELD_SEEDING_TICKS,
 };
+use game_engine::housing::housing_snapshot;
+use game_engine::npcs::NpcName;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
-use godot::classes::{Button, IPanelContainer, Label, PanelContainer, VBoxContainer};
-use godot::obj::OnEditor;
+use godot::classes::{control, Button, IPanelContainer, Label, PanelContainer, VBoxContainer};
+use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
 
 #[derive(GodotClass)]
@@ -65,9 +67,20 @@ pub(crate) struct BuildingInfoPanel {
     gold_inventory_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
+    housing_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    housing_occupancy_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    housing_rows: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     selected_building_entity_id: Option<i64>,
+    housing_row_labels: Vec<Gd<Label>>,
+    cached_housing: Option<Option<HousingInfo>>,
     base: Base<PanelContainer>,
 }
 
@@ -90,8 +103,13 @@ impl IPanelContainer for BuildingInfoPanel {
             stone_inventory_quantity: OnEditor::default(),
             food_inventory_quantity: OnEditor::default(),
             gold_inventory_quantity: OnEditor::default(),
+            housing_container: OnEditor::default(),
+            housing_occupancy_label: OnEditor::default(),
+            housing_rows: OnEditor::default(),
             game_world: OnEditor::default(),
             selected_building_entity_id: None,
+            housing_row_labels: Vec::new(),
+            cached_housing: None,
             base,
         }
     }
@@ -209,6 +227,7 @@ impl BuildingInfoPanel {
             &mut gold_inventory_quantity,
             info.inventory,
         );
+        self.update_housing(info.housing);
     }
 
     fn clear_building_labels(&mut self) {
@@ -219,6 +238,7 @@ impl BuildingInfoPanel {
         let mut construction_container = self.construction_container.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut inventory_label = self.inventory_label.clone();
+        let mut housing_container = self.housing_container.clone();
 
         clear_building_labels(
             &mut name_label,
@@ -228,17 +248,61 @@ impl BuildingInfoPanel {
             &mut construction_container,
             &mut inventory_container,
             &mut inventory_label,
+            &mut housing_container,
         );
+        self.clear_housing_rows();
+        self.cached_housing = None;
+    }
+
+    fn update_housing(&mut self, housing: Option<HousingInfo>) {
+        if self.cached_housing.as_ref() == Some(&housing) {
+            return;
+        }
+
+        self.clear_housing_rows();
+        let mut housing_container = self.housing_container.clone();
+        let mut housing_occupancy_label = self.housing_occupancy_label.clone();
+        let mut housing_rows = self.housing_rows.clone();
+        if let Some(housing) = &housing {
+            housing_occupancy_label.set_text(
+                format!("Housing: {}/{}", housing.occupied, housing.slots.len()).as_str(),
+            );
+            for (slot, resident) in housing.slots.iter().enumerate() {
+                let mut label = Label::new_alloc();
+                label.set_text(format!("Slot {}: {resident}", slot + 1).as_str());
+                label.set_h_size_flags(control::SizeFlags::EXPAND_FILL);
+                housing_rows.add_child(&label);
+                self.housing_row_labels.push(label);
+            }
+            housing_container.show();
+        } else {
+            housing_occupancy_label.set_text("");
+            housing_container.hide();
+        }
+        self.cached_housing = Some(housing);
+    }
+
+    fn clear_housing_rows(&mut self) {
+        for mut label in self.housing_row_labels.drain(..) {
+            label.queue_free();
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct BuildingInfo {
     kind: BuildingKind,
     footprint: BuildingFootprint,
     construction: Option<BuildingConstructionInfo>,
     inventory: Option<BuildingInventoryInfo>,
     farming: Option<FarmingInfo>,
+    housing: Option<HousingInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HousingInfo {
+    occupied: usize,
+    slots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -287,6 +351,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
             }),
             inventory,
             farming: farming_info(world, entity, blueprint.kind),
+            housing: None,
         });
     }
 
@@ -297,6 +362,31 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
         construction: None,
         inventory,
         farming: farming_info(world, entity, building.kind),
+        housing: housing_info(world, entity),
+    })
+}
+
+fn housing_info(world: &World, entity: Entity) -> Option<HousingInfo> {
+    let snapshot = housing_snapshot(world);
+    let house = snapshot.house(entity)?;
+    let slots = house
+        .residents()
+        .iter()
+        .map(|resident| {
+            resident.map_or_else(
+                || "Vacant".to_string(),
+                |resident| {
+                    world.get::<NpcName>(resident).map_or_else(
+                        || "Unnamed colonist".to_string(),
+                        |name| name.as_str().to_string(),
+                    )
+                },
+            )
+        })
+        .collect();
+    Some(HousingInfo {
+        occupied: house.occupied(),
+        slots,
     })
 }
 
@@ -534,6 +624,7 @@ fn clear_building_labels(
     construction_container: &mut Gd<VBoxContainer>,
     inventory_container: &mut Gd<VBoxContainer>,
     inventory_label: &mut Gd<Label>,
+    housing_container: &mut Gd<VBoxContainer>,
 ) {
     name_label.set_text("Building: None");
     footprint_label.set_text("");
@@ -543,6 +634,7 @@ fn clear_building_labels(
     construction_container.hide();
     inventory_label.set_text("Inventory:");
     inventory_container.hide();
+    housing_container.hide();
 }
 
 fn inventory_header_text(used_size: u32, max_size: u32) -> String {
@@ -553,6 +645,8 @@ fn inventory_header_text(used_size: u32, max_size: u32) -> String {
 mod tests {
     use super::*;
     use game_engine::grid::CellCoord;
+    use game_engine::housing::{House, HousingAssignment};
+    use game_engine::npcs::Npc;
 
     fn footprint(kind: BuildingKind) -> BuildingFootprint {
         let definition = kind.definition();
@@ -715,6 +809,56 @@ mod tests {
                 .expect("blueprint should still have construction info")
                 .progress,
             ResourceAmounts::new(9, 0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn completed_house_info_lists_numbered_resident_slots() {
+        let mut world = World::new();
+        let house = world
+            .spawn((
+                Building::new(
+                    BuildingKind::SmallHouse,
+                    footprint(BuildingKind::SmallHouse),
+                ),
+                House::new(2, 0),
+            ))
+            .id();
+        let resident = world.spawn((Npc, NpcName::new("Mara Voss"))).id();
+        world
+            .entity_mut(resident)
+            .insert(HousingAssignment::new(house, 1));
+
+        assert_eq!(
+            building_info_from_world(&world, house)
+                .expect("house info should exist")
+                .housing,
+            Some(HousingInfo {
+                occupied: 1,
+                slots: vec!["Vacant".to_string(), "Mara Voss".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn house_blueprint_has_no_resident_section() {
+        let mut world = World::new();
+        let kind = BuildingKind::SmallHouse;
+        let blueprint = world
+            .spawn((
+                BuildingBlueprint {
+                    kind,
+                    footprint: footprint(kind),
+                },
+                ConstructionProgress::new(ResourceAmounts::zero()),
+            ))
+            .id();
+
+        assert_eq!(
+            building_info_from_world(&world, blueprint)
+                .expect("blueprint info should exist")
+                .housing,
+            None
         );
     }
 

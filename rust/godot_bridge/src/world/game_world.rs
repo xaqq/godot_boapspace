@@ -47,6 +47,9 @@ const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
 const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
 const BUILDING_FIELD_PATH: &str = "res://assets/generated/building_field.png";
+const BUILDING_SMALL_HOUSE_PATH: &str = "res://assets/generated/building_house_small.png";
+const BUILDING_MEDIUM_HOUSE_PATH: &str = "res://assets/generated/building_house_medium.png";
+const BUILDING_LARGE_HOUSE_PATH: &str = "res://assets/generated/building_house_large.png";
 const CROP_SEEDABLE_PATH: &str = "res://assets/generated/crop_seedable_plot.png";
 const CROP_GROWING_STEP1_PATH: &str = "res://assets/generated/crop_growing_step1.png";
 const CROP_GROWING_STEP2_PATH: &str = "res://assets/generated/crop_growing_step2.png";
@@ -1454,6 +1457,21 @@ impl GameWorld {
     }
 
     #[func]
+    pub(crate) fn start_small_house_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::SmallHouse);
+    }
+
+    #[func]
+    pub(crate) fn start_medium_house_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::MediumHouse);
+    }
+
+    #[func]
+    pub(crate) fn start_large_house_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::LargeHouse);
+    }
+
+    #[func]
     pub(crate) fn start_field_placement_for_selected_farm(&mut self) -> bool {
         let Some(selected) = self.selected_building else {
             godot_warn!("GameWorld: cannot start field placement without a selected Farm");
@@ -1893,6 +1911,9 @@ fn building_asset_path(kind: BuildingKind) -> &'static str {
         BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
         BuildingKind::Farm => BUILDING_FARM_PATH,
         BuildingKind::Field => BUILDING_FIELD_PATH,
+        BuildingKind::SmallHouse => BUILDING_SMALL_HOUSE_PATH,
+        BuildingKind::MediumHouse => BUILDING_MEDIUM_HOUSE_PATH,
+        BuildingKind::LargeHouse => BUILDING_LARGE_HOUSE_PATH,
     }
 }
 
@@ -2154,6 +2175,22 @@ mod tests {
         assert_eq!(
             building_asset_path(BuildingKind::Field),
             "res://assets/generated/building_field.png"
+        );
+    }
+
+    #[test]
+    fn building_asset_paths_include_housing_assets() {
+        assert_eq!(
+            building_asset_path(BuildingKind::SmallHouse),
+            "res://assets/generated/building_house_small.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::MediumHouse),
+            "res://assets/generated/building_house_medium.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::LargeHouse),
+            "res://assets/generated/building_house_large.png"
         );
     }
 
