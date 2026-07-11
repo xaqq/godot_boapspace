@@ -1,5 +1,7 @@
+use game_engine::buildings::BuildingKind;
 use game_engine::components::{NpcAppearance, TerrainKind};
 use game_engine::resources::ResourceKind;
+use game_engine::roads::RoadTier;
 use godot::classes::{PackedScene, ResourceLoader, Texture2D};
 use godot::obj::Singleton;
 use godot::prelude::*;
@@ -21,6 +23,22 @@ const NPC_ENGINEER_SCENE_PATH: &str = "res://world/npc_engineer.tscn";
 const NPC_BOTANIST_SCENE_PATH: &str = "res://world/npc_botanist.tscn";
 const NPC_MINER_SCENE_PATH: &str = "res://world/npc_miner.tscn";
 const NPC_SCOUT_SCENE_PATH: &str = "res://world/npc_scout.tscn";
+const BUILDING_DEPOT_PATH: &str = "res://assets/generated/building_depot.png";
+const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
+const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
+const BUILDING_SAWMILL_PATH: &str = "res://assets/generated/building_sawmill.png";
+const BUILDING_STONEWORKS_PATH: &str = "res://assets/generated/building_stoneworks.png";
+const BUILDING_KITCHEN_PATH: &str = "res://assets/generated/building_kitchen.png";
+const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
+const BUILDING_FIELD_PATH: &str = "res://assets/generated/building_field.png";
+const BUILDING_FORESTER_LODGE_PATH: &str = "res://assets/generated/building_forester_lodge.png";
+const BUILDING_TREE_PLOT_PATH: &str = "res://assets/generated/building_tree_plot.png";
+const BUILDING_SMALL_HOUSE_PATH: &str = "res://assets/generated/building_house_small.png";
+const BUILDING_MEDIUM_HOUSE_PATH: &str = "res://assets/generated/building_house_medium.png";
+const BUILDING_LARGE_HOUSE_PATH: &str = "res://assets/generated/building_house_large.png";
+const ROAD_DIRT_PATH: &str = "res://assets/generated/road_dirt_path_atlas.png";
+const ROAD_COBBLESTONE_PATH: &str = "res://assets/generated/road_cobblestone_atlas.png";
+const ROAD_FLAGSTONE_PATH: &str = "res://assets/generated/road_flagstone_atlas.png";
 
 pub(crate) fn terrain_asset_path(kind: TerrainKind) -> &'static str {
     match kind {
@@ -51,6 +69,32 @@ pub(crate) fn npc_scene_path(appearance: NpcAppearance) -> &'static str {
         NpcAppearance::Botanist => NPC_BOTANIST_SCENE_PATH,
         NpcAppearance::Miner => NPC_MINER_SCENE_PATH,
         NpcAppearance::Scout => NPC_SCOUT_SCENE_PATH,
+    }
+}
+
+pub(crate) const fn building_asset_path(kind: BuildingKind) -> &'static str {
+    match kind {
+        BuildingKind::Depot => BUILDING_DEPOT_PATH,
+        BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
+        BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
+        BuildingKind::Sawmill => BUILDING_SAWMILL_PATH,
+        BuildingKind::Stoneworks => BUILDING_STONEWORKS_PATH,
+        BuildingKind::Kitchen => BUILDING_KITCHEN_PATH,
+        BuildingKind::Farm => BUILDING_FARM_PATH,
+        BuildingKind::Field => BUILDING_FIELD_PATH,
+        BuildingKind::ForesterLodge => BUILDING_FORESTER_LODGE_PATH,
+        BuildingKind::TreePlot => BUILDING_TREE_PLOT_PATH,
+        BuildingKind::SmallHouse => BUILDING_SMALL_HOUSE_PATH,
+        BuildingKind::MediumHouse => BUILDING_MEDIUM_HOUSE_PATH,
+        BuildingKind::LargeHouse => BUILDING_LARGE_HOUSE_PATH,
+    }
+}
+
+pub(crate) const fn road_asset_path(tier: RoadTier) -> &'static str {
+    match tier {
+        RoadTier::DirtPath => ROAD_DIRT_PATH,
+        RoadTier::Cobblestone => ROAD_COBBLESTONE_PATH,
+        RoadTier::Flagstone => ROAD_FLAGSTONE_PATH,
     }
 }
 

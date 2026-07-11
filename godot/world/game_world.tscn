@@ -4,14 +4,13 @@
 [ext_resource type="PackedScene" path="res://panel/tile_info_panel.tscn" id="3_tile_info_panel"]
 [ext_resource type="PackedScene" path="res://panel/surface_selector.tscn" id="4_surface_selector"]
 [ext_resource type="PackedScene" path="res://panel/npc_info_panel.tscn" id="5_npc_info_panel"]
-[ext_resource type="PackedScene" path="res://panel/building_palette.tscn" id="6_build_palette"]
+[ext_resource type="PackedScene" path="res://panel/construction_dock.tscn" id="6_construction_dock"]
 [ext_resource type="PackedScene" path="res://panel/building_info_panel.tscn" id="7_building_info_panel"]
 [ext_resource type="PackedScene" path="res://panel/task_list_panel.tscn" id="8_task_list_panel"]
 [ext_resource type="PackedScene" path="res://panel/map_entity_tooltip_panel.tscn" id="9_map_entity_tooltip_panel"]
 [ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
 [ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
-[ext_resource type="PackedScene" path="res://panel/roads_panel.tscn" id="13_roads_panel"]
 [ext_resource type="PackedScene" path="res://panel/performance_info.tscn" id="14_performance_info"]
 
 [node name="GameView" type="Control" unique_id=888628405]
@@ -113,17 +112,6 @@ theme_override_constants/separation = 8
 game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
-[node name="HSeparatorBuild" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709327]
-layout_mode = 2
-
-[node name="BuildingPalette" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=1719837743 node_paths=PackedStringArray("game_world") instance=ExtResource("6_build_palette")]
-game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
-layout_mode = 2
-
-[node name="RoadsPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" node_paths=PackedStringArray("game_world") instance=ExtResource("13_roads_panel")]
-game_world = NodePath("../../../GameArea/SubViewportContainer/SubViewport/GameWorld")
-layout_mode = 2
-
 [node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709325]
 layout_mode = 2
 
@@ -208,6 +196,15 @@ offset_top = 12.0
 offset_right = -12.0
 offset_bottom = 92.0
 grow_horizontal = 0
+
+[node name="ConstructionDock" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world") instance=ExtResource("6_construction_dock")]
+game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
 [node name="TaskListPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world", "toggle_button") instance=ExtResource("8_task_list_panel")]
 visible = false

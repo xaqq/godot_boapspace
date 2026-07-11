@@ -9,7 +9,7 @@ mod menu {
 
 mod panel {
     mod building_info_panel;
-    mod building_palette;
+    pub(crate) mod construction_dock;
     mod housing_panel;
     mod map_entity_tooltip_panel;
     mod npc_details;
@@ -20,7 +20,6 @@ mod panel {
     mod resource_quantity;
     mod resource_quantity_progress;
     mod resource_tooltip;
-    mod roads_panel;
     mod simulation_header_bar;
     mod surface_selector;
     mod task_list_panel;

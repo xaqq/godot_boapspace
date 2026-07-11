@@ -1,10 +1,13 @@
 use crate::assets::{
-    load_packed_scene, load_texture, npc_scene_path, resource_asset_path, terrain_asset_path,
+    building_asset_path, load_packed_scene, load_texture, npc_scene_path, resource_asset_path,
+    road_asset_path, terrain_asset_path,
 };
+use crate::panel::construction_dock::ConstructionDock;
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
+    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
+    ConstructionProgress,
 };
 use game_engine::components::{
     AiGatherResource, CarriedResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind,
@@ -58,19 +61,6 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
-const BUILDING_DEPOT_PATH: &str = "res://assets/generated/building_depot.png";
-const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
-const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
-const BUILDING_SAWMILL_PATH: &str = "res://assets/generated/building_sawmill.png";
-const BUILDING_STONEWORKS_PATH: &str = "res://assets/generated/building_stoneworks.png";
-const BUILDING_KITCHEN_PATH: &str = "res://assets/generated/building_kitchen.png";
-const BUILDING_FARM_PATH: &str = "res://assets/generated/building_farm.png";
-const BUILDING_FIELD_PATH: &str = "res://assets/generated/building_field.png";
-const BUILDING_FORESTER_LODGE_PATH: &str = "res://assets/generated/building_forester_lodge.png";
-const BUILDING_TREE_PLOT_PATH: &str = "res://assets/generated/building_tree_plot.png";
-const BUILDING_SMALL_HOUSE_PATH: &str = "res://assets/generated/building_house_small.png";
-const BUILDING_MEDIUM_HOUSE_PATH: &str = "res://assets/generated/building_house_medium.png";
-const BUILDING_LARGE_HOUSE_PATH: &str = "res://assets/generated/building_house_large.png";
 const WHEELBARROW_OVERLAY_SCENE_PATH: &str = "res://world/wheelbarrow_overlay.tscn";
 const WHEELBARROW_EMPTY_PATH: &str = "res://assets/generated/wheelbarrow_empty_sheet.png";
 const CROP_SEEDABLE_PATH: &str = "res://assets/generated/crop_seedable_plot.png";
@@ -80,9 +70,6 @@ const CROP_GROWN_PATH: &str = "res://assets/generated/crop_grown.png";
 const TREE_PLOT_SAPLING_PATH: &str = "res://assets/generated/tree_plot_sapling.png";
 const TREE_PLOT_YOUNG_PATH: &str = "res://assets/generated/tree_plot_young.png";
 const TREE_PLOT_MATURE_PATH: &str = "res://assets/generated/tree_plot_mature.png";
-const ROAD_DIRT_PATH: &str = "res://assets/generated/road_dirt_path_atlas.png";
-const ROAD_COBBLESTONE_PATH: &str = "res://assets/generated/road_cobblestone_atlas.png";
-const ROAD_FLAGSTONE_PATH: &str = "res://assets/generated/road_flagstone_atlas.png";
 static GENERATION_SEED_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn fresh_generation_seed() -> u64 {
@@ -296,8 +283,43 @@ struct PlotPlacementPreview {
 pub(crate) struct RoadPlacementStatus {
     pub(crate) active_tier: Option<RoadTier>,
     pub(crate) cell_count: usize,
+    pub(crate) invalid_cell_count: usize,
     pub(crate) aggregate_cost: ResourceAmounts,
     pub(crate) errors: Vec<(CellCoord, RoadPlacementError)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ConstructionTool {
+    Building(BuildingKind),
+    Road(RoadTier),
+    Field,
+    TreePlot,
+}
+
+impl ConstructionTool {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Building(BuildingKind::TownHall) => "Town Hall",
+            Self::Building(kind) => kind.label(),
+            Self::Road(tier) => tier.label(),
+            Self::Field => "Field",
+            Self::TreePlot => "Tree Plot",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuildingPlacementFeedback {
+    MoveCursorOverMap,
+    Valid,
+    Invalid(BuildingPlacementError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConstructionPlacementStatus {
+    pub(crate) active_tool: Option<ConstructionTool>,
+    pub(crate) building_feedback: Option<BuildingPlacementFeedback>,
+    pub(crate) road: Option<RoadPlacementStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -808,6 +830,10 @@ impl INode2D for GameWorld {
             return;
         };
 
+        if mouse.is_pressed() && self.pointer_is_over_construction_dock() {
+            return;
+        }
+
         match mouse.get_button_index() {
             MouseButton::LEFT => {
                 if mouse.is_pressed() {
@@ -1168,6 +1194,23 @@ impl GameWorld {
         if let Some(mut viewport) = self.base().get_viewport() {
             viewport.set_input_as_handled();
         }
+    }
+
+    fn pointer_is_over_construction_dock(&self) -> bool {
+        let tree = self.base().get_tree();
+        let root = tree.get_root();
+        let Some(hovered) = root.gui_get_hovered_control() else {
+            return false;
+        };
+
+        let mut node = Some(hovered.upcast::<Node>());
+        while let Some(current) = node {
+            if current.clone().try_cast::<ConstructionDock>().is_ok() {
+                return true;
+            }
+            node = current.get_parent();
+        }
+        false
     }
 
     fn placement_origin_under_mouse(&self) -> Option<CellCoord> {
@@ -2122,63 +2165,68 @@ impl GameWorld {
         true
     }
 
-    #[func]
-    pub(crate) fn start_depot_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Depot);
-    }
-
-    #[func]
-    pub(crate) fn start_warehouse_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Warehouse);
-    }
-
-    #[func]
-    pub(crate) fn start_town_hall_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::TownHall);
-    }
-
-    #[func]
-    pub(crate) fn start_sawmill_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Sawmill);
-    }
-
-    #[func]
-    pub(crate) fn start_stoneworks_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Stoneworks);
-    }
-
-    #[func]
-    pub(crate) fn start_kitchen_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Kitchen);
-    }
-
-    #[func]
-    pub(crate) fn start_farm_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::Farm);
-    }
-
-    #[func]
-    pub(crate) fn start_forester_lodge_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::ForesterLodge);
-    }
-
-    #[func]
-    pub(crate) fn start_small_house_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::SmallHouse);
-    }
-
-    #[func]
-    pub(crate) fn start_medium_house_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::MediumHouse);
-    }
-
-    #[func]
-    pub(crate) fn start_large_house_blueprint_placement(&mut self) {
-        self.start_build_mode(BuildingKind::LargeHouse);
+    pub(crate) fn start_building_placement(&mut self, kind: BuildingKind) {
+        debug_assert!(!matches!(
+            kind,
+            BuildingKind::Field | BuildingKind::TreePlot
+        ));
+        self.start_build_mode(kind);
     }
 
     pub(crate) fn start_road_placement(&mut self, tier: RoadTier) {
         self.start_road_placement_mode(tier);
+    }
+
+    pub(crate) fn construction_placement_status(&self) -> ConstructionPlacementStatus {
+        let pointer_over_dock = self.pointer_is_over_construction_dock();
+        let active_tool = self.placement_mode.as_ref().map(|mode| match mode {
+            PlacementMode::Building(kind) => ConstructionTool::Building(*kind),
+            PlacementMode::Plots { owner, .. } => match owner {
+                PlotOwner::Farm(_) => ConstructionTool::Field,
+                PlotOwner::ForesterLodge(_) => ConstructionTool::TreePlot,
+            },
+            PlacementMode::Roads { tier, .. } => ConstructionTool::Road(*tier),
+        });
+
+        let building_feedback = match self.placement_mode.as_ref() {
+            Some(PlacementMode::Building(_)) if pointer_over_dock => {
+                Some(BuildingPlacementFeedback::MoveCursorOverMap)
+            }
+            Some(PlacementMode::Building(kind)) => match self.placement_origin_under_mouse() {
+                None => Some(BuildingPlacementFeedback::MoveCursorOverMap),
+                Some(origin) => Some(
+                    match self.game.validate_building_blueprint_placement(
+                        self.rendered_surface,
+                        *kind,
+                        origin,
+                    ) {
+                        Ok(_) => BuildingPlacementFeedback::Valid,
+                        Err(error) => BuildingPlacementFeedback::Invalid(error),
+                    },
+                ),
+            },
+            _ => None,
+        };
+
+        let road = match self.placement_mode.as_ref() {
+            Some(PlacementMode::Roads { tier, .. }) if pointer_over_dock => {
+                Some(RoadPlacementStatus {
+                    active_tier: Some(*tier),
+                    cell_count: 0,
+                    invalid_cell_count: 0,
+                    aggregate_cost: ResourceAmounts::zero(),
+                    errors: Vec::new(),
+                })
+            }
+            Some(PlacementMode::Roads { .. }) => Some(self.road_placement_status()),
+            _ => None,
+        };
+
+        ConstructionPlacementStatus {
+            active_tool,
+            building_feedback,
+            road,
+        }
     }
 
     pub(crate) fn road_placement_status(&self) -> RoadPlacementStatus {
@@ -2190,6 +2238,13 @@ impl GameWorld {
         RoadPlacementStatus {
             active_tier,
             cell_count: validation.as_ref().map_or(0, |result| result.cells.len()),
+            invalid_cell_count: validation.as_ref().map_or(0, |result| {
+                result
+                    .cells
+                    .iter()
+                    .filter(|cell| !cell.errors.is_empty())
+                    .count()
+            }),
             aggregate_cost: validation
                 .as_ref()
                 .map_or(ResourceAmounts::zero(), |result| result.aggregate_cost),
@@ -2203,6 +2258,10 @@ impl GameWorld {
                 })
                 .collect(),
         }
+    }
+
+    pub(crate) fn cancel_construction_placement(&mut self) {
+        self.cancel_placement_mode();
     }
 
     #[func]
@@ -3139,34 +3198,8 @@ fn building_sprite_modulate(state: BuildingRenderState) -> Color {
     }
 }
 
-fn building_asset_path(kind: BuildingKind) -> &'static str {
-    match kind {
-        BuildingKind::Depot => BUILDING_DEPOT_PATH,
-        BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
-        BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
-        BuildingKind::Sawmill => BUILDING_SAWMILL_PATH,
-        BuildingKind::Stoneworks => BUILDING_STONEWORKS_PATH,
-        BuildingKind::Kitchen => BUILDING_KITCHEN_PATH,
-        BuildingKind::Farm => BUILDING_FARM_PATH,
-        BuildingKind::Field => BUILDING_FIELD_PATH,
-        BuildingKind::ForesterLodge => BUILDING_FORESTER_LODGE_PATH,
-        BuildingKind::TreePlot => BUILDING_TREE_PLOT_PATH,
-        BuildingKind::SmallHouse => BUILDING_SMALL_HOUSE_PATH,
-        BuildingKind::MediumHouse => BUILDING_MEDIUM_HOUSE_PATH,
-        BuildingKind::LargeHouse => BUILDING_LARGE_HOUSE_PATH,
-    }
-}
-
 fn terrain_source_id(kind: TerrainKind) -> i32 {
     kind as i32
-}
-
-fn road_asset_path(tier: RoadTier) -> &'static str {
-    match tier {
-        RoadTier::DirtPath => ROAD_DIRT_PATH,
-        RoadTier::Cobblestone => ROAD_COBBLESTONE_PATH,
-        RoadTier::Flagstone => ROAD_FLAGSTONE_PATH,
-    }
 }
 
 fn road_source_id(tier: RoadTier) -> i32 {

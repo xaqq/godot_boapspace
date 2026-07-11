@@ -1,0 +1,135 @@
+[gd_scene format=3]
+
+[node name="ConstructionDock" type="ConstructionDock" node_paths=PackedStringArray("drawer", "cards_container", "build_button", "cancel_button", "cancel_hint", "active_label", "status_label", "storage_button", "production_button", "processing_button", "housing_button", "civic_button", "roads_button")]
+drawer = NodePath("Drawer")
+cards_container = NodePath("Drawer/Margin/VBox/Cards")
+build_button = NodePath("Footer/Margin/Row/BuildButton")
+cancel_button = NodePath("Footer/Margin/Row/CancelButton")
+cancel_hint = NodePath("Footer/Margin/Row/CancelHint")
+active_label = NodePath("Footer/Margin/Row/ActiveLabel")
+status_label = NodePath("Footer/Margin/Row/StatusLabel")
+storage_button = NodePath("Drawer/Margin/VBox/Categories/StorageButton")
+production_button = NodePath("Drawer/Margin/VBox/Categories/ProductionButton")
+processing_button = NodePath("Drawer/Margin/VBox/Categories/ProcessingButton")
+housing_button = NodePath("Drawer/Margin/VBox/Categories/HousingButton")
+civic_button = NodePath("Drawer/Margin/VBox/Categories/CivicButton")
+roads_button = NodePath("Drawer/Margin/VBox/Categories/RoadsButton")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Drawer" type="PanelContainer" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -184.0
+offset_bottom = -44.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="Drawer"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Drawer/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Categories" type="HBoxContainer" parent="Drawer/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StorageButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Storage"
+
+[node name="ProductionButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Production"
+
+[node name="ProcessingButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Processing"
+
+[node name="HousingButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Housing"
+
+[node name="CivicButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Civic"
+
+[node name="RoadsButton" type="Button" parent="Drawer/Margin/VBox/Categories"]
+layout_mode = 2
+toggle_mode = true
+text = "Roads"
+
+[node name="Cards" type="HBoxContainer" parent="Drawer/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="Footer" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -44.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="Footer"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 6
+
+[node name="Row" type="HBoxContainer" parent="Footer/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BuildButton" type="Button" parent="Footer/Margin/Row"]
+custom_minimum_size = Vector2(92, 0)
+layout_mode = 2
+text = "Build [B]"
+
+[node name="ActiveLabel" type="Label" parent="Footer/Margin/Row"]
+visible = false
+layout_mode = 2
+text = "Placing: Depot"
+
+[node name="Separator" type="VSeparator" parent="Footer/Margin/Row"]
+layout_mode = 2
+
+[node name="StatusLabel" type="Label" parent="Footer/Margin/Row"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Valid placement"
+text_overrun_behavior = 3
+
+[node name="CancelHint" type="Label" parent="Footer/Margin/Row"]
+visible = false
+layout_mode = 2
+text = "Esc/right-click"
+
+[node name="CancelButton" type="Button" parent="Footer/Margin/Row"]
+visible = false
+layout_mode = 2
+text = "Cancel"
