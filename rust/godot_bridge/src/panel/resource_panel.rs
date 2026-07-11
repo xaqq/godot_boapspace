@@ -6,7 +6,7 @@ use godot::classes::{control, Button, GridContainer, IPanelContainer, Label, Pan
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
 
-const LOOKBACKS: [u64; 4] = [1, 7, 30, 365];
+pub(super) const RESOURCE_LOOKBACKS: [u64; 4] = [1, 7, 30, 365];
 const REFRESH_INTERVAL_SECONDS: f64 = 0.25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +22,7 @@ struct ResourcePanelRowView {
     kind: ResourceKind,
     now: u64,
     committed: u64,
-    changes: [Option<i128>; LOOKBACKS.len()],
+    changes: [Option<i128>; RESOURCE_LOOKBACKS.len()],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +38,7 @@ struct ResourcePanelRowControls {
     button: Gd<Button>,
     now: Gd<Label>,
     committed: Gd<Label>,
-    changes: [Gd<Label>; LOOKBACKS.len()],
+    changes: [Gd<Label>; RESOURCE_LOOKBACKS.len()],
 }
 
 #[derive(GodotClass)]
@@ -287,7 +287,7 @@ fn build_panel_view(
                 kind,
                 now,
                 committed: overview.committed().get(kind),
-                changes: LOOKBACKS.map(|days| history.change_since(day, days, kind, now)),
+                changes: RESOURCE_LOOKBACKS.map(|days| history.change_since(day, days, kind, now)),
             }
         })
         .collect();
@@ -318,6 +318,10 @@ fn delta_presentation(change: Option<i128>) -> (String, DeltaState) {
         Some(_) => ("0".to_owned(), DeltaState::Zero),
         None => ("—".to_owned(), DeltaState::Unavailable),
     }
+}
+
+pub(super) fn resource_delta_text(change: Option<i128>) -> String {
+    delta_presentation(change).0
 }
 
 fn delta_color(state: DeltaState) -> Color {

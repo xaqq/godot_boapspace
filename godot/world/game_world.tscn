@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
 [ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
+[ext_resource type="Texture2D" path="res://assets/icons_pack/WHITE/PNG_128/scifi_demo_pixarts_alert_warning.png" id="13_homeless_warning"]
 [ext_resource type="PackedScene" path="res://panel/performance_info.tscn" id="14_performance_info"]
 
 [node name="GameView" type="Control" unique_id=888628405]
@@ -30,7 +31,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "speed_1x_button", "speed_2x_button", "speed_4x_button", "speed_50x_button", "speed_100x_button", "datetime_label", "game_world")]
+[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "speed_1x_button", "speed_2x_button", "speed_4x_button", "speed_50x_button", "speed_100x_button", "datetime_label", "resource_summary_container", "homeless_summary", "homeless_icon", "homeless_count_label", "game_world")]
 play_pause_button = NodePath("PlayPauseButton")
 speed_1x_button = NodePath("Speed1xButton")
 speed_2x_button = NodePath("Speed2xButton")
@@ -38,6 +39,10 @@ speed_4x_button = NodePath("Speed4xButton")
 speed_50x_button = NodePath("Speed50xButton")
 speed_100x_button = NodePath("Speed100xButton")
 datetime_label = NodePath("DateTimeLabel")
+resource_summary_container = NodePath("HeaderRecap/ResourceSummary")
+homeless_summary = NodePath("HeaderRecap/HomelessSummary")
+homeless_icon = NodePath("HeaderRecap/HomelessSummary/Icon")
+homeless_count_label = NodePath("HeaderRecap/HomelessSummary/Count")
 game_world = NodePath("../HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 theme_override_constants/separation = 8
@@ -78,9 +83,39 @@ custom_minimum_size = Vector2(132, 0)
 layout_mode = 2
 text = "Day 12000 00:00"
 
-[node name="HeaderSpacer" type="Control" parent="VBoxContainer/HeaderBar"]
+[node name="HeaderRecap" type="HBoxContainer" parent="VBoxContainer/HeaderBar"]
 layout_mode = 2
 size_flags_horizontal = 3
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="ResourceSummary" type="HBoxContainer" parent="VBoxContainer/HeaderBar/HeaderRecap"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="RecapSeparator" type="VSeparator" parent="VBoxContainer/HeaderBar/HeaderRecap"]
+layout_mode = 2
+
+[node name="HomelessSummary" type="HBoxContainer" parent="VBoxContainer/HeaderBar/HeaderRecap"]
+layout_mode = 2
+tooltip_text = "Homelessness"
+theme_override_constants/separation = 1
+
+[node name="Icon" type="TextureRect" parent="VBoxContainer/HeaderBar/HeaderRecap/HomelessSummary"]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+mouse_filter = 2
+texture_filter = 1
+texture = ExtResource("13_homeless_warning")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Count" type="Label" parent="VBoxContainer/HeaderBar/HeaderRecap/HomelessSummary"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 12
+text = "0"
+horizontal_alignment = 2
 
 [node name="TasksButton" type="Button" parent="VBoxContainer/HeaderBar"]
 layout_mode = 2

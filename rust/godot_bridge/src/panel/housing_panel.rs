@@ -13,7 +13,7 @@ struct HousingTierRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct HousingOverview {
+pub(super) struct HousingOverview {
     small: HousingTierRow,
     medium: HousingTierRow,
     large: HousingTierRow,
@@ -21,6 +21,20 @@ struct HousingOverview {
     total_occupied: usize,
     total_capacity: usize,
     homeless: usize,
+}
+
+impl HousingOverview {
+    pub(super) const fn total_occupied(&self) -> usize {
+        self.total_occupied
+    }
+
+    pub(super) const fn total_capacity(&self) -> usize {
+        self.total_capacity
+    }
+
+    pub(super) const fn homeless(&self) -> usize {
+        self.homeless
+    }
 }
 
 #[derive(GodotClass)]
@@ -169,7 +183,7 @@ impl HousingPanel {
     }
 }
 
-fn housing_overview(world: &bevy_ecs::world::World) -> HousingOverview {
+pub(super) fn housing_overview(world: &bevy_ecs::world::World) -> HousingOverview {
     let snapshot = housing_snapshot(world);
     let mut overview = HousingOverview {
         homeless: snapshot.homeless().len(),
