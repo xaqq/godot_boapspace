@@ -16,6 +16,9 @@ pub(crate) struct BuildingPalette {
     farm_button: OnEditor<Gd<Button>>,
 
     #[export]
+    forester_lodge_button: OnEditor<Gd<Button>>,
+
+    #[export]
     small_house_button: OnEditor<Gd<Button>>,
 
     #[export]
@@ -37,6 +40,7 @@ impl IPanelContainer for BuildingPalette {
             warehouse_button: OnEditor::default(),
             town_hall_button: OnEditor::default(),
             farm_button: OnEditor::default(),
+            forester_lodge_button: OnEditor::default(),
             small_house_button: OnEditor::default(),
             medium_house_button: OnEditor::default(),
             large_house_button: OnEditor::default(),
@@ -49,6 +53,7 @@ impl IPanelContainer for BuildingPalette {
         let warehouse_button = self.warehouse_button.clone();
         let town_hall_button = self.town_hall_button.clone();
         let farm_button = self.farm_button.clone();
+        let forester_lodge_button = self.forester_lodge_button.clone();
         let small_house_button = self.small_house_button.clone();
         let medium_house_button = self.medium_house_button.clone();
         let large_house_button = self.large_house_button.clone();
@@ -74,6 +79,13 @@ impl IPanelContainer for BuildingPalette {
             .connect_other(&game_world, |game_world: &mut GameWorld| {
                 game_world.start_farm_blueprint_placement();
             });
+
+        forester_lodge_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_forester_lodge_blueprint_placement();
+            },
+        );
 
         small_house_button.signals().pressed().connect_other(
             &game_world,

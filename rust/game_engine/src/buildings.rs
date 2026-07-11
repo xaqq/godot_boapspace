@@ -1,5 +1,6 @@
 use crate::collision::{resource_node_at, terrain_allows_building, terrain_at};
 use crate::farming::{FarmInventory, FieldCrop};
+use crate::forestry::{ForesterLodgeInventory, TreePlotGrowth};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::housing::House;
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
@@ -13,17 +14,21 @@ pub enum BuildingKind {
     TownHall,
     Farm,
     Field,
+    ForesterLodge,
+    TreePlot,
     SmallHouse,
     MediumHouse,
     LargeHouse,
 }
 
 impl BuildingKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::Warehouse,
         Self::TownHall,
         Self::Farm,
         Self::Field,
+        Self::ForesterLodge,
+        Self::TreePlot,
         Self::SmallHouse,
         Self::MediumHouse,
         Self::LargeHouse,
@@ -35,6 +40,8 @@ impl BuildingKind {
             Self::TownHall => "TownHall",
             Self::Farm => "Farm",
             Self::Field => "Field",
+            Self::ForesterLodge => "Forester's Lodge",
+            Self::TreePlot => "Tree Plot",
             Self::SmallHouse => "Small House",
             Self::MediumHouse => "Medium House",
             Self::LargeHouse => "Large House",
@@ -65,6 +72,20 @@ impl BuildingKind {
                 housing_capacity: None,
             },
             Self::Field => BuildingDefinition {
+                kind: self,
+                width: 1,
+                height: 1,
+                construction_cost: ResourceAmounts::new(5, 1, 0, 0),
+                housing_capacity: None,
+            },
+            Self::ForesterLodge => BuildingDefinition {
+                kind: self,
+                width: 3,
+                height: 3,
+                construction_cost: ResourceAmounts::new(20, 30, 0, 0),
+                housing_capacity: None,
+            },
+            Self::TreePlot => BuildingDefinition {
                 kind: self,
                 width: 1,
                 height: 1,
@@ -343,6 +364,7 @@ pub enum BuildingPlacementError {
     InvalidTerrain,
     BlockedByResourceNode,
     FieldRequiresFarm,
+    TreePlotRequiresLodge,
 }
 
 pub fn place_building_blueprint(
@@ -362,8 +384,10 @@ pub fn validate_building_blueprint_placement(
     kind: BuildingKind,
     origin: CellCoord,
 ) -> Result<BuildingFootprint, BuildingPlacementError> {
-    if kind == BuildingKind::Field {
-        return Err(BuildingPlacementError::FieldRequiresFarm);
+    match kind {
+        BuildingKind::Field => return Err(BuildingPlacementError::FieldRequiresFarm),
+        BuildingKind::TreePlot => return Err(BuildingPlacementError::TreePlotRequiresLodge),
+        _ => {}
     }
 
     validate_building_footprint_placement(world, kind, origin)
@@ -470,6 +494,12 @@ pub fn system_complete_building_construction(
         }
         if blueprint.kind == BuildingKind::Field {
             entity_commands.insert(FieldCrop::seedable());
+        }
+        if blueprint.kind == BuildingKind::ForesterLodge {
+            entity_commands.insert(ForesterLodgeInventory::empty());
+        }
+        if blueprint.kind == BuildingKind::TreePlot {
+            entity_commands.insert(TreePlotGrowth::seedable());
         }
         if let Some(capacity) = blueprint.kind.definition().housing_capacity() {
             entity_commands.insert(House::new(capacity, next_house_order));

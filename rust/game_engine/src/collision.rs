@@ -83,6 +83,9 @@ pub const fn terrain_allows_building(kind: BuildingKind, terrain: TerrainKind) -
             )
         }
         BuildingKind::Field => matches!(terrain, TerrainKind::Grass | TerrainKind::Dirt),
+        BuildingKind::ForesterLodge | BuildingKind::TreePlot => {
+            matches!(terrain, TerrainKind::Grass)
+        }
     }
 }
 
@@ -114,7 +117,7 @@ const fn terrain_collision_flags(terrain: TerrainKind) -> CollisionFlags {
 }
 
 const fn building_blocks_npc_walk(kind: BuildingKind) -> bool {
-    !matches!(kind, BuildingKind::Field)
+    !matches!(kind, BuildingKind::Field | BuildingKind::TreePlot)
 }
 
 #[cfg(test)]

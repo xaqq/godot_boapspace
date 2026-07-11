@@ -11,6 +11,10 @@ use game_engine::farming::{
     farm_field_counts, field_crop_state, FarmInventory, FieldCrop, FieldCropState, FieldOwner,
     FIELD_GROWTH_TICKS, FIELD_SEEDING_TICKS,
 };
+use game_engine::forestry::{
+    forester_lodge_tree_plot_counts, tree_plot_state, ForesterLodgeInventory, TreePlotGrowth,
+    TreePlotOwner, TreePlotState, TREE_PLOT_GROWTH_TICKS, TREE_PLOT_SEEDING_TICKS,
+};
 use game_engine::housing::housing_snapshot;
 use game_engine::npcs::NpcName;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
@@ -32,6 +36,9 @@ pub(crate) struct BuildingInfoPanel {
 
     #[export]
     fields_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    tree_plots_button: OnEditor<Gd<Button>>,
 
     #[export]
     construction_container: OnEditor<Gd<VBoxContainer>>,
@@ -92,6 +99,7 @@ impl IPanelContainer for BuildingInfoPanel {
             footprint_label: OnEditor::default(),
             farming_info_label: OnEditor::default(),
             fields_button: OnEditor::default(),
+            tree_plots_button: OnEditor::default(),
             construction_container: OnEditor::default(),
             wood_construction_progress: OnEditor::default(),
             stone_construction_progress: OnEditor::default(),
@@ -133,6 +141,15 @@ impl IPanelContainer for BuildingInfoPanel {
             &game_world,
             |game_world: &mut GameWorld| {
                 game_world.start_field_placement_for_selected_farm();
+            },
+        );
+
+        let tree_plots_button = self.tree_plots_button.clone();
+        let game_world = self.game_world.clone();
+        tree_plots_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_tree_plot_placement_for_selected_lodge();
             },
         );
 
@@ -178,6 +195,7 @@ impl BuildingInfoPanel {
         let mut footprint_label = self.footprint_label.clone();
         let mut farming_info_label = self.farming_info_label.clone();
         let mut fields_button = self.fields_button.clone();
+        let mut tree_plots_button = self.tree_plots_button.clone();
         let mut construction_container = self.construction_container.clone();
         let mut wood_construction_progress = self.wood_construction_progress.clone();
         let mut stone_construction_progress = self.stone_construction_progress.clone();
@@ -195,8 +213,10 @@ impl BuildingInfoPanel {
         update_farming_info(
             &mut farming_info_label,
             &mut fields_button,
+            &mut tree_plots_button,
             info.kind,
             info.farming,
+            info.forestry,
         );
         match info.construction {
             Some(construction) => update_construction_progress(
@@ -236,6 +256,7 @@ impl BuildingInfoPanel {
         let mut footprint_label = self.footprint_label.clone();
         let mut farming_info_label = self.farming_info_label.clone();
         let mut fields_button = self.fields_button.clone();
+        let mut tree_plots_button = self.tree_plots_button.clone();
         let mut construction_container = self.construction_container.clone();
         let mut inventory_container = self.inventory_container.clone();
         let mut inventory_label = self.inventory_label.clone();
@@ -246,6 +267,7 @@ impl BuildingInfoPanel {
             &mut footprint_label,
             &mut farming_info_label,
             &mut fields_button,
+            &mut tree_plots_button,
             &mut construction_container,
             &mut inventory_container,
             &mut inventory_label,
@@ -298,6 +320,7 @@ struct BuildingInfo {
     construction: Option<BuildingConstructionInfo>,
     inventory: Option<BuildingInventoryInfo>,
     farming: Option<FarmingInfo>,
+    forestry: Option<ForestryInfo>,
     housing: Option<HousingInfo>,
 }
 
@@ -334,6 +357,20 @@ enum FarmingInfo {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ForestryInfo {
+    ForesterLodge {
+        linked_tree_plots: usize,
+        constructed_tree_plots: usize,
+    },
+    TreePlot {
+        owner: Entity,
+        growth: Option<TreePlotGrowth>,
+        state: Option<TreePlotState>,
+        blocked_by_full_inventory: bool,
+    },
+}
+
 fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
     let entity = decode_entity_id(building_entity_id)?;
     game_world.with_rendered_surface_world(|world| building_info_from_world(world, entity))
@@ -353,6 +390,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
             }),
             inventory,
             farming: farming_info(world, entity, blueprint.kind),
+            forestry: forestry_info(world, entity, blueprint.kind),
             housing: None,
         });
     }
@@ -364,6 +402,7 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
         construction: None,
         inventory,
         farming: farming_info(world, entity, building.kind),
+        forestry: forestry_info(world, entity, building.kind),
         housing: housing_info(world, entity),
     })
 }
@@ -403,8 +442,15 @@ fn building_inventory_info(
             max_size: inventory.max_size(),
         });
     }
+    if let Some(inventory) = world.get::<FarmInventory>(entity).copied() {
+        return Some(BuildingInventoryInfo {
+            contents: inventory.contents(),
+            used_size: inventory.used_size(),
+            max_size: inventory.max_size(),
+        });
+    }
     world
-        .get::<FarmInventory>(entity)
+        .get::<ForesterLodgeInventory>(entity)
         .copied()
         .map(|inventory| BuildingInventoryInfo {
             contents: inventory.contents(),
@@ -437,6 +483,39 @@ fn farming_info(
             Some(FarmingInfo::Field {
                 owner: owner.farm(),
                 crop,
+                state,
+                blocked_by_full_inventory,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn forestry_info(
+    world: &bevy_ecs::world::World,
+    entity: Entity,
+    kind: BuildingKind,
+) -> Option<ForestryInfo> {
+    match kind {
+        BuildingKind::ForesterLodge => {
+            let (linked_tree_plots, constructed_tree_plots) =
+                forester_lodge_tree_plot_counts(world, entity);
+            Some(ForestryInfo::ForesterLodge {
+                linked_tree_plots,
+                constructed_tree_plots,
+            })
+        }
+        BuildingKind::TreePlot => {
+            let owner = world.get::<TreePlotOwner>(entity)?;
+            let growth = world.get::<TreePlotGrowth>(entity).copied();
+            let state = tree_plot_state(world, entity);
+            let blocked_by_full_inventory = state == Some(TreePlotState::Mature)
+                && world
+                    .get::<ForesterLodgeInventory>(owner.lodge())
+                    .is_some_and(|inventory| !inventory.has_wood_capacity());
+            Some(ForestryInfo::TreePlot {
+                owner: owner.lodge(),
+                growth,
                 state,
                 blocked_by_full_inventory,
             })
@@ -533,11 +612,16 @@ fn update_construction_progress_row(
 fn update_farming_info(
     farming_info_label: &mut Gd<Label>,
     fields_button: &mut Gd<Button>,
+    tree_plots_button: &mut Gd<Button>,
     kind: BuildingKind,
     farming: Option<FarmingInfo>,
+    forestry: Option<ForestryInfo>,
 ) {
-    if let Some(farming) = farming {
-        farming_info_label.set_text(format_farming_info(farming).as_str());
+    let info_text = farming
+        .map(format_farming_info)
+        .or_else(|| forestry.map(format_forestry_info));
+    if let Some(info_text) = info_text {
+        farming_info_label.set_text(info_text.as_str());
         farming_info_label.show();
     } else {
         farming_info_label.set_text("");
@@ -548,6 +632,12 @@ fn update_farming_info(
         fields_button.show();
     } else {
         fields_button.hide();
+    }
+
+    if kind == BuildingKind::ForesterLodge {
+        tree_plots_button.show();
+    } else {
+        tree_plots_button.hide();
     }
 }
 
@@ -581,6 +671,42 @@ fn format_farming_info(info: FarmingInfo) -> String {
             }
             if blocked_by_full_inventory {
                 lines.push("Blocked: Farm inventory full".to_string());
+            }
+            lines.join("\n")
+        }
+    }
+}
+
+fn format_forestry_info(info: ForestryInfo) -> String {
+    match info {
+        ForestryInfo::ForesterLodge {
+            linked_tree_plots,
+            constructed_tree_plots,
+        } => format!("Tree Plots: {constructed_tree_plots}/{linked_tree_plots} constructed"),
+        ForestryInfo::TreePlot {
+            owner,
+            growth,
+            state,
+            blocked_by_full_inventory,
+        } => {
+            let owner_id = owner.to_bits();
+            let mut lines = vec![format!("Owner Forester's Lodge: {owner_id}")];
+            match (growth, state) {
+                (Some(growth), Some(state)) => {
+                    lines.push(format!("Tree: {}", state.label()));
+                    lines.push(format!(
+                        "Seeding: {}/{}",
+                        growth.seeding_progress_ticks(),
+                        TREE_PLOT_SEEDING_TICKS
+                    ));
+                    if let Some(growth_ticks) = growth.growth_ticks() {
+                        lines.push(format!("Growth: {growth_ticks}/{TREE_PLOT_GROWTH_TICKS}"));
+                    }
+                }
+                _ => lines.push("Tree: Pending construction".to_string()),
+            }
+            if blocked_by_full_inventory {
+                lines.push("Blocked: Forester's Lodge inventory full".to_string());
             }
             lines.join("\n")
         }
@@ -623,6 +749,7 @@ fn clear_building_labels(
     footprint_label: &mut Gd<Label>,
     farming_info_label: &mut Gd<Label>,
     fields_button: &mut Gd<Button>,
+    tree_plots_button: &mut Gd<Button>,
     construction_container: &mut Gd<VBoxContainer>,
     inventory_container: &mut Gd<VBoxContainer>,
     inventory_label: &mut Gd<Label>,
@@ -633,6 +760,7 @@ fn clear_building_labels(
     farming_info_label.set_text("");
     farming_info_label.hide();
     fields_button.hide();
+    tree_plots_button.hide();
     construction_container.hide();
     inventory_label.set_text("Inventory:");
     inventory_container.hide();
@@ -773,6 +901,41 @@ mod tests {
     }
 
     #[test]
+    fn building_info_reads_current_forester_lodge_inventory() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                Building::new(
+                    BuildingKind::ForesterLodge,
+                    footprint(BuildingKind::ForesterLodge),
+                ),
+                ForesterLodgeInventory::empty(),
+            ))
+            .id();
+
+        assert!(world
+            .get_mut::<ForesterLodgeInventory>(entity)
+            .expect("forester lodge should have inventory")
+            .add_wood(5));
+
+        let info =
+            building_info_from_world(&world, entity).expect("forester lodge info should exist");
+        let inventory = info
+            .inventory
+            .expect("forester lodge should expose inventory");
+        assert_eq!(inventory.contents, ResourceAmounts::new(5, 0, 0, 0));
+        assert_eq!(inventory.used_size, 5);
+        assert_eq!(inventory.max_size, 200);
+        assert_eq!(
+            info.forestry,
+            Some(ForestryInfo::ForesterLodge {
+                linked_tree_plots: 0,
+                constructed_tree_plots: 0,
+            })
+        );
+    }
+
+    #[test]
     fn building_info_reads_current_construction_progress() {
         let mut world = World::new();
         let kind = BuildingKind::Warehouse;
@@ -899,6 +1062,37 @@ mod tests {
                 "Owner Farm: {}\nCrop: Seeding\nSeeding: 42/{}\nBlocked: Farm inventory full",
                 owner.to_bits(),
                 FIELD_SEEDING_TICKS
+            )
+        );
+    }
+
+    #[test]
+    fn forestry_info_text_shows_lodge_tree_plot_counts() {
+        assert_eq!(
+            format_forestry_info(ForestryInfo::ForesterLodge {
+                linked_tree_plots: 12,
+                constructed_tree_plots: 7,
+            }),
+            "Tree Plots: 7/12 constructed"
+        );
+    }
+
+    #[test]
+    fn forestry_info_text_shows_tree_progress_and_full_block() {
+        let mut world = World::new();
+        let owner = world.spawn_empty().id();
+
+        assert_eq!(
+            format_forestry_info(ForestryInfo::TreePlot {
+                owner,
+                growth: Some(TreePlotGrowth::with_seeding_progress(42)),
+                state: Some(TreePlotState::Seeding),
+                blocked_by_full_inventory: true,
+            }),
+            format!(
+                "Owner Forester's Lodge: {}\nTree: Seeding\nSeeding: 42/{}\nBlocked: Forester's Lodge inventory full",
+                owner.to_bits(),
+                TREE_PLOT_SEEDING_TICKS
             )
         );
     }

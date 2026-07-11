@@ -4,16 +4,17 @@ use crate::buildings::{
     BuildingKind, BuildingPlacementError,
 };
 use crate::grid::CellCoord;
+use crate::plots::{cardinal_neighbors, connected_cells, PlotGrowth};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::skills::{NpcSkills, SkillKind};
-use crate::time::SIMULATION_TICKS_PER_DAY;
+use crate::time::{SIMULATION_TICKS_PER_DAY, SIMULATION_TICKS_PER_YEAR};
 use bevy_ecs::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 pub const MAX_FIELDS_PER_FARM: usize = 200;
 pub const FARM_INVENTORY_MAX_FOOD: u32 = 200;
 pub const FIELD_SEEDING_TICKS: u32 = SIMULATION_TICKS_PER_DAY;
-pub const FIELD_GROWTH_TICKS: u32 = SIMULATION_TICKS_PER_DAY * 365;
+pub const FIELD_GROWTH_TICKS: u32 = SIMULATION_TICKS_PER_YEAR;
 pub const FIELD_HARVEST_TICKS: u32 = RESOURCE_GATHER_TICKS_PER_UNIT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
@@ -83,76 +84,57 @@ impl FieldOwner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct FieldCrop {
-    seeding_progress_ticks: u32,
-    growth_ticks: Option<u32>,
+    growth: PlotGrowth,
 }
 
 impl FieldCrop {
     pub const fn seedable() -> Self {
         Self {
-            seeding_progress_ticks: 0,
-            growth_ticks: None,
+            growth: PlotGrowth::seedable(),
         }
     }
 
     pub const fn with_seeding_progress(seeding_progress_ticks: u32) -> Self {
         Self {
-            seeding_progress_ticks,
-            growth_ticks: None,
+            growth: PlotGrowth::with_seeding_progress(seeding_progress_ticks),
         }
     }
 
     pub const fn growing(growth_ticks: u32) -> Self {
         Self {
-            seeding_progress_ticks: FIELD_SEEDING_TICKS,
-            growth_ticks: Some(growth_ticks),
+            growth: PlotGrowth::growing(growth_ticks, FIELD_SEEDING_TICKS),
         }
     }
 
     pub const fn seeding_progress_ticks(self) -> u32 {
-        self.seeding_progress_ticks
+        self.growth.seeding_progress_ticks()
     }
 
     pub const fn growth_ticks(self) -> Option<u32> {
-        self.growth_ticks
+        self.growth.growth_ticks()
     }
 
     pub const fn is_seedable(self) -> bool {
-        self.growth_ticks.is_none() && self.seeding_progress_ticks < FIELD_SEEDING_TICKS
+        self.growth.is_seedable(FIELD_SEEDING_TICKS)
     }
 
     pub const fn is_grown(self) -> bool {
-        match self.growth_ticks {
+        match self.growth.growth_ticks() {
             Some(ticks) => ticks >= FIELD_GROWTH_TICKS,
             None => false,
         }
     }
 
     pub fn advance_seeding_tick(&mut self) -> bool {
-        if self.growth_ticks.is_some() || self.seeding_progress_ticks >= FIELD_SEEDING_TICKS {
-            return false;
-        }
-
-        self.seeding_progress_ticks = self.seeding_progress_ticks.saturating_add(1);
-        if self.seeding_progress_ticks >= FIELD_SEEDING_TICKS {
-            self.seeding_progress_ticks = FIELD_SEEDING_TICKS;
-            self.growth_ticks = Some(0);
-            true
-        } else {
-            false
-        }
+        self.growth.advance_seeding_tick(FIELD_SEEDING_TICKS)
     }
 
     pub fn advance_growth_tick(&mut self) {
-        if let Some(ticks) = &mut self.growth_ticks {
-            if *ticks < FIELD_GROWTH_TICKS {
-                *ticks = ticks.saturating_add(1).min(FIELD_GROWTH_TICKS);
-            }
-        }
+        self.growth.advance_growth_tick(FIELD_GROWTH_TICKS);
     }
 
     pub fn reset_after_harvest(&mut self) {
-        *self = Self::seedable();
+        self.growth.reset();
     }
 
     pub fn state(self, farm_active: bool, actively_seeding: bool) -> FieldCropState {
@@ -162,7 +144,7 @@ impl FieldCrop {
         if actively_seeding && self.is_seedable() {
             return FieldCropState::Seeding;
         }
-        match self.growth_ticks {
+        match self.growth.growth_ticks() {
             None => FieldCropState::Seedable,
             Some(ticks) if ticks >= FIELD_GROWTH_TICKS => FieldCropState::Grown,
             Some(ticks) if ticks >= FIELD_GROWTH_TICKS / 2 => FieldCropState::GrowingStep2,
@@ -220,6 +202,7 @@ impl From<BuildingPlacementError> for FieldPlacementError {
             BuildingPlacementError::InvalidTerrain => Self::InvalidTerrain,
             BuildingPlacementError::BlockedByResourceNode => Self::BlockedByResourceNode,
             BuildingPlacementError::FieldRequiresFarm => Self::OwnerMissing,
+            BuildingPlacementError::TreePlotRequiresLodge => Self::OwnerMissing,
         }
     }
 }
@@ -570,13 +553,23 @@ pub fn system_seed_fields(
         Option<&crate::components::AiSearchForFood>,
         Option<&crate::components::AiGatherResource>,
         Option<&crate::components::AiConstructBuilding>,
+        Option<&crate::forestry::AiSeedTreePlot>,
+        Option<&crate::forestry::AiCutTreePlot>,
         Option<&mut NpcSkills>,
     )>,
     mut fields: Query<(&Building, &FieldOwner, &mut FieldCrop)>,
     farms: Query<(&Building, &FarmInventory)>,
 ) {
-    for (npc, position, seed, farmer, search, gather, construction, skills) in &mut npcs {
-        if farmer.is_none() || search.is_some() || gather.is_some() || construction.is_some() {
+    for (npc, position, seed, farmer, search, gather, construction, tree_seed, tree_cut, skills) in
+        &mut npcs
+    {
+        if farmer.is_none()
+            || search.is_some()
+            || gather.is_some()
+            || construction.is_some()
+            || tree_seed.is_some()
+            || tree_cut.is_some()
+        {
             commands.entity(npc).remove::<AiSeedField>();
             continue;
         }
@@ -617,13 +610,33 @@ pub fn system_harvest_fields(
         Option<&crate::components::AiSearchForFood>,
         Option<&crate::components::AiGatherResource>,
         Option<&crate::components::AiConstructBuilding>,
+        Option<&crate::forestry::AiSeedTreePlot>,
+        Option<&crate::forestry::AiCutTreePlot>,
         Option<&mut NpcSkills>,
     )>,
     mut fields: Query<(&Building, &FieldOwner, &mut FieldCrop)>,
     mut farms: Query<(&Building, &mut FarmInventory)>,
 ) {
-    for (npc, position, mut harvest, farmer, search, gather, construction, skills) in &mut npcs {
-        if farmer.is_none() || search.is_some() || gather.is_some() || construction.is_some() {
+    for (
+        npc,
+        position,
+        mut harvest,
+        farmer,
+        search,
+        gather,
+        construction,
+        tree_seed,
+        tree_cut,
+        skills,
+    ) in &mut npcs
+    {
+        if farmer.is_none()
+            || search.is_some()
+            || gather.is_some()
+            || construction.is_some()
+            || tree_seed.is_some()
+            || tree_cut.is_some()
+        {
             commands.entity(npc).remove::<AiHarvestField>();
             continue;
         }
@@ -703,21 +716,31 @@ fn field_batch_preview(
         }
     }
 
-    let connected = connected_batch_fields(world, farm, farm_footprint, valid_footprints.keys());
-    let mut accepted = 0usize;
+    let reachable = connected_batch_fields(
+        world,
+        farm,
+        farm_footprint,
+        valid_footprints.keys(),
+        valid_footprints.len(),
+    );
+    let accepted = connected_batch_fields(
+        world,
+        farm,
+        farm_footprint,
+        valid_footprints.keys(),
+        remaining_capacity,
+    );
     for preview in &mut previews {
         if preview.result.is_err() {
             continue;
         }
-        if !connected.contains(&preview.coord) {
+        if !reachable.contains(&preview.coord) {
             preview.result = Err(FieldPlacementError::NotConnected);
             continue;
         }
-        if accepted >= remaining_capacity {
+        if !accepted.contains(&preview.coord) {
             preview.result = Err(FieldPlacementError::FarmFieldLimitReached);
-            continue;
         }
-        accepted += 1;
     }
 
     previews
@@ -811,36 +834,11 @@ fn connected_batch_fields<'a>(
     farm: Entity,
     farm_footprint: BuildingFootprint,
     candidates: impl IntoIterator<Item = &'a CellCoord>,
+    capacity: usize,
 ) -> HashSet<CellCoord> {
-    let candidates = candidates.into_iter().copied().collect::<HashSet<_>>();
-    let mut connected = HashSet::new();
-
-    loop {
-        let mut changed = false;
-        for coord in &candidates {
-            if connected.contains(coord) {
-                continue;
-            }
-            if is_field_connected_to_network(world, farm, *coord, farm_footprint, &connected) {
-                connected.insert(*coord);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    connected
-}
-
-fn cardinal_neighbors(coord: CellCoord) -> [CellCoord; 4] {
-    [
-        CellCoord::new(coord.x() + 1, coord.y()),
-        CellCoord::new(coord.x() - 1, coord.y()),
-        CellCoord::new(coord.x(), coord.y() + 1),
-        CellCoord::new(coord.x(), coord.y() - 1),
-    ]
+    connected_cells(candidates, capacity, |coord, connected| {
+        is_field_connected_to_network(world, farm, coord, farm_footprint, connected)
+    })
 }
 
 fn active_seed_fields(world: &World) -> HashSet<Entity> {

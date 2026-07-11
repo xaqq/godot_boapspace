@@ -147,6 +147,42 @@ fn field_limit_counts_blueprints_and_constructed_fields() {
 }
 
 #[test]
+fn field_batch_limit_keeps_the_connector_instead_of_a_disconnected_field() {
+    let mut world = farming_world();
+    let farm = spawn_farm(&mut world, CellCoord::new(5, 5));
+
+    for index in 0..MAX_FIELDS_PER_FARM - 1 {
+        world.spawn((
+            Building::new(
+                BuildingKind::Field,
+                BuildingFootprint::new(CellCoord::new(1_000 + index as i32, 1_000), 1, 1),
+            ),
+            FieldOwner::new(farm),
+            FieldCrop::seedable(),
+        ));
+    }
+
+    let distal = CellCoord::new(5, 3);
+    let connector = CellCoord::new(5, 4);
+    let result = place_field_blueprints(&mut world, farm, [distal, connector]);
+
+    assert_eq!(
+        result
+            .placed
+            .iter()
+            .map(|placed| placed.coord)
+            .collect::<Vec<_>>(),
+        vec![connector]
+    );
+    assert_eq!(result.rejected.len(), 1);
+    assert_eq!(result.rejected[0].coord, distal);
+    assert_eq!(
+        result.rejected[0].error,
+        FieldPlacementError::FarmFieldLimitReached
+    );
+}
+
+#[test]
 fn simulation_field_placement_is_surface_scoped() {
     let mut simulation = GameSimulation::new();
     let first = simulation.create_surface(GridSize::new(8, 8));

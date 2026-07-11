@@ -7,9 +7,10 @@ pub use crate::skills::{skill_percent, NpcSkills, SkillKind, SkillRank, MAX_SKIL
 
 use crate::ai::{DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD, DEFAULT_NPC_FOOD_INVENTORY_TARGET};
 use crate::farming::Farmer;
+use crate::forestry::Forester;
 use crate::grid::{CellCoord, Grid};
 use crate::resources::ResourceAmounts;
-use crate::time::SECONDS_PER_DAY;
+use crate::time::{DAYS_PER_YEAR, SECONDS_PER_DAY};
 use bevy_ecs::prelude::*;
 use std::time::Duration;
 
@@ -18,7 +19,6 @@ pub const INITIAL_NPC_BIRTH_DAY: u64 = 320;
 pub const DEFAULT_WORLD_DATE_TIME_DAY: u64 = 0;
 const SECONDS_PER_HOUR: u64 = 3_600;
 const SECONDS_PER_MINUTE: u64 = 60;
-const DAYS_PER_YEAR: u64 = 365;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InitialNpcSpec {
@@ -101,7 +101,8 @@ impl WorldDateTime {
             .elapsed_since_world_epoch
             .checked_sub(birth_date.elapsed_since_world_epoch())
             .unwrap_or_default();
-        u32::try_from(lived.as_secs() / (DAYS_PER_YEAR * SECONDS_PER_DAY)).unwrap_or(u32::MAX)
+        u32::try_from(lived.as_secs() / (u64::from(DAYS_PER_YEAR) * SECONDS_PER_DAY))
+            .unwrap_or(u32::MAX)
     }
 }
 
@@ -123,6 +124,7 @@ pub struct InitialNpcBundle {
     inventory: NpcInventory,
     skills: NpcSkills,
     farmer: Farmer,
+    forester: Forester,
     keep_food_in_inventory: AiKeepEnoughFoodInInventory,
 }
 
@@ -145,6 +147,7 @@ impl InitialNpcBundle {
             inventory: NpcInventory::new(ResourceAmounts::new(0, 0, 20, 0)),
             skills: NpcSkills::default(),
             farmer: Farmer,
+            forester: Forester,
             keep_food_in_inventory: AiKeepEnoughFoodInInventory::new(
                 DEFAULT_NPC_FOOD_INVENTORY_START_THRESHOLD,
                 DEFAULT_NPC_FOOD_INVENTORY_TARGET,

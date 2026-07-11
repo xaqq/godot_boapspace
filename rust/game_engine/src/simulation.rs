@@ -9,6 +9,11 @@ use crate::farming::{
     validate_field_blueprint_placement_batch, FieldPlacementBatchResult, FieldPlacementError,
     FieldPlacementPreview,
 };
+use crate::forestry::{
+    place_tree_plot_blueprint, place_tree_plot_blueprints, validate_tree_plot_blueprint_placement,
+    validate_tree_plot_blueprint_placement_batch, TreePlotPlacementBatchResult,
+    TreePlotPlacementError, TreePlotPlacementPreview,
+};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
 use crate::resource_nodes::spawn_initial_resource_nodes;
@@ -290,6 +295,46 @@ impl GameSimulation {
         validate_field_blueprint_placement_batch(&surface.world, farm, coords)
     }
 
+    pub fn place_tree_plot_blueprint(
+        &mut self,
+        surface_id: SurfaceId,
+        forester_lodge: Entity,
+        coord: CellCoord,
+    ) -> Result<Entity, TreePlotPlacementError> {
+        let surface = self.surface_mut(surface_id);
+        place_tree_plot_blueprint(&mut surface.world, forester_lodge, coord)
+    }
+
+    pub fn place_tree_plot_blueprints(
+        &mut self,
+        surface_id: SurfaceId,
+        forester_lodge: Entity,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> TreePlotPlacementBatchResult {
+        let surface = self.surface_mut(surface_id);
+        place_tree_plot_blueprints(&mut surface.world, forester_lodge, coords)
+    }
+
+    pub fn validate_tree_plot_blueprint_placement(
+        &self,
+        surface_id: SurfaceId,
+        forester_lodge: Entity,
+        coord: CellCoord,
+    ) -> Result<BuildingFootprint, TreePlotPlacementError> {
+        let surface = self.surface(surface_id);
+        validate_tree_plot_blueprint_placement(&surface.world, forester_lodge, coord)
+    }
+
+    pub fn validate_tree_plot_blueprint_placement_batch(
+        &self,
+        surface_id: SurfaceId,
+        forester_lodge: Entity,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> Vec<TreePlotPlacementPreview> {
+        let surface = self.surface(surface_id);
+        validate_tree_plot_blueprint_placement_batch(&surface.world, forester_lodge, coords)
+    }
+
     fn surface(&self, surface_id: SurfaceId) -> &SurfaceRuntime {
         self.surfaces
             .get(surface_id.index())
@@ -343,5 +388,136 @@ fn tile_coords(surface: &SurfaceRuntime) -> Vec<CellCoord> {
 impl Default for GameSimulation {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buildings::{Building, BuildingFootprint, BuildingKind};
+    use crate::components::NpcInventory;
+    use crate::forestry::{
+        AiCutTreePlot, AiSeedTreePlot, Forester, ForesterLodgeInventory, TreePlotGrowth,
+        TreePlotOwner, TREE_PLOT_GROWTH_TICKS,
+    };
+    use crate::grid::CellCoord;
+    use crate::npcs::{Npc, NpcPosition};
+
+    #[test]
+    fn pause_and_speed_multiplier_apply_to_forestry_progress() {
+        let mut simulation = GameSimulation::new();
+        let surface = simulation.create_surface(GridSize::new(8, 8));
+        let (seed_plot, growth_plot, cut_worker) = {
+            let world = &mut simulation.surface_mut(surface).world;
+            let lodge = world
+                .spawn((
+                    Building::new(
+                        BuildingKind::ForesterLodge,
+                        BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
+                    ),
+                    ForesterLodgeInventory::empty(),
+                ))
+                .id();
+            let seed_plot = world
+                .spawn((
+                    Building::new(
+                        BuildingKind::TreePlot,
+                        BuildingFootprint::new(CellCoord::new(0, 3), 1, 1),
+                    ),
+                    TreePlotOwner::new(lodge),
+                    TreePlotGrowth::seedable(),
+                ))
+                .id();
+            let growth_plot = world
+                .spawn((
+                    Building::new(
+                        BuildingKind::TreePlot,
+                        BuildingFootprint::new(CellCoord::new(1, 3), 1, 1),
+                    ),
+                    TreePlotOwner::new(lodge),
+                    TreePlotGrowth::growing(0),
+                ))
+                .id();
+            let cut_plot = world
+                .spawn((
+                    Building::new(
+                        BuildingKind::TreePlot,
+                        BuildingFootprint::new(CellCoord::new(2, 3), 1, 1),
+                    ),
+                    TreePlotOwner::new(lodge),
+                    TreePlotGrowth::growing(TREE_PLOT_GROWTH_TICKS),
+                ))
+                .id();
+            world.spawn((
+                Npc,
+                Forester,
+                NpcPosition::new(CellCoord::new(0, 3)),
+                NpcInventory::empty(),
+                AiSeedTreePlot::new(seed_plot),
+            ));
+            let cut_worker = world
+                .spawn((
+                    Npc,
+                    Forester,
+                    NpcPosition::new(CellCoord::new(2, 3)),
+                    NpcInventory::empty(),
+                    AiCutTreePlot::new(cut_plot),
+                ))
+                .id();
+            (seed_plot, growth_plot, cut_worker)
+        };
+
+        simulation.pause();
+        simulation.tick();
+        simulation.with_surface_world(surface, |world| {
+            assert_eq!(
+                world
+                    .get::<TreePlotGrowth>(seed_plot)
+                    .unwrap()
+                    .seeding_progress_ticks(),
+                0
+            );
+            assert_eq!(
+                world
+                    .get::<TreePlotGrowth>(growth_plot)
+                    .unwrap()
+                    .growth_ticks(),
+                Some(0)
+            );
+            assert_eq!(
+                world
+                    .get::<AiCutTreePlot>(cut_worker)
+                    .unwrap()
+                    .progress_ticks(),
+                0
+            );
+        });
+
+        simulation.play();
+        simulation.set_simulation_speed(SimulationSpeed::FourX);
+        simulation.tick();
+        simulation.with_surface_world(surface, |world| {
+            assert_eq!(
+                world
+                    .get::<TreePlotGrowth>(seed_plot)
+                    .unwrap()
+                    .seeding_progress_ticks(),
+                4
+            );
+            assert_eq!(
+                world
+                    .get::<TreePlotGrowth>(growth_plot)
+                    .unwrap()
+                    .growth_ticks(),
+                Some(4)
+            );
+            assert_eq!(
+                world
+                    .get::<AiCutTreePlot>(cut_worker)
+                    .unwrap()
+                    .progress_ticks(),
+                4
+            );
+        });
     }
 }

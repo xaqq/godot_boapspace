@@ -10,6 +10,11 @@ use crate::farming::{
     field_harvest_is_actionable, field_seeding_is_actionable, AiHarvestField, AiSeedField,
     FarmInventory, Farmer, FieldCrop, FieldOwner, HarvestField, SeedField,
 };
+use crate::forestry::{
+    tree_plot_cutting_is_actionable, tree_plot_seeding_is_actionable, AiCutTreePlot,
+    AiSeedTreePlot, CutTreePlot, Forester, ForesterLodgeInventory, SeedTreePlot, TreePlotGrowth,
+    TreePlotOwner,
+};
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::resources::{ResourceAmounts, ResourceKind};
 use crate::skills::{NpcSkills, SkillKind};
@@ -172,7 +177,7 @@ pub fn system_assign_construction_work(
     }
 }
 
-pub fn system_assign_farming_work(
+pub fn system_assign_plot_work(
     mut commands: Commands,
     npcs: Query<
         (
@@ -183,49 +188,84 @@ pub fn system_assign_farming_work(
             Option<&AiSearchForFood>,
             Option<&AiGatherResource>,
             Option<&AiConstructBuilding>,
+            Option<&Farmer>,
+            Option<&Forester>,
             Option<&AiSeedField>,
             Option<&AiHarvestField>,
+            Option<&AiSeedTreePlot>,
+            Option<&AiCutTreePlot>,
         ),
-        (With<Npc>, With<Farmer>),
+        With<Npc>,
     >,
     seed_tasks: Query<&SeedField>,
     harvest_tasks: Query<&HarvestField>,
+    tree_seed_tasks: Query<&SeedTreePlot>,
+    tree_cut_tasks: Query<&CutTreePlot>,
     active_seed_work: Query<&AiSeedField>,
     active_harvest_work: Query<&AiHarvestField>,
+    active_tree_seed_work: Query<&AiSeedTreePlot>,
+    active_tree_cut_work: Query<&AiCutTreePlot>,
     fields: Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
     farms: Query<(&Building, &FarmInventory)>,
+    tree_plots: Query<(Entity, &Building, &TreePlotOwner, &TreePlotGrowth)>,
+    lodges: Query<(&Building, &ForesterLodgeInventory)>,
     resource_nodes: Query<(Entity, &TilePosition, &ResourceNode)>,
 ) {
-    let active_seed_fields = active_seed_work
+    let mut claimed_fields = active_seed_work
         .iter()
         .map(|seed| seed.field())
         .collect::<std::collections::HashSet<_>>();
-    let active_harvest_fields = active_harvest_work
+    claimed_fields.extend(active_harvest_work.iter().map(|harvest| harvest.field()));
+    let mut claimed_tree_plots = active_tree_seed_work
         .iter()
-        .map(|harvest| harvest.field())
+        .map(|seed| seed.tree_plot())
         .collect::<std::collections::HashSet<_>>();
+    claimed_tree_plots.extend(active_tree_cut_work.iter().map(|cut| cut.tree_plot()));
 
-    for (entity, position, inventory, keep_food, search, gather, construction, seed, harvest) in
-        &npcs
+    let mut eligible_npcs = npcs.iter().collect::<Vec<_>>();
+    eligible_npcs.sort_by_key(|(entity, ..)| entity.to_bits());
+    for (
+        entity,
+        position,
+        inventory,
+        keep_food,
+        search,
+        gather,
+        construction,
+        farmer,
+        forester,
+        field_seed,
+        field_harvest,
+        tree_seed,
+        tree_cut,
+    ) in eligible_npcs
     {
         if search.is_some()
             || gather.is_some()
             || construction.is_some()
-            || seed.is_some()
-            || harvest.is_some()
+            || field_seed.is_some()
+            || field_harvest.is_some()
+            || tree_seed.is_some()
+            || tree_cut.is_some()
             || should_interrupt_for_food(inventory, keep_food, &resource_nodes)
         {
             continue;
         }
 
-        let Some(target) = farming_work_target(
+        let Some(target) = plot_work_target(
             position.coord,
+            farmer.is_some(),
+            forester.is_some(),
             &seed_tasks,
             &harvest_tasks,
-            &active_seed_fields,
-            &active_harvest_fields,
+            &tree_seed_tasks,
+            &tree_cut_tasks,
+            &claimed_fields,
+            &claimed_tree_plots,
             &fields,
             &farms,
+            &tree_plots,
+            &lodges,
         ) else {
             continue;
         };
@@ -233,17 +273,29 @@ pub fn system_assign_farming_work(
         let mut entity_commands = commands.entity(entity);
         entity_commands.remove::<AiIdleRoam>();
         match target {
-            FarmingWorkTarget::Seed(field) => {
+            PlotWorkTarget::SeedField(field) => {
+                claimed_fields.insert(field);
                 entity_commands.insert(AiSeedField::new(field));
             }
-            FarmingWorkTarget::Harvest(field) => {
+            PlotWorkTarget::HarvestField(field) => {
+                claimed_fields.insert(field);
                 entity_commands.insert(AiHarvestField::new(field));
+            }
+            PlotWorkTarget::SeedTreePlot(tree_plot) => {
+                claimed_tree_plots.insert(tree_plot);
+                entity_commands.insert(AiSeedTreePlot::new(tree_plot));
+            }
+            PlotWorkTarget::CutTreePlot(tree_plot) => {
+                claimed_tree_plots.insert(tree_plot);
+                entity_commands.insert(AiCutTreePlot::new(tree_plot));
             }
         }
     }
 }
 
-pub fn system_route_farming_work(
+pub use system_assign_plot_work as system_assign_farming_work;
+
+pub fn system_route_plot_work(
     mut commands: Commands,
     npcs: Query<
         (
@@ -254,19 +306,35 @@ pub fn system_route_farming_work(
             Option<&AiConstructBuilding>,
             Option<&AiSeedField>,
             Option<&AiHarvestField>,
+            Option<&AiSeedTreePlot>,
+            Option<&AiCutTreePlot>,
             Option<&MovementTarget>,
         ),
         With<Npc>,
     >,
     fields: Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
     farms: Query<(&Building, &FarmInventory)>,
+    tree_plots: Query<(Entity, &Building, &TreePlotOwner, &TreePlotGrowth)>,
+    lodges: Query<(&Building, &ForesterLodgeInventory)>,
 ) {
-    for (entity, position, search, gather, construction, seed, harvest, movement_target) in &npcs {
+    for (
+        entity,
+        position,
+        search,
+        gather,
+        construction,
+        field_seed,
+        field_harvest,
+        tree_seed,
+        tree_cut,
+        movement_target,
+    ) in &npcs
+    {
         if search.is_some() || gather.is_some() || construction.is_some() {
             continue;
         }
 
-        if let Some(seed) = seed {
+        if let Some(seed) = field_seed {
             let Some(coord) = field_seeding_is_actionable(seed.field(), &fields, &farms) else {
                 commands.entity(entity).remove::<AiSeedField>();
                 commands.entity(entity).remove::<MovementTarget>();
@@ -276,9 +344,33 @@ pub fn system_route_farming_work(
             continue;
         }
 
-        if let Some(harvest) = harvest {
+        if let Some(harvest) = field_harvest {
             let Some(coord) = field_harvest_is_actionable(harvest.field(), &fields, &farms) else {
                 commands.entity(entity).remove::<AiHarvestField>();
+                commands.entity(entity).remove::<MovementTarget>();
+                continue;
+            };
+            route_to_farming_cell(&mut commands, entity, position, movement_target, coord);
+            continue;
+        }
+
+        if let Some(seed) = tree_seed {
+            let Some(coord) =
+                tree_plot_seeding_is_actionable(seed.tree_plot(), &tree_plots, &lodges)
+            else {
+                commands.entity(entity).remove::<AiSeedTreePlot>();
+                commands.entity(entity).remove::<MovementTarget>();
+                continue;
+            };
+            route_to_farming_cell(&mut commands, entity, position, movement_target, coord);
+            continue;
+        }
+
+        if let Some(cut) = tree_cut {
+            let Some(coord) =
+                tree_plot_cutting_is_actionable(cut.tree_plot(), &tree_plots, &lodges)
+            else {
+                commands.entity(entity).remove::<AiCutTreePlot>();
                 commands.entity(entity).remove::<MovementTarget>();
                 continue;
             };
@@ -286,6 +378,8 @@ pub fn system_route_farming_work(
         }
     }
 }
+
+pub use system_route_plot_work as system_route_farming_work;
 
 pub fn system_route_construction_work(
     mut commands: Commands,
@@ -508,6 +602,8 @@ pub fn system_npc_idle(
             Option<&AiConstructBuilding>,
             Option<&AiSeedField>,
             Option<&AiHarvestField>,
+            Option<&AiSeedTreePlot>,
+            Option<&AiCutTreePlot>,
             Option<&mut AiIdleRoam>,
         ),
         With<Npc>,
@@ -526,6 +622,8 @@ pub fn system_npc_idle(
         construction,
         seed,
         harvest,
+        tree_seed,
+        tree_cut,
         idle,
     ) in &mut npcs
     {
@@ -534,6 +632,8 @@ pub fn system_npc_idle(
             || construction.is_some()
             || seed.is_some()
             || harvest.is_some()
+            || tree_seed.is_some()
+            || tree_cut.is_some()
         {
             commands.entity(entity).remove::<AiIdleRoam>();
             continue;
@@ -711,54 +811,108 @@ fn construction_work_target(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FarmingWorkTarget {
-    Seed(Entity),
-    Harvest(Entity),
+enum PlotWorkTarget {
+    SeedField(Entity),
+    HarvestField(Entity),
+    SeedTreePlot(Entity),
+    CutTreePlot(Entity),
 }
 
-fn farming_work_target(
+fn plot_work_target(
     origin: CellCoord,
+    is_farmer: bool,
+    is_forester: bool,
     seed_tasks: &Query<&SeedField>,
     harvest_tasks: &Query<&HarvestField>,
-    active_seed_fields: &std::collections::HashSet<Entity>,
-    active_harvest_fields: &std::collections::HashSet<Entity>,
+    tree_seed_tasks: &Query<&SeedTreePlot>,
+    tree_cut_tasks: &Query<&CutTreePlot>,
+    claimed_fields: &std::collections::HashSet<Entity>,
+    claimed_tree_plots: &std::collections::HashSet<Entity>,
     fields: &Query<(Entity, &Building, &FieldOwner, &FieldCrop)>,
     farms: &Query<(&Building, &FarmInventory)>,
-) -> Option<FarmingWorkTarget> {
+    tree_plots: &Query<(Entity, &Building, &TreePlotOwner, &TreePlotGrowth)>,
+    lodges: &Query<(&Building, &ForesterLodgeInventory)>,
+) -> Option<PlotWorkTarget> {
     let seed_candidates = seed_tasks.iter().filter_map(|task| {
+        if !is_farmer {
+            return None;
+        }
         let field = task.field();
-        if active_seed_fields.contains(&field) || active_harvest_fields.contains(&field) {
+        if claimed_fields.contains(&field) {
             return None;
         }
         let coord = field_seeding_is_actionable(field, fields, farms)?;
         Some((
-            FarmingWorkTarget::Seed(field),
+            PlotWorkTarget::SeedField(field),
             manhattan_distance(origin, coord),
             coord.y(),
             coord.x(),
             field.to_bits(),
-            1usize,
+            1u8,
         ))
     });
 
     let harvest_candidates = harvest_tasks.iter().filter_map(|task| {
+        if !is_farmer {
+            return None;
+        }
         let field = task.field();
-        if active_seed_fields.contains(&field) || active_harvest_fields.contains(&field) {
+        if claimed_fields.contains(&field) {
             return None;
         }
         let coord = field_harvest_is_actionable(field, fields, farms)?;
         Some((
-            FarmingWorkTarget::Harvest(field),
+            PlotWorkTarget::HarvestField(field),
             manhattan_distance(origin, coord),
             coord.y(),
             coord.x(),
             field.to_bits(),
-            0usize,
+            0u8,
+        ))
+    });
+
+    let tree_seed_candidates = tree_seed_tasks.iter().filter_map(|task| {
+        if !is_forester {
+            return None;
+        }
+        let plot = task.tree_plot();
+        if claimed_tree_plots.contains(&plot) {
+            return None;
+        }
+        let coord = tree_plot_seeding_is_actionable(plot, tree_plots, lodges)?;
+        Some((
+            PlotWorkTarget::SeedTreePlot(plot),
+            manhattan_distance(origin, coord),
+            coord.y(),
+            coord.x(),
+            plot.to_bits(),
+            3u8,
+        ))
+    });
+
+    let tree_cut_candidates = tree_cut_tasks.iter().filter_map(|task| {
+        if !is_forester {
+            return None;
+        }
+        let plot = task.tree_plot();
+        if claimed_tree_plots.contains(&plot) {
+            return None;
+        }
+        let coord = tree_plot_cutting_is_actionable(plot, tree_plots, lodges)?;
+        Some((
+            PlotWorkTarget::CutTreePlot(plot),
+            manhattan_distance(origin, coord),
+            coord.y(),
+            coord.x(),
+            plot.to_bits(),
+            2u8,
         ))
     });
 
     seed_candidates
         .chain(harvest_candidates)
+        .chain(tree_seed_candidates)
+        .chain(tree_cut_candidates)
         .min_by_key(|(_, distance, y, x, bits, task_index)| (*distance, *y, *x, *bits, *task_index))
         .map(|(target, _, _, _, _, _)| target)
 }
