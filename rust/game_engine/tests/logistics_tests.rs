@@ -196,7 +196,7 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
             .unwrap()
             .deposited()
             .get(ResourceKind::Planks),
-        5
+        10
     );
     assert_eq!(
         world
@@ -204,7 +204,7 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
             .unwrap()
             .contents()
             .get(ResourceKind::Planks),
-        5
+        0
     );
     assert_eq!(
         world

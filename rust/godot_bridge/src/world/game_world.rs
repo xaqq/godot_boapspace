@@ -8,7 +8,7 @@ use game_engine::buildings::{
 };
 use game_engine::components::{
     AiGatherResource, CarriedResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind,
-    Tile, TilePosition, Velocity, SUBTILE_UNITS_PER_TILE,
+    Tile, TilePosition, Velocity, Wheelbarrow, SUBTILE_UNITS_PER_TILE,
 };
 use game_engine::farming::{
     field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState, HarvestField,
@@ -26,14 +26,16 @@ use game_engine::refining::{
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
-use game_engine::simulation::{GameSimulation, SimulationSpeed, SurfaceId};
+use game_engine::simulation::{
+    BuildingCommandError, BuildingTarget, GameSimulation, SimulationSpeed, SurfaceId,
+};
 use game_engine::tasks::{ProgressBuildingConstruction, TaskAssignment};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
-    canvas_item::TextureFilter, AnimatedSprite2D, Camera2D, INode2D, Input, InputEvent,
-    InputEventMouseButton, Node2D, PackedScene, Sprite2D, Texture2D, TileMapLayer, TileSet,
-    TileSetAtlasSource, TileSetSource,
+    canvas_item::TextureFilter, AnimatedSprite2D, AtlasTexture, Camera2D, INode2D, Input,
+    InputEvent, InputEventMouseButton, Node2D, PackedScene, Sprite2D, SpriteFrames, Texture2D,
+    TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
@@ -51,6 +53,7 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
+const BUILDING_DEPOT_PATH: &str = "res://assets/generated/building_depot.png";
 const BUILDING_WAREHOUSE_PATH: &str = "res://assets/generated/building_warehouse.png";
 const BUILDING_TOWNHALL_PATH: &str = "res://assets/generated/building_townhall.png";
 const BUILDING_SAWMILL_PATH: &str = "res://assets/generated/building_sawmill.png";
@@ -63,6 +66,8 @@ const BUILDING_TREE_PLOT_PATH: &str = "res://assets/generated/building_tree_plot
 const BUILDING_SMALL_HOUSE_PATH: &str = "res://assets/generated/building_house_small.png";
 const BUILDING_MEDIUM_HOUSE_PATH: &str = "res://assets/generated/building_house_medium.png";
 const BUILDING_LARGE_HOUSE_PATH: &str = "res://assets/generated/building_house_large.png";
+const WHEELBARROW_OVERLAY_SCENE_PATH: &str = "res://world/wheelbarrow_overlay.tscn";
+const WHEELBARROW_EMPTY_PATH: &str = "res://assets/generated/wheelbarrow_empty_sheet.png";
 const CROP_SEEDABLE_PATH: &str = "res://assets/generated/crop_seedable_plot.png";
 const CROP_GROWING_STEP1_PATH: &str = "res://assets/generated/crop_growing_step1.png";
 const CROP_GROWING_STEP2_PATH: &str = "res://assets/generated/crop_growing_step2.png";
@@ -194,6 +199,8 @@ struct NpcRenderInfo {
     is_gathering: bool,
     refining_animation: Option<NpcRefiningAnimation>,
     carried_kind: Option<ResourceKind>,
+    has_wheelbarrow: bool,
+    wheelbarrow_kind: Option<ResourceKind>,
 }
 
 struct RenderedNpcSprite {
@@ -201,6 +208,8 @@ struct RenderedNpcSprite {
     sprite: Gd<AnimatedSprite2D>,
     cargo_icon: Gd<Sprite2D>,
     carried_kind: Option<ResourceKind>,
+    wheelbarrow: Gd<AnimatedSprite2D>,
+    has_wheelbarrow: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +301,8 @@ pub(crate) struct GameWorld {
     _crop_tile_set: Option<Gd<TileSet>>,
     _tree_plot_tile_set: Option<Gd<TileSet>>,
     npc_scenes: HashMap<NpcAppearance, Gd<PackedScene>>,
+    wheelbarrow_scene: Option<Gd<PackedScene>>,
+    wheelbarrow_frames: Option<Gd<SpriteFrames>>,
     npc_sprites: HashMap<Entity, RenderedNpcSprite>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
@@ -324,6 +335,8 @@ impl INode2D for GameWorld {
             _crop_tile_set: None,
             _tree_plot_tile_set: None,
             npc_scenes: HashMap::new(),
+            wheelbarrow_scene: None,
+            wheelbarrow_frames: None,
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
             building_sprites: HashMap::new(),
@@ -395,6 +408,10 @@ impl INode2D for GameWorld {
         self.populate_tree_plot_map(&mut tree_plot_map);
 
         if !self.load_npc_scenes() {
+            self.disable_processing();
+            return;
+        }
+        if !self.load_wheelbarrow_scene() {
             self.disable_processing();
             return;
         }
@@ -1354,8 +1371,41 @@ impl GameWorld {
                 cargo_icon.set_scale(Vector2::new(0.35, 0.35));
                 cargo_icon.set_texture_filter(TextureFilter::NEAREST);
                 cargo_icon.set_z_index(1);
-                update_cargo_icon(&mut cargo_icon, npc.carried_kind);
+                update_cargo_icon(
+                    &mut cargo_icon,
+                    (!npc.has_wheelbarrow).then_some(npc.carried_kind).flatten(),
+                );
                 sprite.add_child(&cargo_icon);
+                let Some(wheelbarrow_scene) = self.wheelbarrow_scene.as_ref() else {
+                    godot_error!("GameWorld: wheelbarrow scene not initialized");
+                    self.disable_processing();
+                    return;
+                };
+                let Some(wheelbarrow_node) = wheelbarrow_scene.instantiate() else {
+                    godot_error!("GameWorld: failed to instantiate wheelbarrow overlay scene");
+                    self.disable_processing();
+                    return;
+                };
+                let mut wheelbarrow = match wheelbarrow_node.try_cast::<AnimatedSprite2D>() {
+                    Ok(sprite) => sprite,
+                    Err(mut node) => {
+                        godot_error!(
+                            "GameWorld: wheelbarrow scene root is {}, expected AnimatedSprite2D",
+                            node.get_class()
+                        );
+                        node.queue_free();
+                        self.disable_processing();
+                        return;
+                    }
+                };
+                let Some(frames) = self.wheelbarrow_frames.as_ref() else {
+                    godot_error!("GameWorld: wheelbarrow frames not initialized");
+                    self.disable_processing();
+                    return;
+                };
+                wheelbarrow.set_sprite_frames(frames);
+                set_wheelbarrow_animation(&mut wheelbarrow, npc);
+                sprite.add_child(&wheelbarrow);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(
                     npc.entity,
@@ -1364,6 +1414,8 @@ impl GameWorld {
                         sprite,
                         cargo_icon,
                         carried_kind: npc.carried_kind,
+                        wheelbarrow,
+                        has_wheelbarrow: npc.has_wheelbarrow,
                     },
                 );
                 continue;
@@ -1372,10 +1424,17 @@ impl GameWorld {
             if let Some(rendered) = self.npc_sprites.get_mut(&npc.entity) {
                 rendered.sprite.set_position(position);
                 set_npc_animation(&mut rendered.sprite, npc);
-                if rendered.carried_kind != npc.carried_kind {
-                    update_cargo_icon(&mut rendered.cargo_icon, npc.carried_kind);
+                if rendered.carried_kind != npc.carried_kind
+                    || rendered.has_wheelbarrow != npc.has_wheelbarrow
+                {
+                    update_cargo_icon(
+                        &mut rendered.cargo_icon,
+                        (!npc.has_wheelbarrow).then_some(npc.carried_kind).flatten(),
+                    );
                     rendered.carried_kind = npc.carried_kind;
                 }
+                set_wheelbarrow_animation(&mut rendered.wheelbarrow, npc);
+                rendered.has_wheelbarrow = npc.has_wheelbarrow;
             }
         }
 
@@ -1530,6 +1589,15 @@ impl GameWorld {
 
     fn npc_scene(&self, appearance: NpcAppearance) -> Option<Gd<PackedScene>> {
         self.npc_scenes.get(&appearance).cloned()
+    }
+
+    fn load_wheelbarrow_scene(&mut self) -> bool {
+        self.wheelbarrow_scene = load_packed_scene(
+            WHEELBARROW_OVERLAY_SCENE_PATH,
+            "GameWorld wheelbarrow overlay",
+        );
+        self.wheelbarrow_frames = build_wheelbarrow_frames();
+        self.wheelbarrow_scene.is_some() && self.wheelbarrow_frames.is_some()
     }
 
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
@@ -1757,6 +1825,11 @@ impl GameWorld {
     }
 
     #[func]
+    pub(crate) fn start_depot_blueprint_placement(&mut self) {
+        self.start_build_mode(BuildingKind::Depot);
+    }
+
+    #[func]
     pub(crate) fn start_warehouse_blueprint_placement(&mut self) {
         self.start_build_mode(BuildingKind::Warehouse);
     }
@@ -1860,36 +1933,67 @@ impl GameWorld {
         }
     }
 
-    pub(crate) fn warehouse_resource_allowed(
-        &self,
-        warehouse_entity_id: i64,
-        kind: ResourceKind,
-    ) -> Option<bool> {
-        let entity = decode_entity_id(warehouse_entity_id)?;
+    pub(crate) fn rename_building(
+        &mut self,
+        building_entity_id: i64,
+        requested_name: &str,
+    ) -> Result<(), BuildingCommandError> {
+        let entity =
+            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
+        let target = BuildingTarget::new(self.rendered_surface, entity);
         self.game
-            .warehouse_resource_allowed(self.rendered_surface, entity, kind)
-            .ok()
+            .rename_building(self.rendered_surface, target, requested_name)
     }
 
-    pub(crate) fn set_warehouse_resource_allowed(
+    pub(crate) fn set_building_active(
         &mut self,
-        warehouse_entity_id: i64,
+        building_entity_id: i64,
+        active: bool,
+    ) -> Result<(), BuildingCommandError> {
+        let entity =
+            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
+        let target = BuildingTarget::new(self.rendered_surface, entity);
+        self.game
+            .set_building_active(self.rendered_surface, target, active)
+    }
+
+    pub(crate) fn set_storage_resource_allowed(
+        &mut self,
+        building_entity_id: i64,
         kind: ResourceKind,
         allowed: bool,
-    ) -> bool {
-        let Some(entity) = decode_entity_id(warehouse_entity_id) else {
-            return false;
-        };
-        match self
-            .game
-            .set_warehouse_resource_allowed(self.rendered_surface, entity, kind, allowed)
-        {
-            Ok(()) => true,
-            Err(error) => {
-                godot_warn!("GameWorld: warehouse filter update rejected: {error:?}");
-                false
-            }
-        }
+    ) -> Result<(), BuildingCommandError> {
+        let entity =
+            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
+        let target = BuildingTarget::new(self.rendered_surface, entity);
+        self.game
+            .set_storage_resource_allowed(self.rendered_surface, target, kind, allowed)
+    }
+
+    pub(crate) fn set_storage_pulls_from_refineries(
+        &mut self,
+        building_entity_id: i64,
+        kind: ResourceKind,
+        enabled: bool,
+    ) -> Result<(), BuildingCommandError> {
+        let entity =
+            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
+        let target = BuildingTarget::new(self.rendered_surface, entity);
+        self.game
+            .set_storage_pulls_from_refineries(self.rendered_surface, target, kind, enabled)
+    }
+
+    pub(crate) fn set_refinery_pulls_from_storage(
+        &mut self,
+        building_entity_id: i64,
+        kind: ResourceKind,
+        enabled: bool,
+    ) -> Result<(), BuildingCommandError> {
+        let entity =
+            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
+        let target = BuildingTarget::new(self.rendered_surface, entity);
+        self.game
+            .set_refinery_pulls_from_storage(self.rendered_surface, target, kind, enabled)
     }
 
     #[func]
@@ -2160,6 +2264,11 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
                     carried_kind: world
                         .get::<CarriedResource>(entity)
                         .and_then(|cargo| cargo.stack())
+                        .map(|stack| stack.kind()),
+                    has_wheelbarrow: world.get::<Wheelbarrow>(entity).is_some(),
+                    wheelbarrow_kind: world
+                        .get::<Wheelbarrow>(entity)
+                        .and_then(|wheelbarrow| wheelbarrow.stack())
                         .map(|stack| stack.kind()),
                 })
                 .collect()
@@ -2496,6 +2605,101 @@ fn update_cargo_icon(icon: &mut Gd<Sprite2D>, kind: Option<ResourceKind>) {
     }
 }
 
+fn build_wheelbarrow_frames() -> Option<Gd<SpriteFrames>> {
+    const DIRECTIONS: [&str; 8] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
+    let sheets = std::iter::once(("empty", WHEELBARROW_EMPTY_PATH)).chain(
+        ResourceKind::ALL
+            .into_iter()
+            .map(|kind| (resource_animation_slug(kind), wheelbarrow_asset_path(kind))),
+    );
+    let mut frames = SpriteFrames::new_gd();
+    frames.clear_all();
+
+    for (load, path) in sheets {
+        let texture = load_texture(path, "GameWorld wheelbarrow frames")?;
+        for (row, direction) in DIRECTIONS.into_iter().enumerate() {
+            let animation_name = format!("{load}_{direction}");
+            let animation = StringName::from(&animation_name);
+            frames.add_animation(&animation);
+            frames.set_animation_speed(&animation, 8.0);
+            frames.set_animation_loop(&animation, true);
+            for column in 0..4 {
+                let mut atlas = AtlasTexture::new_gd();
+                atlas.set_atlas(&texture);
+                atlas.set_region(Rect2::new(
+                    Vector2::new(column as f32 * 64.0, row as f32 * 64.0),
+                    Vector2::new(64.0, 64.0),
+                ));
+                let frame: Gd<Texture2D> = atlas.upcast();
+                frames.add_frame(&animation, &frame);
+            }
+        }
+    }
+
+    Some(frames)
+}
+
+fn set_wheelbarrow_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
+    if !npc.has_wheelbarrow {
+        sprite.hide();
+        return;
+    }
+
+    sprite.show();
+    let animation_name = wheelbarrow_animation_name(npc.facing, npc.wheelbarrow_kind);
+    let animation = StringName::from(&animation_name);
+    if sprite.get_animation() != animation {
+        sprite.set_animation(&animation);
+    }
+    if npc.velocity.is_zero() {
+        sprite.stop();
+        sprite.set_frame(0);
+    } else if !sprite.is_playing() {
+        sprite.play();
+    }
+}
+
+fn wheelbarrow_animation_name(facing: MovementFacing, cargo: Option<ResourceKind>) -> String {
+    let load = cargo.map_or("empty", resource_animation_slug);
+    let direction = match facing {
+        MovementFacing::North => "n",
+        MovementFacing::NorthEast => "ne",
+        MovementFacing::East => "e",
+        MovementFacing::SouthEast => "se",
+        MovementFacing::South => "s",
+        MovementFacing::SouthWest => "sw",
+        MovementFacing::West => "w",
+        MovementFacing::NorthWest => "nw",
+    };
+    format!("{load}_{direction}")
+}
+
+const fn resource_animation_slug(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::Wood => "wood",
+        ResourceKind::Stone => "stone",
+        ResourceKind::Food => "food",
+        ResourceKind::Gold => "gold",
+        ResourceKind::Crops => "crops",
+        ResourceKind::WildBerries => "wild_berries",
+        ResourceKind::Planks => "planks",
+        ResourceKind::StoneBlocks => "stone_blocks",
+    }
+}
+
+const fn wheelbarrow_asset_path(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::Wood => "res://assets/generated/wheelbarrow_wood_sheet.png",
+        ResourceKind::Stone => "res://assets/generated/wheelbarrow_stone_sheet.png",
+        ResourceKind::Food => "res://assets/generated/wheelbarrow_food_sheet.png",
+        ResourceKind::Gold => "res://assets/generated/wheelbarrow_gold_sheet.png",
+        ResourceKind::Crops => "res://assets/generated/wheelbarrow_crops_sheet.png",
+        ResourceKind::WildBerries => "res://assets/generated/wheelbarrow_wild_berries_sheet.png",
+        ResourceKind::Planks => "res://assets/generated/wheelbarrow_planks_sheet.png",
+        ResourceKind::StoneBlocks => "res://assets/generated/wheelbarrow_stone_blocks_sheet.png",
+    }
+}
+
 fn npc_animation_name(npc: NpcRenderInfo) -> &'static str {
     if let Some(refining_animation) = npc.refining_animation {
         return refining_animation.animation_name();
@@ -2544,6 +2748,7 @@ fn building_sprite_modulate(state: BuildingRenderState) -> Color {
 
 fn building_asset_path(kind: BuildingKind) -> &'static str {
     match kind {
+        BuildingKind::Depot => BUILDING_DEPOT_PATH,
         BuildingKind::Warehouse => BUILDING_WAREHOUSE_PATH,
         BuildingKind::TownHall => BUILDING_TOWNHALL_PATH,
         BuildingKind::Sawmill => BUILDING_SAWMILL_PATH,
@@ -3158,6 +3363,83 @@ mod tests {
     }
 
     #[test]
+    fn building_asset_paths_include_storage_assets() {
+        assert_eq!(
+            building_asset_path(BuildingKind::Depot),
+            "res://assets/generated/building_depot.png"
+        );
+        assert_eq!(
+            building_asset_path(BuildingKind::Warehouse),
+            "res://assets/generated/building_warehouse.png"
+        );
+    }
+
+    #[test]
+    fn wheelbarrow_animations_cover_every_load_and_direction() {
+        for (facing, direction) in [
+            (MovementFacing::North, "n"),
+            (MovementFacing::NorthEast, "ne"),
+            (MovementFacing::East, "e"),
+            (MovementFacing::SouthEast, "se"),
+            (MovementFacing::South, "s"),
+            (MovementFacing::SouthWest, "sw"),
+            (MovementFacing::West, "w"),
+            (MovementFacing::NorthWest, "nw"),
+        ] {
+            assert_eq!(
+                wheelbarrow_animation_name(facing, None),
+                format!("empty_{direction}")
+            );
+            for kind in ResourceKind::ALL {
+                assert_eq!(
+                    wheelbarrow_animation_name(facing, Some(kind)),
+                    format!("{}_{direction}", resource_animation_slug(kind))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wheelbarrow_assets_cover_every_resource_kind() {
+        for kind in ResourceKind::ALL {
+            let path = wheelbarrow_asset_path(kind);
+            assert!(path.starts_with("res://assets/generated/wheelbarrow_"));
+            assert!(path.ends_with("_sheet.png"));
+        }
+    }
+
+    #[test]
+    fn npc_render_info_distinguishes_empty_and_loaded_wheelbarrows() {
+        let mut world = World::new();
+        let empty = world
+            .spawn((
+                InitialNpcBundle::new(CellCoord::new(1, 2)),
+                Wheelbarrow::empty(),
+            ))
+            .id();
+        let loaded = world
+            .spawn((
+                InitialNpcBundle::new(CellCoord::new(3, 4)),
+                Wheelbarrow::of(ResourceKind::Planks, 12),
+            ))
+            .id();
+
+        let infos = query_npc_render_infos(&world);
+        let empty_info = infos
+            .iter()
+            .find(|info| info.entity == empty)
+            .expect("empty wheelbarrow NPC should render");
+        assert!(empty_info.has_wheelbarrow);
+        assert_eq!(empty_info.wheelbarrow_kind, None);
+        let loaded_info = infos
+            .iter()
+            .find(|info| info.entity == loaded)
+            .expect("loaded wheelbarrow NPC should render");
+        assert!(loaded_info.has_wheelbarrow);
+        assert_eq!(loaded_info.wheelbarrow_kind, Some(ResourceKind::Planks));
+    }
+
+    #[test]
     fn building_asset_paths_include_refinery_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::Sawmill),
@@ -3641,6 +3923,8 @@ mod tests {
             is_gathering,
             refining_animation: None,
             carried_kind: None,
+            has_wheelbarrow: false,
+            wheelbarrow_kind: None,
         }
     }
 

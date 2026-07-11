@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[node name="WheelbarrowOverlay" type="AnimatedSprite2D"]
+texture_filter = 1
+z_index = 4
+centered = false

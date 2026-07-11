@@ -2,13 +2,15 @@ use crate::world::game_world::{decode_entity_id, GameWorld, MapEntityKind};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, ConstructionProgress,
+    Building, BuildingActivity, BuildingBlueprint, BuildingKind, BuildingName,
+    ConstructionProgress, RefineryPullConfig, StorageInventory, StoragePullConfig,
 };
 use game_engine::components::{Tile, TilePosition};
 use game_engine::housing::housing_snapshot;
 use game_engine::npcs::{
     BirthDate, CarriedResource, FoodPouch, Npc, NpcName, NpcPosition, WorldDateTime,
 };
+use game_engine::refining::{recipes_for_building, RefineryInventory};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{control, IPanelContainer, PanelContainer, RichTextLabel};
@@ -147,24 +149,53 @@ fn map_entity_tooltip_text(
 }
 
 fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
+    let name = world.get::<BuildingName>(entity)?;
+
     if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
         let progress = world.get::<ConstructionProgress>(entity)?;
 
         return Some(format_building_blueprint_tooltip(
+            name.as_str(),
             blueprint.kind.label(),
-            blueprint.footprint,
             progress.deposited(),
             blueprint.kind.definition().construction_cost(),
         ));
     }
 
     let building = world.get::<Building>(entity)?;
+    if let (Some(inventory), Some(activity), Some(pull_config)) = (
+        world.get::<StorageInventory>(entity),
+        world.get::<BuildingActivity>(entity),
+        world.get::<StoragePullConfig>(entity),
+    ) {
+        return Some(format_storage_tooltip(
+            name.as_str(),
+            building.kind.label(),
+            *activity,
+            *inventory,
+            *pull_config,
+        ));
+    }
+    if let (Some(inventory), Some(activity), Some(pull_config)) = (
+        world.get::<RefineryInventory>(entity),
+        world.get::<BuildingActivity>(entity),
+        world.get::<RefineryPullConfig>(entity),
+    ) {
+        return Some(format_refinery_tooltip(
+            name.as_str(),
+            building.kind,
+            *activity,
+            *inventory,
+            *pull_config,
+        ));
+    }
+
     let occupancy = housing_snapshot(world)
         .house(entity)
         .map(|house| (house.occupied(), house.capacity()));
     Some(format_finished_building_tooltip(
+        name.as_str(),
         building.kind.label(),
-        building.footprint,
         occupancy,
     ))
 }
@@ -196,41 +227,123 @@ fn resource_node_tooltip_text(world: &World, entity: Entity) -> Option<String> {
 }
 
 fn format_building_blueprint_tooltip(
+    name: &str,
     label: &str,
-    footprint: BuildingFootprint,
     progress: ResourceAmounts,
     cost: ResourceAmounts,
 ) -> String {
-    let origin = footprint.origin();
     format!(
-        "[b]{} Blueprint[/b]\nCell: ({}, {})\nFootprint: {}x{}\nConstruction: {}",
-        label,
-        origin.x(),
-        origin.y(),
-        footprint.width(),
-        footprint.height(),
+        "[b]{name}[/b]\nBlueprint: {label}\nConstruction: {}",
         format_deposited_over_required(progress, cost)
     )
 }
 
 fn format_finished_building_tooltip(
+    name: &str,
     label: &str,
-    footprint: BuildingFootprint,
     occupancy: Option<(usize, usize)>,
 ) -> String {
-    let origin = footprint.origin();
-    let mut text = format!(
-        "[b]{}[/b]\nBuilding\nCell: ({}, {})\nFootprint: {}x{}",
-        label,
-        origin.x(),
-        origin.y(),
-        footprint.width(),
-        footprint.height()
-    );
+    let mut text = format!("[b]{name}[/b]\n{label}");
     if let Some((occupied, capacity)) = occupancy {
         text.push_str(format!("\nOccupancy: {occupied}/{capacity}").as_str());
     }
     text
+}
+
+fn format_storage_tooltip(
+    name: &str,
+    label: &str,
+    activity: BuildingActivity,
+    inventory: StorageInventory,
+    pull_config: StoragePullConfig,
+) -> String {
+    let contents = inventory.contents();
+    let stock = ResourceKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let amount = contents.get(kind);
+            (amount > 0).then(|| format!("{}: {amount}", kind.label()))
+        })
+        .collect();
+    let allowed = ResourceKind::ALL
+        .into_iter()
+        .filter(|kind| inventory.is_allowed(*kind))
+        .map(|kind| kind.label().to_string())
+        .collect();
+    let pulls = StoragePullConfig::SUPPORTED_RESOURCES
+        .into_iter()
+        .filter(|kind| pull_config.pulls_from_refineries(*kind))
+        .map(|kind| kind.label().to_string())
+        .collect();
+
+    format!(
+        "[b]{name}[/b]\n{label}\nStatus: {}\nCapacity: {}/{}\nStock: {}\nAllowed Deposits: {}\nPull from Refineries: {}",
+        activity_label(activity),
+        inventory.used_size(),
+        inventory.max_size(),
+        format_parts_or_none(stock),
+        format_parts_or_none(allowed),
+        format_parts_or_none(pulls),
+    )
+}
+
+fn format_refinery_tooltip(
+    name: &str,
+    kind: BuildingKind,
+    activity: BuildingActivity,
+    inventory: RefineryInventory,
+    pull_config: RefineryPullConfig,
+) -> String {
+    let recipes = recipes_for_building(kind);
+    let inputs = recipes
+        .iter()
+        .map(|recipe| recipe.definition().input())
+        .collect::<Vec<_>>();
+    let mut outputs = Vec::new();
+    for output in recipes.iter().map(|recipe| recipe.definition().output()) {
+        if !outputs.contains(&output) {
+            outputs.push(output);
+        }
+    }
+
+    let input_contents = inventory.input_contents();
+    let output_contents = inventory.output_contents();
+    let input_parts = inputs
+        .iter()
+        .map(|kind| format!("{}: {}", kind.label(), input_contents.get(*kind)))
+        .collect();
+    let output_parts = outputs
+        .iter()
+        .map(|kind| format!("{}: {}", kind.label(), output_contents.get(*kind)))
+        .collect();
+    let pull_parts = inputs
+        .iter()
+        .map(|kind| {
+            let state = if pull_config.pulls_from_storage(*kind) {
+                "On"
+            } else {
+                "Off"
+            };
+            format!("{}: {state}", kind.label())
+        })
+        .collect();
+
+    format!(
+        "[b]{name}[/b]\n{}\nStatus: {}\nInputs: {}\nOutputs: {}\nPull from Storage: {}",
+        kind.label(),
+        activity_label(activity),
+        format_parts_or_none(input_parts),
+        format_parts_or_none(output_parts),
+        format_parts_or_none(pull_parts),
+    )
+}
+
+fn activity_label(activity: BuildingActivity) -> &'static str {
+    if activity.is_active() {
+        "Active"
+    } else {
+        "Inactive"
+    }
 }
 
 fn format_npc_tooltip(
@@ -291,45 +404,80 @@ mod tests {
     use game_engine::grid::CellCoord;
 
     #[test]
-    fn building_tooltip_formats_footprint_and_progress() {
+    fn building_blueprint_tooltip_formats_name_type_and_progress() {
         let text = format_building_blueprint_tooltip(
-            "Warehouse",
-            BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
+            "Central Depot",
+            "Depot",
             ResourceAmounts::new(5, 0, 0, 0),
-            ResourceAmounts::new(40, 20, 0, 0),
+            ResourceAmounts::new(20, 10, 0, 0),
         );
 
         assert_eq!(
             text,
-            "[b]Warehouse Blueprint[/b]\nCell: (4, 7)\nFootprint: 2x2\nConstruction: Wood: 5/40, Stone: 0/20"
+            "[b]Central Depot[/b]\nBlueprint: Depot\nConstruction: Wood: 5/20, Stone: 0/10"
         );
     }
 
     #[test]
-    fn finished_building_tooltip_omits_construction_progress() {
-        let text = format_finished_building_tooltip(
-            "Warehouse",
-            BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
-            None,
-        );
+    fn finished_building_tooltip_shows_custom_name_and_type() {
+        let text = format_finished_building_tooltip("Main Hall", "TownHall", None);
 
-        assert_eq!(
-            text,
-            "[b]Warehouse[/b]\nBuilding\nCell: (4, 7)\nFootprint: 2x2"
-        );
+        assert_eq!(text, "[b]Main Hall[/b]\nTownHall");
     }
 
     #[test]
     fn finished_house_tooltip_shows_occupancy_without_resident_details() {
-        let text = format_finished_building_tooltip(
-            "Medium House",
-            BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
-            Some((3, 4)),
+        let text =
+            format_finished_building_tooltip("Home Sweet Home", "Medium House", Some((3, 4)));
+
+        assert_eq!(text, "[b]Home Sweet Home[/b]\nMedium House\nOccupancy: 3/4");
+    }
+
+    #[test]
+    fn storage_tooltip_formats_live_configuration_and_nonzero_stock() {
+        let mut inventory = StorageInventory::for_kind(BuildingKind::Depot);
+        assert!(inventory.add(ResourceKind::Wood, 7));
+        assert!(inventory.add(ResourceKind::Food, 3));
+        inventory.set_allowed(ResourceKind::Stone, false);
+        inventory.set_allowed(ResourceKind::Gold, false);
+        let mut pulls = StoragePullConfig::default();
+        pulls.set_pulls_from_refineries(ResourceKind::Food, true);
+
+        let text = format_storage_tooltip(
+            "Supply Depot",
+            "Depot",
+            BuildingActivity::active(),
+            inventory,
+            pulls,
         );
 
         assert_eq!(
             text,
-            "[b]Medium House[/b]\nBuilding\nCell: (4, 7)\nFootprint: 2x2\nOccupancy: 3/4"
+            "[b]Supply Depot[/b]\nDepot\nStatus: Active\nCapacity: 10/500\nStock: Wood: 7, Food: 3\nAllowed Deposits: Wood, Food, Crops, Wild Berries, Planks, Stone Blocks\nPull from Refineries: Food"
+        );
+    }
+
+    #[test]
+    fn refinery_tooltip_includes_zero_quantities_and_each_input_pull_state() {
+        let mut inventory = RefineryInventory::empty();
+        assert!(inventory.add_input(BuildingKind::Kitchen, ResourceKind::Crops, 4));
+        assert!(inventory.add_output(BuildingKind::Kitchen, ResourceKind::Food, 2));
+        let mut pulls = RefineryPullConfig::default();
+        pulls.set_pulls_from_storage(ResourceKind::WildBerries, true);
+        let mut activity = BuildingActivity::active();
+        activity.set_active(false);
+
+        let text = format_refinery_tooltip(
+            "Community Kitchen",
+            BuildingKind::Kitchen,
+            activity,
+            inventory,
+            pulls,
+        );
+
+        assert_eq!(
+            text,
+            "[b]Community Kitchen[/b]\nKitchen\nStatus: Inactive\nInputs: Crops: 4, Wild Berries: 0\nOutputs: Food: 2\nPull from Storage: Crops: Off, Wild Berries: On"
         );
     }
 

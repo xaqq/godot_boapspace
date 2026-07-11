@@ -1,6 +1,7 @@
 [gd_scene format=3]
 
-[node name="BuildingPalette" type="BuildingPalette" unique_id=963753131 node_paths=PackedStringArray("warehouse_button", "town_hall_button", "sawmill_button", "stoneworks_button", "kitchen_button", "farm_button", "forester_lodge_button", "small_house_button", "medium_house_button", "large_house_button")]
+[node name="BuildingPalette" type="BuildingPalette" unique_id=963753131 node_paths=PackedStringArray("depot_button", "warehouse_button", "town_hall_button", "sawmill_button", "stoneworks_button", "kitchen_button", "farm_button", "forester_lodge_button", "small_house_button", "medium_house_button", "large_house_button")]
+depot_button = NodePath("MarginContainer/VBoxContainer/DepotButton")
 warehouse_button = NodePath("MarginContainer/VBoxContainer/WarehouseButton")
 town_hall_button = NodePath("MarginContainer/VBoxContainer/TownHallButton")
 sawmill_button = NodePath("MarginContainer/VBoxContainer/SawmillButton")
@@ -35,6 +36,10 @@ text = "Build"
 
 [node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer" unique_id=1463676840]
 layout_mode = 2
+
+[node name="DepotButton" type="Button" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Depot"
 
 [node name="WarehouseButton" type="Button" parent="MarginContainer/VBoxContainer" unique_id=1938474777]
 layout_mode = 2

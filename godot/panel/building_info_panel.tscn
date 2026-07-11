@@ -1,9 +1,13 @@
 [gd_scene format=3]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("close_button", "name_label", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "warehouse_filter_container", "warehouse_filter_rows", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("close_button", "name_label", "name_edit", "name_apply_button", "command_error_label", "active_button", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "warehouse_filter_container", "warehouse_filter_rows", "storage_pull_container", "storage_pull_rows", "refinery_pull_container", "refinery_pull_rows", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
 visible = false
 close_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/CloseButton")
 name_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/name_label")
+name_edit = NodePath("MarginContainer/ScrollContainer/VBoxContainer/NameEditContainer/NameEdit")
+name_apply_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/NameEditContainer/ApplyButton")
+command_error_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/CommandErrorLabel")
+active_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ActiveButton")
 footprint_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/footprint_label")
 farming_info_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/farming_info_label")
 fields_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/FieldsButton")
@@ -15,6 +19,10 @@ inventory_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/Invent
 inventory_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer/InventoryRows")
 warehouse_filter_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer")
 warehouse_filter_rows = NodePath("MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer/FilterRows")
+storage_pull_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/StoragePullContainer")
+storage_pull_rows = NodePath("MarginContainer/ScrollContainer/VBoxContainer/StoragePullContainer/PullRows")
+refinery_pull_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryPullContainer")
+refinery_pull_rows = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryPullContainer/PullRows")
 refinery_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer")
 refinery_input_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/InputLabel")
 refinery_input_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/RefineryContainer/InputRows")
@@ -62,6 +70,32 @@ layout_mode = 2
 [node name="name_label" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1938474778]
 layout_mode = 2
 text = "Building: None"
+
+[node name="NameEditContainer" type="HBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NameEdit" type="LineEdit" parent="MarginContainer/ScrollContainer/VBoxContainer/NameEditContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Building name"
+max_length = 64
+
+[node name="ApplyButton" type="Button" parent="MarginContainer/ScrollContainer/VBoxContainer/NameEditContainer"]
+layout_mode = 2
+text = "Apply"
+
+[node name="CommandErrorLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.35, 0.3, 1)
+text = ""
+autowrap_mode = 2
+
+[node name="ActiveButton" type="CheckButton" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+text = "Active"
 
 [node name="footprint_label" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271514]
 layout_mode = 2
@@ -118,6 +152,32 @@ layout_mode = 2
 text = "Allowed Deposits:"
 
 [node name="FilterRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/WarehouseFilterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="StoragePullContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PullLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/StoragePullContainer"]
+layout_mode = 2
+text = "Pull from Refineries:"
+
+[node name="PullRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/StoragePullContainer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="RefineryPullContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PullLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryPullContainer"]
+layout_mode = 2
+text = "Pull from Storage:"
+
+[node name="PullRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/RefineryPullContainer"]
 layout_mode = 2
 theme_override_constants/separation = 2
 

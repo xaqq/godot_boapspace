@@ -71,7 +71,8 @@ pub fn collision_flags_at(world: &World, coord: CellCoord) -> Option<CollisionFl
 
 pub const fn terrain_allows_building(kind: BuildingKind, terrain: TerrainKind) -> bool {
     match kind {
-        BuildingKind::Warehouse
+        BuildingKind::Depot
+        | BuildingKind::Warehouse
         | BuildingKind::TownHall
         | BuildingKind::Sawmill
         | BuildingKind::Stoneworks

@@ -1,6 +1,8 @@
 use crate::buildings::{
-    place_building_blueprint, validate_building_blueprint_placement, BuildingFootprint,
-    BuildingKind, BuildingPlacementError, WarehouseInventory,
+    building_name_exists, place_building_blueprint, validate_building_blueprint_placement,
+    Building, BuildingActivity, BuildingFootprint, BuildingKind, BuildingName,
+    BuildingNameRegistry, BuildingPlacementError, RefineryPullConfig, StorageInventory,
+    StoragePullConfig, WarehouseInventory,
 };
 use crate::collision::{collision_flags_at, CollisionFlags};
 use crate::components::{Terrain, TerrainKind, Tile};
@@ -15,8 +17,9 @@ use crate::forestry::{
     TreePlotPlacementError, TreePlotPlacementPreview,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::logistics::cancel_work_involving_building;
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
-use crate::refining::{refinery_status, RefineryStatus, ReservationLedger};
+use crate::refining::{recipes_for_building, refinery_status, RefineryStatus, ReservationLedger};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{resource_overview, ResourceHistory, ResourceKind, ResourceOverview};
 use crate::systems::build_surface_schedule;
@@ -80,6 +83,38 @@ pub enum WarehouseFilterError {
     NotCompletedWarehouse,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BuildingTarget {
+    surface_id: SurfaceId,
+    entity: Entity,
+}
+
+impl BuildingTarget {
+    pub const fn new(surface_id: SurfaceId, entity: Entity) -> Self {
+        Self { surface_id, entity }
+    }
+
+    pub const fn surface_id(self) -> SurfaceId {
+        self.surface_id
+    }
+
+    pub const fn entity(self) -> Entity {
+        self.entity
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildingCommandError {
+    WrongSurface,
+    MissingEntity,
+    NotBuilding,
+    BlueprintIneligible,
+    UnsupportedBuilding,
+    UnsupportedResource,
+    InvalidName,
+    DuplicateName,
+}
+
 struct SurfaceRuntime {
     world: World,
     schedule: Schedule,
@@ -91,6 +126,7 @@ impl SurfaceRuntime {
         world.insert_resource(Grid::new(size.width(), size.height()));
         world.insert_resource(world_date_time);
         world.insert_resource(ReservationLedger::default());
+        world.insert_resource(BuildingNameRegistry::default());
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
@@ -287,6 +323,197 @@ impl GameSimulation {
         refinery_status(&self.surface(surface_id).world, refinery)
     }
 
+    pub fn building_name(
+        &self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+    ) -> Result<&str, BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &self.surface(surface_id).world;
+        validate_building_entity(world, target.entity)?;
+        world
+            .get::<BuildingName>(target.entity)
+            .map(BuildingName::as_str)
+            .ok_or(BuildingCommandError::NotBuilding)
+    }
+
+    pub fn rename_building(
+        &mut self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        requested_name: &str,
+    ) -> Result<(), BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let trimmed = requested_name.trim();
+        if !(1..=64).contains(&trimmed.chars().count()) {
+            return Err(BuildingCommandError::InvalidName);
+        }
+        let world = &mut self.surface_mut(surface_id).world;
+        validate_building_entity(world, target.entity)?;
+        if building_name_exists(world, trimmed, Some(target.entity)) {
+            return Err(BuildingCommandError::DuplicateName);
+        }
+        let Some(mut name) = world.get_mut::<BuildingName>(target.entity) else {
+            return Err(BuildingCommandError::NotBuilding);
+        };
+        *name = BuildingName::new(trimmed);
+        Ok(())
+    }
+
+    pub fn building_active(
+        &self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+    ) -> Result<bool, BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &self.surface(surface_id).world;
+        let building = completed_building(world, target.entity)?;
+        if !building.kind.is_logistics_configurable() {
+            return Err(BuildingCommandError::UnsupportedBuilding);
+        }
+        world
+            .get::<BuildingActivity>(target.entity)
+            .map(|activity| activity.is_active())
+            .ok_or(BuildingCommandError::UnsupportedBuilding)
+    }
+
+    pub fn set_building_active(
+        &mut self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        active: bool,
+    ) -> Result<(), BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &mut self.surface_mut(surface_id).world;
+        let building = completed_building(world, target.entity)?;
+        if !building.kind.is_logistics_configurable() {
+            return Err(BuildingCommandError::UnsupportedBuilding);
+        }
+        let Some(mut activity) = world.get_mut::<BuildingActivity>(target.entity) else {
+            return Err(BuildingCommandError::UnsupportedBuilding);
+        };
+        activity.set_active(active);
+        drop(activity);
+        if !active {
+            cancel_work_involving_building(world, target.entity);
+        }
+        Ok(())
+    }
+
+    pub fn storage_resource_allowed(
+        &self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+    ) -> Result<bool, BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &self.surface(surface_id).world;
+        completed_storage(world, target.entity)?;
+        Ok(world
+            .get::<StorageInventory>(target.entity)
+            .expect("validated storage should have inventory")
+            .is_allowed(kind))
+    }
+
+    pub fn set_storage_resource_allowed(
+        &mut self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+        allowed: bool,
+    ) -> Result<(), BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &mut self.surface_mut(surface_id).world;
+        completed_storage(world, target.entity)?;
+        world
+            .get_mut::<StorageInventory>(target.entity)
+            .expect("validated storage should have inventory")
+            .set_allowed(kind, allowed);
+        if !allowed && StoragePullConfig::supports(kind) {
+            world
+                .get_mut::<StoragePullConfig>(target.entity)
+                .expect("validated storage should have pull configuration")
+                .set_pulls_from_refineries(kind, false);
+        }
+        Ok(())
+    }
+
+    pub fn storage_pulls_from_refineries(
+        &self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+    ) -> Result<bool, BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        if !StoragePullConfig::supports(kind) {
+            return Err(BuildingCommandError::UnsupportedResource);
+        }
+        let world = &self.surface(surface_id).world;
+        completed_storage(world, target.entity)?;
+        Ok(world
+            .get::<StoragePullConfig>(target.entity)
+            .expect("validated storage should have pull configuration")
+            .pulls_from_refineries(kind))
+    }
+
+    pub fn set_storage_pulls_from_refineries(
+        &mut self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+        enabled: bool,
+    ) -> Result<(), BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        if !StoragePullConfig::supports(kind) {
+            return Err(BuildingCommandError::UnsupportedResource);
+        }
+        let world = &mut self.surface_mut(surface_id).world;
+        completed_storage(world, target.entity)?;
+        world
+            .get_mut::<StoragePullConfig>(target.entity)
+            .expect("validated storage should have pull configuration")
+            .set_pulls_from_refineries(kind, enabled);
+        if enabled {
+            world
+                .get_mut::<StorageInventory>(target.entity)
+                .expect("validated storage should have inventory")
+                .set_allowed(kind, true);
+        }
+        Ok(())
+    }
+
+    pub fn refinery_pulls_from_storage(
+        &self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+    ) -> Result<bool, BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &self.surface(surface_id).world;
+        completed_refinery_supporting(world, target.entity, kind)?;
+        Ok(world
+            .get::<RefineryPullConfig>(target.entity)
+            .expect("validated refinery should have pull configuration")
+            .pulls_from_storage(kind))
+    }
+
+    pub fn set_refinery_pulls_from_storage(
+        &mut self,
+        surface_id: SurfaceId,
+        target: BuildingTarget,
+        kind: ResourceKind,
+        enabled: bool,
+    ) -> Result<(), BuildingCommandError> {
+        validate_target_surface(surface_id, target)?;
+        let world = &mut self.surface_mut(surface_id).world;
+        completed_refinery_supporting(world, target.entity, kind)?;
+        world
+            .get_mut::<RefineryPullConfig>(target.entity)
+            .expect("validated refinery should have pull configuration")
+            .set_pulls_from_storage(kind, enabled);
+        Ok(())
+    }
+
     pub fn warehouse_resource_allowed(
         &self,
         surface_id: SurfaceId,
@@ -432,6 +659,65 @@ impl GameSimulation {
             .get_mut(surface_id.index())
             .expect("surface id should have been issued by this simulation")
     }
+}
+
+fn validate_target_surface(
+    requested_surface: SurfaceId,
+    target: BuildingTarget,
+) -> Result<(), BuildingCommandError> {
+    if requested_surface == target.surface_id {
+        Ok(())
+    } else {
+        Err(BuildingCommandError::WrongSurface)
+    }
+}
+
+fn validate_building_entity(world: &World, entity: Entity) -> Result<(), BuildingCommandError> {
+    let entity_ref = world
+        .get_entity(entity)
+        .map_err(|_| BuildingCommandError::MissingEntity)?;
+    if entity_ref.contains::<Building>()
+        || entity_ref.contains::<crate::buildings::BuildingBlueprint>()
+    {
+        Ok(())
+    } else {
+        Err(BuildingCommandError::NotBuilding)
+    }
+}
+
+fn completed_building(world: &World, entity: Entity) -> Result<Building, BuildingCommandError> {
+    validate_building_entity(world, entity)?;
+    world
+        .get::<Building>(entity)
+        .copied()
+        .ok_or(BuildingCommandError::BlueprintIneligible)
+}
+
+fn completed_storage(world: &World, entity: Entity) -> Result<Building, BuildingCommandError> {
+    let building = completed_building(world, entity)?;
+    if building.kind.is_storage() && world.get::<StorageInventory>(entity).is_some() {
+        Ok(building)
+    } else {
+        Err(BuildingCommandError::UnsupportedBuilding)
+    }
+}
+
+fn completed_refinery_supporting(
+    world: &World,
+    entity: Entity,
+    kind: ResourceKind,
+) -> Result<Building, BuildingCommandError> {
+    let building = completed_building(world, entity)?;
+    if !building.kind.is_refinery() || world.get::<RefineryPullConfig>(entity).is_none() {
+        return Err(BuildingCommandError::UnsupportedBuilding);
+    }
+    if !recipes_for_building(building.kind)
+        .iter()
+        .any(|recipe| recipe.definition().input() == kind)
+    {
+        return Err(BuildingCommandError::UnsupportedResource);
+    }
+    Ok(building)
 }
 
 fn tile_terrain_at(surface: &SurfaceRuntime, coord: CellCoord) -> Option<TerrainKind> {
@@ -686,6 +972,73 @@ mod tests {
                 false,
             ),
             Err(WarehouseFilterError::MissingEntity)
+        );
+    }
+
+    #[test]
+    fn typed_building_commands_validate_surface_names_and_pull_dependencies() {
+        let mut simulation = GameSimulation::new();
+        let first = simulation.create_surface(GridSize::new(8, 8));
+        let second = simulation.create_surface(GridSize::new(8, 8));
+        let footprint = BuildingFootprint::new(CellCoord::new(0, 0), 2, 2);
+        let depot = simulation
+            .surface_mut(first)
+            .world
+            .spawn((
+                Building::new(BuildingKind::Depot, footprint),
+                BuildingName::new("Depot #1"),
+                StorageInventory::for_kind(BuildingKind::Depot),
+                StoragePullConfig::default(),
+                BuildingActivity::active(),
+            ))
+            .id();
+        let other = simulation
+            .surface_mut(first)
+            .world
+            .spawn((
+                Building::new(BuildingKind::TownHall, footprint),
+                BuildingName::new("TownHall #1"),
+            ))
+            .id();
+        let target = BuildingTarget::new(first, depot);
+
+        assert_eq!(
+            simulation.rename_building(first, target, "  Main Depot  "),
+            Ok(())
+        );
+        assert_eq!(simulation.building_name(first, target), Ok("Main Depot"));
+        assert_eq!(
+            simulation.rename_building(first, target, "townhall #1"),
+            Err(BuildingCommandError::DuplicateName)
+        );
+        assert_eq!(
+            simulation.rename_building(first, target, &"x".repeat(65)),
+            Err(BuildingCommandError::InvalidName)
+        );
+        assert_eq!(
+            simulation
+                .set_storage_pulls_from_refineries(first, target, ResourceKind::Planks, true,),
+            Ok(())
+        );
+        assert_eq!(
+            simulation.storage_resource_allowed(first, target, ResourceKind::Planks),
+            Ok(true)
+        );
+        assert_eq!(
+            simulation.set_storage_resource_allowed(first, target, ResourceKind::Planks, false,),
+            Ok(())
+        );
+        assert_eq!(
+            simulation.storage_pulls_from_refineries(first, target, ResourceKind::Planks),
+            Ok(false)
+        );
+        assert_eq!(
+            simulation.building_name(second, target),
+            Err(BuildingCommandError::WrongSurface)
+        );
+        assert_eq!(
+            simulation.set_building_active(first, BuildingTarget::new(first, other), false,),
+            Err(BuildingCommandError::UnsupportedBuilding)
         );
     }
 

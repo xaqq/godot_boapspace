@@ -17,8 +17,8 @@ use game_engine::simulation::GameSimulation;
 fn test_building_definitions_include_dimensions_and_costs() {
     let warehouse = BuildingKind::Warehouse.definition();
     assert_eq!(warehouse.kind(), BuildingKind::Warehouse);
-    assert_eq!(warehouse.width(), 2);
-    assert_eq!(warehouse.height(), 2);
+    assert_eq!(warehouse.width(), 4);
+    assert_eq!(warehouse.height(), 4);
     assert_eq!(warehouse.construction_cost().get(ResourceKind::Planks), 40);
     assert_eq!(
         warehouse.construction_cost().get(ResourceKind::StoneBlocks),
@@ -126,10 +126,11 @@ fn test_building_definitions_include_dimensions_and_costs() {
 #[test]
 fn test_place_building_blueprint_inside_bounds() {
     let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_building_origin(&simulation, surface, BuildingKind::Warehouse);
 
     let entity = simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(1, 1))
+        .place_building_blueprint(surface, BuildingKind::Warehouse, origin)
         .expect("warehouse should place inside bounds");
 
     let info = simulation
@@ -141,9 +142,9 @@ fn test_place_building_blueprint_inside_bounds() {
         .expect("placed building should be queryable");
 
     assert_eq!(info.0, BuildingKind::Warehouse);
-    assert_eq!(info.1.origin(), CellCoord::new(1, 1));
-    assert_eq!(info.1.width(), 2);
-    assert_eq!(info.1.height(), 2);
+    assert_eq!(info.1.origin(), origin);
+    assert_eq!(info.1.width(), 4);
+    assert_eq!(info.1.height(), 4);
     for kind in ResourceKind::ALL {
         assert_eq!(info.2.get(kind), 0);
     }
@@ -239,9 +240,10 @@ fn test_construction_progress_starts_empty() {
 #[test]
 fn test_warehouse_blueprint_does_not_have_inventory() {
     let mut simulation = GameSimulation::new();
-    let surface = simulation.create_surface(GridSize::new(4, 4));
+    let surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_building_origin(&simulation, surface, BuildingKind::Warehouse);
     let entity = simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
+        .place_building_blueprint(surface, BuildingKind::Warehouse, origin)
         .expect("warehouse should place");
 
     let has_inventory = simulation.with_surface_world(surface, |world| {
@@ -353,14 +355,11 @@ fn test_building_blueprint_rejects_finished_building_overlap() {
 fn test_building_blueprints_are_scoped_per_surface() {
     let mut simulation = GameSimulation::new();
     let default_surface = simulation.default_surface_id();
-    let second_surface = simulation.create_surface(GridSize::new(4, 4));
+    let second_surface = simulation.create_surface(GridSize::new(16, 16));
+    let origin = first_valid_building_origin(&simulation, second_surface, BuildingKind::Warehouse);
 
     simulation
-        .place_building_blueprint(
-            second_surface,
-            BuildingKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
+        .place_building_blueprint(second_surface, BuildingKind::Warehouse, origin)
         .expect("warehouse should place");
 
     assert_eq!(building_count(&simulation, default_surface), 0);
@@ -406,6 +405,22 @@ fn building_count(
             .map(|mut query| query.iter(world).count())
             .unwrap_or_default()
     })
+}
+
+fn first_valid_building_origin(
+    simulation: &GameSimulation,
+    surface: game_engine::simulation::SurfaceId,
+    kind: BuildingKind,
+) -> CellCoord {
+    simulation
+        .grid_size(surface)
+        .iter_coords()
+        .find(|&coord| {
+            simulation
+                .validate_building_blueprint_placement(surface, kind, coord)
+                .is_ok()
+        })
+        .expect("test surface should contain a valid building origin")
 }
 
 fn spawn_blueprint_with_progress(

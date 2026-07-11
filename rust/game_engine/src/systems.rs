@@ -8,7 +8,10 @@ use crate::forestry::{
     system_seed_tree_plots,
 };
 use crate::housing::maintain_housing_assignments;
-use crate::logistics::{manage_construction_logistics, manage_food_logistics};
+use crate::logistics::{
+    manage_building_logistics, manage_construction_logistics, manage_food_logistics,
+    manage_wheelbarrow_recovery,
+};
 use crate::movement::update_npc_movement;
 use crate::navigation::{drive_npc_routes, refresh_navigation_snapshot};
 use crate::npcs::update_npc_hunger;
@@ -32,9 +35,11 @@ pub fn build_surface_schedule() -> Schedule {
                 system_advance_field_growth,
                 system_advance_tree_growth,
                 manage_food_logistics,
+                manage_wheelbarrow_recovery,
                 manage_construction_logistics,
                 assign_refining_work,
                 route_and_advance_refining_work,
+                manage_building_logistics,
                 system_assign_plot_work,
                 system_route_plot_work,
                 system_npc_idle,

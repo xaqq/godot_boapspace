@@ -3,7 +3,7 @@ use bevy_ecs::system::SystemState;
 use godot::prelude::{Export, GodotConvert, Var};
 
 use crate::buildings::{BuildingBlueprint, ConstructionProgress, WarehouseInventory};
-use crate::components::CarriedResource;
+use crate::components::{CarriedResource, Wheelbarrow};
 use crate::farming::FarmInventory;
 use crate::forestry::ForesterLodgeInventory;
 use crate::refining::RefineryInventory;
@@ -116,18 +116,22 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
     // area rather than with the number of inventories.
     let mut state: SystemState<(
         Query<&CarriedResource>,
+        Query<&Wheelbarrow>,
         Query<&WarehouseInventory>,
         Query<&FarmInventory>,
         Query<&ForesterLodgeInventory>,
         Query<&RefineryInventory>,
         Query<(&BuildingBlueprint, &ConstructionProgress)>,
     )> = SystemState::new(world);
-    let (npcs, warehouses, farms, lodges, refineries, blueprints) = state
+    let (npcs, wheelbarrows, warehouses, farms, lodges, refineries, blueprints) = state
         .get(world)
         .expect("resource overview queries should be compatible");
 
     for cargo in npcs.iter() {
         overview.usable.add_amounts(cargo.contents());
+    }
+    for wheelbarrow in wheelbarrows.iter() {
+        overview.usable.add_amounts(wheelbarrow.contents());
     }
     for inventory in warehouses.iter() {
         overview.usable.add_amounts(inventory.contents());

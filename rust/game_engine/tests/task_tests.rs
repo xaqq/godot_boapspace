@@ -14,8 +14,8 @@ fn test_blueprint_does_not_create_task_before_tick() {
     let surface = simulation.create_surface(GridSize::new(4, 4));
 
     simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
-        .expect("warehouse should place");
+        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .expect("depot should place");
 
     assert_eq!(construction_tasks(&simulation, surface).len(), 0);
 }
@@ -25,8 +25,8 @@ fn test_tick_creates_construction_task_for_blueprint() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
-        .expect("warehouse should place");
+        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .expect("depot should place");
 
     simulation.tick();
 
@@ -54,8 +54,8 @@ fn test_paused_tick_does_not_run_surface_schedule() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
-        .expect("warehouse should place");
+        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .expect("depot should place");
 
     simulation.pause();
     simulation.tick();
@@ -73,8 +73,8 @@ fn test_repeated_ticks_do_not_duplicate_construction_tasks() {
     let mut simulation = GameSimulation::new();
     let surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(surface, BuildingKind::Warehouse, CellCoord::new(0, 0))
-        .expect("warehouse should place");
+        .place_building_blueprint(surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .expect("depot should place");
 
     simulation.tick();
     simulation.tick();
@@ -108,12 +108,8 @@ fn test_construction_tasks_are_scoped_per_surface() {
     let default_surface = simulation.default_surface_id();
     let second_surface = simulation.create_surface(GridSize::new(4, 4));
     let blueprint = simulation
-        .place_building_blueprint(
-            second_surface,
-            BuildingKind::Warehouse,
-            CellCoord::new(0, 0),
-        )
-        .expect("warehouse should place");
+        .place_building_blueprint(second_surface, BuildingKind::Depot, CellCoord::new(0, 0))
+        .expect("depot should place");
 
     simulation.tick();
 
@@ -127,7 +123,7 @@ fn test_construction_tasks_are_scoped_per_surface() {
 fn spawn_blueprint(world: &mut World) -> Entity {
     world
         .spawn(BuildingBlueprintBundle::new(
-            BuildingKind::Warehouse,
+            BuildingKind::Depot,
             BuildingFootprint::new(CellCoord::new(0, 0), 2, 2),
         ))
         .id()

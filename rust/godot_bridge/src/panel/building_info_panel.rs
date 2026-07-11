@@ -5,8 +5,8 @@ use crate::world::game_world::{decode_entity_id, GameWorld};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
-    Building, BuildingBlueprint, BuildingFootprint, BuildingKind, ConstructionProgress,
-    WarehouseInventory,
+    Building, BuildingActivity, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingName,
+    ConstructionProgress, RefineryPullConfig, StorageInventory, StoragePullConfig,
 };
 use game_engine::farming::{
     farm_field_counts, field_crop_state, FarmInventory, FieldCrop, FieldCropState, FieldOwner,
@@ -24,7 +24,7 @@ use game_engine::refining::{RefineryInventory, RefineryProduction};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use godot::classes::{
     control, Button, CheckButton, IPanelContainer, InputEvent, InputEventMouseButton, Label,
-    PackedScene, PanelContainer, VBoxContainer,
+    LineEdit, PackedScene, PanelContainer, VBoxContainer,
 };
 use godot::global::MouseButton;
 use godot::obj::{NewAlloc, OnEditor};
@@ -43,7 +43,7 @@ struct ConstructionRowControl {
     node: Gd<ResourceQuantityProgress>,
 }
 
-struct WarehouseFilterControl {
+struct ResourceToggleControl {
     kind: ResourceKind,
     button: Gd<CheckButton>,
 }
@@ -56,6 +56,18 @@ pub(crate) struct BuildingInfoPanel {
 
     #[export]
     name_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    name_edit: OnEditor<Gd<LineEdit>>,
+
+    #[export]
+    name_apply_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    command_error_label: OnEditor<Gd<Label>>,
+
+    #[export]
+    active_button: OnEditor<Gd<CheckButton>>,
 
     #[export]
     footprint_label: OnEditor<Gd<Label>>,
@@ -89,6 +101,18 @@ pub(crate) struct BuildingInfoPanel {
 
     #[export]
     warehouse_filter_rows: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    storage_pull_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    storage_pull_rows: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    refinery_pull_container: OnEditor<Gd<VBoxContainer>>,
+
+    #[export]
+    refinery_pull_rows: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
     refinery_container: OnEditor<Gd<VBoxContainer>>,
@@ -137,7 +161,9 @@ pub(crate) struct BuildingInfoPanel {
     refinery_input_rows: Vec<QuantityRowControl>,
     refinery_output_rows: Vec<QuantityRowControl>,
     housing_row_labels: Vec<Gd<Label>>,
-    warehouse_filter_controls: Vec<WarehouseFilterControl>,
+    warehouse_filter_controls: Vec<ResourceToggleControl>,
+    storage_pull_controls: Vec<ResourceToggleControl>,
+    refinery_pull_controls: Vec<ResourceToggleControl>,
     cached_housing: Option<Option<HousingInfo>>,
     suppress_opening_mouse_press: bool,
     base: Base<PanelContainer>,
@@ -149,6 +175,10 @@ impl IPanelContainer for BuildingInfoPanel {
         Self {
             close_button: OnEditor::default(),
             name_label: OnEditor::default(),
+            name_edit: OnEditor::default(),
+            name_apply_button: OnEditor::default(),
+            command_error_label: OnEditor::default(),
+            active_button: OnEditor::default(),
             footprint_label: OnEditor::default(),
             farming_info_label: OnEditor::default(),
             fields_button: OnEditor::default(),
@@ -160,6 +190,10 @@ impl IPanelContainer for BuildingInfoPanel {
             inventory_rows_container: OnEditor::default(),
             warehouse_filter_container: OnEditor::default(),
             warehouse_filter_rows: OnEditor::default(),
+            storage_pull_container: OnEditor::default(),
+            storage_pull_rows: OnEditor::default(),
+            refinery_pull_container: OnEditor::default(),
+            refinery_pull_rows: OnEditor::default(),
             refinery_container: OnEditor::default(),
             refinery_input_label: OnEditor::default(),
             refinery_input_rows_container: OnEditor::default(),
@@ -182,6 +216,8 @@ impl IPanelContainer for BuildingInfoPanel {
             refinery_output_rows: Vec::new(),
             housing_row_labels: Vec::new(),
             warehouse_filter_controls: Vec::new(),
+            storage_pull_controls: Vec::new(),
+            refinery_pull_controls: Vec::new(),
             cached_housing: None,
             suppress_opening_mouse_press: false,
             base,
@@ -199,6 +235,22 @@ impl IPanelContainer for BuildingInfoPanel {
             .signals()
             .pressed()
             .connect_other(self, Self::close_panel);
+
+        self.name_apply_button
+            .clone()
+            .signals()
+            .pressed()
+            .connect_other(self, Self::apply_name);
+        self.name_edit
+            .clone()
+            .signals()
+            .text_submitted()
+            .connect_other(self, |panel, _text| panel.apply_name());
+        self.active_button
+            .clone()
+            .signals()
+            .toggled()
+            .connect_other(self, Self::set_building_active);
 
         let game_world = self.game_world.clone();
         game_world
@@ -232,6 +284,7 @@ impl IPanelContainer for BuildingInfoPanel {
 
         self.clear_selection_and_hide();
         self.build_warehouse_filter_rows();
+        self.build_storage_pull_rows();
         self.base_mut().set_process(true);
         self.base_mut().set_process_input(true);
     }
@@ -328,6 +381,17 @@ impl BuildingInfoPanel {
         let mut tree_plots_button = self.tree_plots_button.clone();
 
         name_label.set_text(format!("Building: {}", info.kind.label()).as_str());
+        if !self.name_edit.has_focus() {
+            self.name_edit.clone().set_text(info.name.as_str());
+        }
+        self.active_button
+            .clone()
+            .set_pressed_no_signal(info.active.unwrap_or(false));
+        if info.active.is_some() {
+            self.active_button.clone().show();
+        } else {
+            self.active_button.clone().hide();
+        }
         footprint_label.set_text(format_footprint(info.footprint).as_str());
         update_farming_info(
             &mut farming_info_label,
@@ -340,6 +404,8 @@ impl BuildingInfoPanel {
         self.update_construction(info.construction);
         self.update_inventory(info.inventory);
         self.update_warehouse_filter(info.warehouse_filter);
+        self.update_storage_pulls(info.storage_pulls);
+        self.update_refinery_pulls(info.refinery_pulls);
         self.update_refinery(info.refinery);
         self.update_housing(info.housing);
     }
@@ -357,6 +423,8 @@ impl BuildingInfoPanel {
         let mut refinery_container = self.refinery_container.clone();
         let mut housing_container = self.housing_container.clone();
         let mut warehouse_filter_container = self.warehouse_filter_container.clone();
+        let mut storage_pull_container = self.storage_pull_container.clone();
+        let mut refinery_pull_container = self.refinery_pull_container.clone();
 
         clear_building_labels(
             &mut name_label,
@@ -377,6 +445,11 @@ impl BuildingInfoPanel {
         self.clear_housing_rows();
         self.cached_housing = None;
         warehouse_filter_container.hide();
+        storage_pull_container.hide();
+        refinery_pull_container.hide();
+        self.active_button.clone().hide();
+        self.name_edit.clone().set_text("");
+        self.clear_command_error();
         self.base_mut().hide();
     }
 
@@ -412,35 +485,146 @@ impl BuildingInfoPanel {
                 });
             container.add_child(&button);
             self.warehouse_filter_controls
-                .push(WarehouseFilterControl { kind, button });
+                .push(ResourceToggleControl { kind, button });
         }
+    }
+
+    fn build_storage_pull_rows(&mut self) {
+        let mut storage_container = self.storage_pull_rows.clone();
+        for kind in StoragePullConfig::SUPPORTED_RESOURCES {
+            let button = self.make_resource_toggle(kind, "Pull from Refineries");
+            button
+                .clone()
+                .signals()
+                .toggled()
+                .connect_other(self, move |panel, enabled| {
+                    panel.set_storage_pull(kind, enabled)
+                });
+            storage_container.add_child(&button);
+            self.storage_pull_controls
+                .push(ResourceToggleControl { kind, button });
+        }
+    }
+
+    fn rebuild_refinery_pull_rows(&mut self, pulls: &[(ResourceKind, bool)]) {
+        let desired = pulls.iter().map(|(kind, _)| *kind).collect::<Vec<_>>();
+        if self
+            .refinery_pull_controls
+            .iter()
+            .map(|control| control.kind)
+            .eq(desired.iter().copied())
+        {
+            return;
+        }
+        for mut control in self.refinery_pull_controls.drain(..) {
+            control.button.queue_free();
+        }
+        let mut container = self.refinery_pull_rows.clone();
+        for kind in desired {
+            let button = self.make_resource_toggle(kind, "Pull from Storage");
+            button
+                .clone()
+                .signals()
+                .toggled()
+                .connect_other(self, move |panel, enabled| {
+                    panel.set_refinery_pull(kind, enabled)
+                });
+            container.add_child(&button);
+            self.refinery_pull_controls
+                .push(ResourceToggleControl { kind, button });
+        }
+    }
+
+    fn make_resource_toggle(&self, kind: ResourceKind, suffix: &str) -> Gd<CheckButton> {
+        let mut button = CheckButton::new_alloc();
+        button.set_text(format!("{} — {suffix}", kind.label()).as_str());
+        button.set_tooltip_text(format!("{}\n{}", kind.label(), kind.description()).as_str());
+        button.set_h_size_flags(control::SizeFlags::EXPAND_FILL);
+        if let Some(texture) = load_texture(resource_asset_path(kind), "BuildingInfoPanel") {
+            button.set_button_icon(&texture);
+            button.set_expand_icon(true);
+        }
+        button
+    }
+
+    fn apply_name(&mut self) {
+        let Some(entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        let requested = self.name_edit.get_text().to_string();
+        let result = self
+            .game_world
+            .bind_mut()
+            .rename_building(entity_id, requested.as_str());
+        self.name_edit.clone().release_focus();
+        self.finish_command(result);
+    }
+
+    fn set_building_active(&mut self, active: bool) {
+        let Some(entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        let result = self
+            .game_world
+            .bind_mut()
+            .set_building_active(entity_id, active);
+        self.finish_command(result);
+    }
+
+    fn set_storage_pull(&mut self, kind: ResourceKind, enabled: bool) {
+        let Some(entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        let result = self
+            .game_world
+            .bind_mut()
+            .set_storage_pulls_from_refineries(entity_id, kind, enabled);
+        self.finish_command(result);
+    }
+
+    fn set_refinery_pull(&mut self, kind: ResourceKind, enabled: bool) {
+        let Some(entity_id) = self.selected_building_entity_id else {
+            return;
+        };
+        let result = self
+            .game_world
+            .bind_mut()
+            .set_refinery_pulls_from_storage(entity_id, kind, enabled);
+        self.finish_command(result);
+    }
+
+    fn finish_command(
+        &mut self,
+        result: Result<(), game_engine::simulation::BuildingCommandError>,
+    ) {
+        match result {
+            Ok(()) => self.clear_command_error(),
+            Err(error) => self.show_command_error(building_command_error_text(error)),
+        }
+        self.refresh_selected_building();
+    }
+
+    fn show_command_error(&mut self, message: &str) {
+        let mut label = self.command_error_label.clone();
+        label.set_text(message);
+        label.show();
+    }
+
+    fn clear_command_error(&mut self) {
+        let mut label = self.command_error_label.clone();
+        label.set_text("");
+        label.hide();
     }
 
     fn set_warehouse_filter(&mut self, kind: ResourceKind, allowed: bool) {
         let Some(entity_id) = self.selected_building_entity_id else {
             return;
         };
-        if !self
+        let result = self
             .game_world
             .bind_mut()
-            .set_warehouse_resource_allowed(entity_id, kind, allowed)
-        {
-            let current = self
-                .game_world
-                .bind()
-                .warehouse_resource_allowed(entity_id, kind);
-            if let Some(current) = current {
-                if let Some(control) = self
-                    .warehouse_filter_controls
-                    .iter_mut()
-                    .find(|control| control.kind == kind)
-                {
-                    control.button.set_pressed_no_signal(current);
-                }
-            } else {
-                self.close_panel();
-            }
-        }
+            .set_storage_resource_allowed(entity_id, kind, allowed);
+        self.finish_command(result);
     }
 
     fn update_warehouse_filter(&mut self, filter: Option<Vec<(ResourceKind, bool)>>) {
@@ -456,6 +640,27 @@ impl BuildingInfoPanel {
                 .unwrap_or(true);
             control.button.set_pressed_no_signal(allowed);
         }
+        container.show();
+    }
+
+    fn update_storage_pulls(&mut self, pulls: Option<Vec<(ResourceKind, bool)>>) {
+        let mut container = self.storage_pull_container.clone();
+        let Some(pulls) = pulls else {
+            container.hide();
+            return;
+        };
+        sync_toggle_controls(&mut self.storage_pull_controls, &pulls);
+        container.show();
+    }
+
+    fn update_refinery_pulls(&mut self, pulls: Option<Vec<(ResourceKind, bool)>>) {
+        let mut container = self.refinery_pull_container.clone();
+        let Some(pulls) = pulls else {
+            container.hide();
+            return;
+        };
+        self.rebuild_refinery_pull_rows(&pulls);
+        sync_toggle_controls(&mut self.refinery_pull_controls, &pulls);
         container.show();
     }
 
@@ -633,6 +838,8 @@ impl BuildingInfoPanel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BuildingInfo {
     kind: BuildingKind,
+    name: String,
+    active: Option<bool>,
     footprint: BuildingFootprint,
     construction: Option<BuildingConstructionInfo>,
     inventory: Option<BuildingInventoryInfo>,
@@ -641,6 +848,8 @@ struct BuildingInfo {
     forestry: Option<ForestryInfo>,
     housing: Option<HousingInfo>,
     warehouse_filter: Option<Vec<(ResourceKind, bool)>>,
+    storage_pulls: Option<Vec<(ResourceKind, bool)>>,
+    refinery_pulls: Option<Vec<(ResourceKind, bool)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -704,11 +913,16 @@ fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<Buil
 
 fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInfo> {
     let inventory = building_inventory_info(world, entity);
+    let stored_name = world
+        .get::<BuildingName>(entity)
+        .map(|name| name.as_str().to_string());
 
     if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
         let progress = world.get::<ConstructionProgress>(entity)?;
         return Some(BuildingInfo {
             kind: blueprint.kind,
+            name: stored_name.unwrap_or_else(|| blueprint.kind.label().to_string()),
+            active: None,
             footprint: blueprint.footprint,
             construction: Some(BuildingConstructionInfo {
                 cost: blueprint.kind.definition().construction_cost(),
@@ -720,12 +934,18 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
             forestry: forestry_info(world, entity, blueprint.kind),
             housing: None,
             warehouse_filter: None,
+            storage_pulls: None,
+            refinery_pulls: None,
         });
     }
 
     let building = world.get::<Building>(entity)?;
     Some(BuildingInfo {
         kind: building.kind,
+        name: stored_name.unwrap_or_else(|| building.kind.label().to_string()),
+        active: world
+            .get::<BuildingActivity>(entity)
+            .map(|activity| activity.is_active()),
         footprint: building.footprint,
         construction: None,
         inventory,
@@ -733,10 +953,24 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
         farming: farming_info(world, entity, building.kind),
         forestry: forestry_info(world, entity, building.kind),
         housing: housing_info(world, entity),
-        warehouse_filter: world.get::<WarehouseInventory>(entity).map(|inventory| {
+        warehouse_filter: world.get::<StorageInventory>(entity).map(|inventory| {
             ResourceKind::ALL
                 .into_iter()
                 .map(|kind| (kind, inventory.is_allowed(kind)))
+                .collect()
+        }),
+        storage_pulls: world.get::<StoragePullConfig>(entity).map(|pulls| {
+            StoragePullConfig::SUPPORTED_RESOURCES
+                .into_iter()
+                .map(|kind| (kind, pulls.pulls_from_refineries(kind)))
+                .collect()
+        }),
+        refinery_pulls: world.get::<RefineryPullConfig>(entity).map(|pulls| {
+            refinery_info(world, entity)
+                .into_iter()
+                .flat_map(|refinery| refinery.status.supported_recipes)
+                .map(|recipe| recipe.definition().input())
+                .map(|kind| (kind, pulls.pulls_from_storage(kind)))
                 .collect()
         }),
     })
@@ -770,7 +1004,7 @@ fn building_inventory_info(
     world: &bevy_ecs::world::World,
     entity: Entity,
 ) -> Option<BuildingInventoryInfo> {
-    if let Some(inventory) = world.get::<WarehouseInventory>(entity).copied() {
+    if let Some(inventory) = world.get::<StorageInventory>(entity).copied() {
         return Some(BuildingInventoryInfo {
             contents: inventory.contents(),
             used_size: inventory.used_size(),
@@ -1177,6 +1411,35 @@ fn inventory_header_text(used_size: u32, max_size: u32) -> String {
     format!("Inventory: {used_size}/{max_size}")
 }
 
+fn sync_toggle_controls(controls: &mut [ResourceToggleControl], values: &[(ResourceKind, bool)]) {
+    for control in controls {
+        if let Some(enabled) = values
+            .iter()
+            .find_map(|(kind, enabled)| (*kind == control.kind).then_some(*enabled))
+        {
+            control.button.set_pressed_no_signal(enabled);
+        }
+    }
+}
+
+fn building_command_error_text(
+    error: game_engine::simulation::BuildingCommandError,
+) -> &'static str {
+    use game_engine::simulation::BuildingCommandError;
+    match error {
+        BuildingCommandError::WrongSurface => "The building is on another surface.",
+        BuildingCommandError::MissingEntity => "The building no longer exists.",
+        BuildingCommandError::NotBuilding => "The selected entity is not a building.",
+        BuildingCommandError::BlueprintIneligible => {
+            "This setting is unavailable until construction is complete."
+        }
+        BuildingCommandError::UnsupportedBuilding => "This building does not support that setting.",
+        BuildingCommandError::UnsupportedResource => "This resource is not supported here.",
+        BuildingCommandError::InvalidName => "Enter a name between 1 and 64 characters.",
+        BuildingCommandError::DuplicateName => "A building already uses that name.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,7 +1513,7 @@ mod tests {
         let entity = world
             .spawn((
                 Building::new(BuildingKind::Warehouse, footprint(BuildingKind::Warehouse)),
-                WarehouseInventory::empty(),
+                StorageInventory::for_kind(BuildingKind::Warehouse),
             ))
             .id();
 
@@ -1264,7 +1527,7 @@ mod tests {
         );
 
         assert!(world
-            .get_mut::<WarehouseInventory>(entity)
+            .get_mut::<StorageInventory>(entity)
             .expect("warehouse should have inventory")
             .add(ResourceKind::Wood, 7));
 
@@ -1276,7 +1539,7 @@ mod tests {
         assert_eq!(inventory.used_size, 7);
 
         world
-            .get_mut::<WarehouseInventory>(entity)
+            .get_mut::<StorageInventory>(entity)
             .unwrap()
             .set_allowed(ResourceKind::Stone, false);
         let filter = building_info_from_world(&world, entity)
@@ -1288,6 +1551,58 @@ mod tests {
                 .iter()
                 .find_map(|(kind, allowed)| (*kind == ResourceKind::Stone).then_some(*allowed)),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn building_info_exposes_depot_configuration() {
+        let mut world = World::new();
+        let mut inventory = StorageInventory::for_kind(BuildingKind::Depot);
+        inventory.set_allowed(ResourceKind::Stone, false);
+        let mut pulls = StoragePullConfig::default();
+        pulls.set_pulls_from_refineries(ResourceKind::Food, true);
+        let entity = world
+            .spawn((
+                Building::new(BuildingKind::Depot, footprint(BuildingKind::Depot)),
+                BuildingName::new("Central Depot"),
+                BuildingActivity::active(),
+                inventory,
+                pulls,
+            ))
+            .id();
+
+        let info = building_info_from_world(&world, entity).expect("depot info should exist");
+        assert_eq!(info.name, "Central Depot");
+        assert_eq!(info.active, Some(true));
+        assert_eq!(info.inventory.unwrap().max_size, 500);
+        assert_eq!(
+            info.warehouse_filter
+                .unwrap()
+                .into_iter()
+                .find(|(kind, _)| *kind == ResourceKind::Stone),
+            Some((ResourceKind::Stone, false))
+        );
+        assert_eq!(
+            info.storage_pulls.unwrap(),
+            vec![
+                (ResourceKind::Planks, false),
+                (ResourceKind::StoneBlocks, false),
+                (ResourceKind::Food, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn command_errors_have_inline_user_facing_text() {
+        use game_engine::simulation::BuildingCommandError;
+
+        assert_eq!(
+            building_command_error_text(BuildingCommandError::DuplicateName),
+            "A building already uses that name."
+        );
+        assert_eq!(
+            building_command_error_text(BuildingCommandError::BlueprintIneligible),
+            "This setting is unavailable until construction is complete."
         );
     }
 

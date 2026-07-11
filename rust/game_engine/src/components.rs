@@ -527,6 +527,98 @@ pub struct CarriedResource {
     stack: Option<CarriedResourceStack>,
 }
 
+pub const WHEELBARROW_CAPACITY: u32 = 25;
+
+/// Simulation-owned hauling equipment. An equipped but empty wheelbarrow is
+/// represented by `stack == None`; once loaded it can carry exactly one
+/// resource kind and replaces the NPC's normal [`CarriedResource`] cargo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component, Default)]
+pub struct Wheelbarrow {
+    stack: Option<CarriedResourceStack>,
+}
+
+impl Wheelbarrow {
+    pub const fn empty() -> Self {
+        Self { stack: None }
+    }
+
+    pub const fn of(kind: ResourceKind, amount: u32) -> Self {
+        assert!(amount <= WHEELBARROW_CAPACITY);
+        if amount == 0 {
+            Self::empty()
+        } else {
+            Self {
+                stack: Some(CarriedResourceStack { kind, amount }),
+            }
+        }
+    }
+
+    pub const fn stack(self) -> Option<CarriedResourceStack> {
+        self.stack
+    }
+
+    pub const fn contents(self) -> ResourceAmounts {
+        match self.stack {
+            Some(stack) => ResourceAmounts::of(stack.kind, stack.amount),
+            None => ResourceAmounts::zero(),
+        }
+    }
+
+    pub const fn used_size(self) -> u32 {
+        match self.stack {
+            Some(stack) => stack.amount,
+            None => 0,
+        }
+    }
+
+    pub const fn free_size(self) -> u32 {
+        WHEELBARROW_CAPACITY - self.used_size()
+    }
+
+    pub fn add(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        match self.stack {
+            Some(mut stack) => {
+                if stack.kind != kind {
+                    return false;
+                }
+                let Some(new_amount) = stack.amount.checked_add(amount) else {
+                    return false;
+                };
+                if new_amount > WHEELBARROW_CAPACITY {
+                    return false;
+                }
+                stack.amount = new_amount;
+                self.stack = Some(stack);
+            }
+            None => {
+                if amount > WHEELBARROW_CAPACITY {
+                    return false;
+                }
+                self.stack = Some(CarriedResourceStack { kind, amount });
+            }
+        }
+        true
+    }
+
+    pub fn consume(&mut self, kind: ResourceKind, amount: u32) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        let Some(mut stack) = self.stack else {
+            return false;
+        };
+        if stack.kind != kind || stack.amount < amount {
+            return false;
+        }
+        stack.amount -= amount;
+        self.stack = (stack.amount > 0).then_some(stack);
+        true
+    }
+}
+
 impl CarriedResource {
     pub const fn empty() -> Self {
         Self { stack: None }

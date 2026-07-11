@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy_ecs::prelude::*;
 
 use crate::ai::RESOURCE_GATHER_TICKS_PER_UNIT;
-use crate::buildings::{Building, BuildingKind, WarehouseInventory};
+use crate::buildings::{Building, BuildingActivity, BuildingKind, WarehouseInventory};
 use crate::components::{
     AiConstructBuilding, AiGatherResource, AiSearchForFood, CarriedResource, MovementTarget, Npc,
     NpcPosition, ResourceNode, TilePosition,
@@ -228,6 +228,7 @@ pub enum StockEndpoint {
 pub enum SinkEndpoint {
     Blueprint(Entity),
     FoodPouch(Entity),
+    Storage(Entity),
     RefineryInput(Entity),
     RefineryOutput(Entity),
 }
@@ -261,6 +262,12 @@ impl ReservationLedger {
         self.claims
             .iter()
             .filter(|claim| claim.sink == sink && claim.kind == kind)
+            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
+    }
+    pub fn reserved_capacity_to(&self, sink: SinkEndpoint) -> u32 {
+        self.claims
+            .iter()
+            .filter(|claim| claim.sink == sink)
             .fold(0, |sum, claim| sum.saturating_add(claim.amount))
     }
     pub fn claim(&mut self, reservation: Reservation) -> bool {
@@ -338,6 +345,7 @@ impl AiRefineResource {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefineryBlockedReason {
+    Inactive,
     OutputFull,
     NoInput,
     NoEligibleWorker,
@@ -370,6 +378,7 @@ pub fn npc_refining_activity(world: &World, npc: Entity) -> Option<RefiningActiv
 impl RefineryBlockedReason {
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Inactive => "Inactive",
             Self::OutputFull => "Output full",
             Self::NoInput => "No input",
             Self::NoEligibleWorker => "No eligible worker",
@@ -531,6 +540,12 @@ pub fn assign_refining_work(world: &mut World) {
             let Some(building) = world.get::<Building>(refinery).copied() else {
                 continue;
             };
+            if !world
+                .get::<BuildingActivity>(refinery)
+                .is_none_or(|activity| activity.is_active())
+            {
+                continue;
+            }
             let Some(inventory) = world.get::<RefineryInventory>(refinery).copied() else {
                 continue;
             };
@@ -557,20 +572,13 @@ pub fn assign_refining_work(world: &mut World) {
             let Some((_, refinery_distance)) = distances.closest_reachable(goals) else {
                 continue;
             };
-            let recipe_source = if let Some(recipe) = production.recipe() {
-                Some((recipe, None))
-            } else {
-                choose_recipe_and_source(
-                    world,
-                    &snapshot,
-                    distances,
-                    worker,
-                    refinery,
-                    building.kind,
-                    inventory,
-                )
-            };
-            let Some((recipe, source)) = recipe_source else {
+            let recipe = production.recipe().or_else(|| {
+                recipes_for_building(building.kind)
+                    .iter()
+                    .copied()
+                    .find(|recipe| inventory.input_contents().get(recipe.definition().input()) > 0)
+            });
+            let Some(recipe) = recipe else {
                 continue;
             };
             candidates.push((
@@ -579,7 +587,7 @@ pub fn assign_refining_work(world: &mut World) {
                 *task_entity,
                 refinery,
                 recipe,
-                source,
+                None,
             ));
         }
         let Some((_, _, task, refinery, recipe, source)) = candidates
@@ -601,16 +609,12 @@ pub fn assign_refining_work(world: &mut World) {
             continue;
         }
         newly_claimed.insert(refinery);
-        let phase = if source.is_some() {
-            RefiningPhase::ToSource
-        } else {
-            RefiningPhase::ToRefinery
-        };
+        let phase = RefiningPhase::ToRefinery;
         world.entity_mut(worker).insert(AiRefineResource {
             refinery,
             task,
             recipe,
-            source,
+            source: None,
             phase,
         });
         if let Some(mut production) = world.get_mut::<RefineryProduction>(refinery) {
@@ -642,6 +646,13 @@ pub fn route_and_advance_refining_work(world: &mut World) {
             release_refining_worker(world, worker, work);
             continue;
         };
+        if !world
+            .get::<BuildingActivity>(work.refinery)
+            .is_none_or(|activity| activity.is_active())
+        {
+            release_refining_worker(world, worker, work);
+            continue;
+        }
         match work.phase {
             RefiningPhase::ToSource => {
                 let Some(source) = work.source else {
@@ -834,13 +845,18 @@ pub fn refinery_status(world: &World, entity: Entity) -> Option<RefineryStatus> 
         .get::<RefineryProduction>(entity)
         .copied()
         .unwrap_or_default();
+    let inactive = world
+        .get::<BuildingActivity>(entity)
+        .is_some_and(|activity| !activity.is_active());
     let output_full = inventory.output_free_size() == 0;
     let no_input = production.recipe().is_none()
-        && recipes_for_building(building.kind).iter().all(|recipe| {
-            available_stock_readonly(world, recipe.definition().input(), entity) == 0
-        });
+        && recipes_for_building(building.kind)
+            .iter()
+            .all(|recipe| inventory.input_contents().get(recipe.definition().input()) == 0);
     let no_worker = !has_eligible_worker(world, building.kind);
-    let blocked_reason = if output_full {
+    let blocked_reason = if inactive {
+        Some(RefineryBlockedReason::Inactive)
+    } else if output_full {
         Some(RefineryBlockedReason::OutputFull)
     } else if no_input {
         Some(RefineryBlockedReason::NoInput)
@@ -865,6 +881,7 @@ pub fn refinery_status(world: &World, entity: Entity) -> Option<RefineryStatus> 
     })
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn choose_recipe_and_source(
     world: &mut World,
     snapshot: &NavigationSnapshot,
@@ -934,7 +951,11 @@ pub(crate) fn stock_sources(
     }
     if let Some(mut query) = world.try_query::<(Entity, &WarehouseInventory)>() {
         sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
-            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
+            (entity != exclude_refinery
+                && world
+                    .get::<BuildingActivity>(entity)
+                    .is_none_or(|activity| activity.is_active())
+                && inventory.contents().get(kind) > 0)
                 .then_some(StockEndpoint::Warehouse(entity))
         }));
     }
@@ -951,10 +972,12 @@ pub(crate) fn stock_sources(
         }));
     }
     if let Some(mut query) = world.try_query::<(Entity, &RefineryInventory)>() {
-        for (entity, inv) in query
-            .iter(world)
-            .filter(|(entity, _)| *entity != exclude_refinery)
-        {
+        for (entity, inv) in query.iter(world).filter(|(entity, _)| {
+            *entity != exclude_refinery
+                && world
+                    .get::<BuildingActivity>(*entity)
+                    .is_none_or(|activity| activity.is_active())
+        }) {
             if inv.input_contents().get(kind) > 0 {
                 sources.push(StockEndpoint::RefineryInput(entity));
             }
@@ -1098,6 +1121,18 @@ fn release_refining_worker(world: &mut World, worker: Entity, work: AiRefineReso
     }
 }
 
+pub fn cancel_refining_work_for_building(world: &mut World, refinery: Entity) {
+    let mut query = world.query::<(Entity, &AiRefineResource)>();
+    let workers = query
+        .iter(world)
+        .filter(|(_, work)| work.refinery() == refinery)
+        .map(|(worker, work)| (worker, *work))
+        .collect::<Vec<_>>();
+    for (worker, work) in workers {
+        release_refining_worker(world, worker, work);
+    }
+}
+
 fn cleanup_refining_claims(world: &mut World) {
     let mut query = world.query::<(Entity, &AiRefineResource)>();
     let active = query
@@ -1128,6 +1163,7 @@ fn cleanup_refining_claims(world: &mut World) {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn available_stock_readonly(world: &World, kind: ResourceKind, exclude: Entity) -> u32 {
     let mut total = 0u32;
     if let Some(mut query) = world.try_query::<(Entity, &ResourceNode)>() {

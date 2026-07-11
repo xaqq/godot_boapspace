@@ -8,14 +8,15 @@ use crate::refining::{RefineryInventory, RefineryProduction};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use bevy_ecs::prelude::*;
 
+pub const DEFAULT_DEPOT_INVENTORY_MAX_SIZE: u32 = 500;
 pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WarehouseResourceFilter {
+pub struct StorageResourceFilter {
     allowed: [bool; ResourceKind::ALL.len()],
 }
 
-impl WarehouseResourceFilter {
+impl StorageResourceFilter {
     pub const fn allow_all() -> Self {
         Self {
             allowed: [true; ResourceKind::ALL.len()],
@@ -31,7 +32,7 @@ impl WarehouseResourceFilter {
     }
 }
 
-impl Default for WarehouseResourceFilter {
+impl Default for StorageResourceFilter {
     fn default() -> Self {
         Self::allow_all()
     }
@@ -39,6 +40,7 @@ impl Default for WarehouseResourceFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuildingKind {
+    Depot,
     Warehouse,
     TownHall,
     Sawmill,
@@ -54,7 +56,8 @@ pub enum BuildingKind {
 }
 
 impl BuildingKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
+        Self::Depot,
         Self::Warehouse,
         Self::TownHall,
         Self::Sawmill,
@@ -71,6 +74,7 @@ impl BuildingKind {
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Depot => "Depot",
             Self::Warehouse => "Warehouse",
             Self::TownHall => "TownHall",
             Self::Sawmill => "Sawmill",
@@ -88,10 +92,19 @@ impl BuildingKind {
 
     pub const fn definition(self) -> BuildingDefinition {
         match self {
-            Self::Warehouse => BuildingDefinition {
+            Self::Depot => BuildingDefinition {
                 kind: self,
                 width: 2,
                 height: 2,
+                construction_cost: ResourceAmounts::zero()
+                    .with(ResourceKind::Wood, 20)
+                    .with(ResourceKind::Stone, 10),
+                housing_capacity: None,
+            },
+            Self::Warehouse => BuildingDefinition {
+                kind: self,
+                width: 4,
+                height: 4,
                 construction_cost: ResourceAmounts::zero()
                     .with(ResourceKind::Planks, 40)
                     .with(ResourceKind::StoneBlocks, 20),
@@ -198,6 +211,18 @@ impl BuildingKind {
                 housing_capacity: Some(8),
             },
         }
+    }
+
+    pub const fn is_storage(self) -> bool {
+        matches!(self, Self::Depot | Self::Warehouse)
+    }
+
+    pub const fn is_refinery(self) -> bool {
+        matches!(self, Self::Sawmill | Self::Stoneworks | Self::Kitchen)
+    }
+
+    pub const fn is_logistics_configurable(self) -> bool {
+        self.is_storage() || self.is_refinery()
     }
 }
 
@@ -399,16 +424,26 @@ impl BuildingBlueprintBundle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
-pub struct WarehouseInventory {
+pub struct StorageInventory {
     inventory: ResourceInventory,
-    filter: WarehouseResourceFilter,
+    filter: StorageResourceFilter,
 }
 
-impl WarehouseInventory {
+impl StorageInventory {
+    /// Compatibility constructor for the original warehouse-only API.
     pub const fn empty() -> Self {
+        Self::for_kind(BuildingKind::Warehouse)
+    }
+
+    pub const fn for_kind(kind: BuildingKind) -> Self {
+        let capacity = match kind {
+            BuildingKind::Depot => DEFAULT_DEPOT_INVENTORY_MAX_SIZE,
+            BuildingKind::Warehouse => DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE,
+            _ => panic!("storage inventory requires a storage building kind"),
+        };
         Self {
-            inventory: ResourceInventory::empty(DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE),
-            filter: WarehouseResourceFilter::allow_all(),
+            inventory: ResourceInventory::empty(capacity),
+            filter: StorageResourceFilter::allow_all(),
         }
     }
 
@@ -445,9 +480,142 @@ impl WarehouseInventory {
     }
 }
 
-impl Default for WarehouseInventory {
+impl Default for StorageInventory {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+pub type WarehouseInventory = StorageInventory;
+pub type WarehouseResourceFilter = StorageResourceFilter;
+
+#[derive(Debug, Clone, PartialEq, Eq, Component)]
+pub struct BuildingName(String);
+
+impl BuildingName {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct BuildingActivity {
+    active: bool,
+}
+
+impl BuildingActivity {
+    pub const fn active() -> Self {
+        Self { active: true }
+    }
+
+    pub const fn is_active(self) -> bool {
+        self.active
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+}
+
+impl Default for BuildingActivity {
+    fn default() -> Self {
+        Self::active()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component, Default)]
+pub struct StoragePullConfig {
+    pulls: [bool; ResourceKind::ALL.len()],
+}
+
+impl StoragePullConfig {
+    pub const SUPPORTED_RESOURCES: [ResourceKind; 3] = [
+        ResourceKind::Planks,
+        ResourceKind::StoneBlocks,
+        ResourceKind::Food,
+    ];
+
+    pub const fn supports(kind: ResourceKind) -> bool {
+        matches!(
+            kind,
+            ResourceKind::Planks | ResourceKind::StoneBlocks | ResourceKind::Food
+        )
+    }
+
+    pub const fn pulls_from_refineries(self, kind: ResourceKind) -> bool {
+        self.pulls[kind as usize]
+    }
+
+    pub fn set_pulls_from_refineries(&mut self, kind: ResourceKind, enabled: bool) {
+        self.pulls[kind as usize] = enabled;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component, Default)]
+pub struct RefineryPullConfig {
+    pulls: [bool; ResourceKind::ALL.len()],
+}
+
+impl RefineryPullConfig {
+    pub const fn pulls_from_storage(self, kind: ResourceKind) -> bool {
+        self.pulls[kind as usize]
+    }
+
+    pub fn set_pulls_from_storage(&mut self, kind: ResourceKind, enabled: bool) {
+        self.pulls[kind as usize] = enabled;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Resource)]
+pub struct BuildingNameRegistry {
+    next_numbers: [u64; BuildingKind::ALL.len()],
+}
+
+impl Default for BuildingNameRegistry {
+    fn default() -> Self {
+        Self {
+            next_numbers: [1; BuildingKind::ALL.len()],
+        }
+    }
+}
+
+fn normalized_building_name(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+pub fn building_name_exists(world: &World, name: &str, except: Option<Entity>) -> bool {
+    let normalized = normalized_building_name(name);
+    world
+        .iter_entities()
+        .filter(|entity| Some(entity.id()) != except)
+        .filter_map(|entity| entity.get::<BuildingName>())
+        .any(|existing| normalized_building_name(existing.as_str()) == normalized)
+}
+
+/// Allocates and inserts a monotonically numbered, surface-local default name.
+pub fn assign_default_building_name(world: &mut World, entity: Entity, kind: BuildingKind) {
+    if !world.contains_resource::<BuildingNameRegistry>() {
+        world.insert_resource(BuildingNameRegistry::default());
+    }
+    loop {
+        let number = {
+            let mut registry = world.resource_mut::<BuildingNameRegistry>();
+            let next = &mut registry.next_numbers[kind as usize];
+            let number = *next;
+            *next = next.saturating_add(1);
+            number
+        };
+        let candidate = format!("{} #{number}", kind.label());
+        if !building_name_exists(world, &candidate, None) {
+            world
+                .entity_mut(entity)
+                .insert(BuildingName::new(candidate));
+            return;
+        }
     }
 }
 
@@ -471,6 +639,7 @@ pub fn place_building_blueprint(
     let entity = world
         .spawn(BuildingBlueprintBundle::new(kind, footprint))
         .id();
+    assign_default_building_name(world, entity, kind);
     refresh_navigation_snapshot_cells(world, footprint.iter_coords());
 
     Ok(entity)
@@ -583,8 +752,12 @@ pub fn system_complete_building_construction(
             .remove::<BuildingBlueprint>()
             .remove::<ConstructionProgress>()
             .insert(Building::new(blueprint.kind, blueprint.footprint));
-        if blueprint.kind == BuildingKind::Warehouse {
-            entity_commands.insert(WarehouseInventory::empty());
+        if blueprint.kind.is_storage() {
+            entity_commands.insert((
+                StorageInventory::for_kind(blueprint.kind),
+                StoragePullConfig::default(),
+                BuildingActivity::active(),
+            ));
         }
         if blueprint.kind == BuildingKind::Farm {
             entity_commands.insert(FarmInventory::empty());
@@ -598,11 +771,13 @@ pub fn system_complete_building_construction(
         if blueprint.kind == BuildingKind::TreePlot {
             entity_commands.insert(TreePlotGrowth::seedable());
         }
-        if matches!(
-            blueprint.kind,
-            BuildingKind::Sawmill | BuildingKind::Stoneworks | BuildingKind::Kitchen
-        ) {
-            entity_commands.insert((RefineryInventory::empty(), RefineryProduction::default()));
+        if blueprint.kind.is_refinery() {
+            entity_commands.insert((
+                RefineryInventory::empty(),
+                RefineryProduction::default(),
+                RefineryPullConfig::default(),
+                BuildingActivity::active(),
+            ));
         }
         if let Some(capacity) = blueprint.kind.definition().housing_capacity() {
             entity_commands.insert(House::new(capacity, next_house_order));
@@ -634,6 +809,61 @@ mod tests {
                 CellCoord::new(3, 5),
             ]
         );
+    }
+
+    #[test]
+    fn storage_tiers_have_distinct_definitions_and_capacities() {
+        let depot = BuildingKind::Depot.definition();
+        assert_eq!((depot.width(), depot.height()), (2, 2));
+        assert_eq!(depot.construction_cost().get(ResourceKind::Wood), 20);
+        assert_eq!(depot.construction_cost().get(ResourceKind::Stone), 10);
+        assert_eq!(
+            StorageInventory::for_kind(BuildingKind::Depot).max_size(),
+            500
+        );
+
+        let warehouse = BuildingKind::Warehouse.definition();
+        assert_eq!((warehouse.width(), warehouse.height()), (4, 4));
+        assert_eq!(
+            StorageInventory::for_kind(BuildingKind::Warehouse).max_size(),
+            2_000
+        );
+        assert!(BuildingKind::Depot.is_storage());
+        assert!(BuildingKind::Warehouse.is_logistics_configurable());
+    }
+
+    #[test]
+    fn default_names_are_monotonic_and_skip_normalized_collisions() {
+        let mut world = World::new();
+        world.insert_resource(BuildingNameRegistry::default());
+        let manually_named = world.spawn(BuildingName::new("  depot #1 ")).id();
+        let first = world.spawn_empty().id();
+        assign_default_building_name(&mut world, first, BuildingKind::Depot);
+        let second = world.spawn_empty().id();
+        assign_default_building_name(&mut world, second, BuildingKind::Depot);
+        world.despawn(first);
+        let third = world.spawn_empty().id();
+        assign_default_building_name(&mut world, third, BuildingKind::Depot);
+
+        assert_eq!(world.get::<BuildingName>(first), None);
+        assert_eq!(
+            world.get::<BuildingName>(second).unwrap().as_str(),
+            "Depot #3"
+        );
+        assert_eq!(
+            world.get::<BuildingName>(third).unwrap().as_str(),
+            "Depot #4"
+        );
+        assert!(world.get_entity(manually_named).is_ok());
+    }
+
+    #[test]
+    fn pull_configs_default_off() {
+        let storage = StoragePullConfig::default();
+        for kind in StoragePullConfig::SUPPORTED_RESOURCES {
+            assert!(!storage.pulls_from_refineries(kind));
+        }
+        assert!(!RefineryPullConfig::default().pulls_from_storage(ResourceKind::Wood));
     }
 
     #[test]
@@ -706,7 +936,7 @@ mod tests {
                 BuildingKind::Warehouse,
                 CellCoord::new(0, 0),
             ),
-            Ok(BuildingFootprint::new(CellCoord::new(0, 0), 2, 2))
+            Ok(BuildingFootprint::new(CellCoord::new(0, 0), 4, 4))
         );
     }
 

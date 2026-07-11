@@ -1,6 +1,6 @@
 use crate::buildings::{
-    validate_building_footprint_placement, Building, BuildingBlueprint, BuildingFootprint,
-    BuildingKind, BuildingPlacementError,
+    assign_default_building_name, validate_building_footprint_placement, Building,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
 };
 use crate::farming::FIELD_SEEDING_TICKS;
 use crate::grid::CellCoord;
@@ -388,12 +388,14 @@ pub fn place_tree_plot_blueprint(
     coord: CellCoord,
 ) -> Result<Entity, TreePlotPlacementError> {
     let footprint = validate_tree_plot_blueprint_placement(world, forester_lodge, coord)?;
-    Ok(world
+    let entity = world
         .spawn((
             crate::buildings::BuildingBlueprintBundle::new(BuildingKind::TreePlot, footprint),
             TreePlotOwner::new(forester_lodge),
         ))
-        .id())
+        .id();
+    assign_default_building_name(world, entity, BuildingKind::TreePlot);
+    Ok(entity)
 }
 
 pub fn place_tree_plot_blueprints(
@@ -415,6 +417,7 @@ pub fn place_tree_plot_blueprints(
                         TreePlotOwner::new(forester_lodge),
                     ))
                     .id();
+                assign_default_building_name(world, entity, BuildingKind::TreePlot);
                 result.placed.push(PlacedTreePlot {
                     coord: preview.coord,
                     entity,

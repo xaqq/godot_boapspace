@@ -1,7 +1,7 @@
 use crate::ai::RESOURCE_GATHER_TICKS_PER_UNIT;
 use crate::buildings::{
-    validate_building_footprint_placement, Building, BuildingBlueprint, BuildingFootprint,
-    BuildingKind, BuildingPlacementError,
+    assign_default_building_name, validate_building_footprint_placement, Building,
+    BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
 };
 use crate::grid::CellCoord;
 use crate::plots::{cardinal_neighbors, connected_cells, PlotGrowth};
@@ -384,6 +384,7 @@ pub fn place_field_blueprint(
             FieldOwner::new(farm),
         ))
         .id();
+    assign_default_building_name(world, entity, BuildingKind::Field);
 
     Ok(entity)
 }
@@ -408,6 +409,7 @@ pub fn place_field_blueprints(
                         FieldOwner::new(farm),
                     ))
                     .id();
+                assign_default_building_name(world, entity, BuildingKind::Field);
                 result.placed.push(PlacedField {
                     coord: preview.coord,
                     entity,

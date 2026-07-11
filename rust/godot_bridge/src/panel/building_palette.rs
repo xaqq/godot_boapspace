@@ -7,6 +7,9 @@ use godot::prelude::*;
 #[class(base = PanelContainer)]
 pub(crate) struct BuildingPalette {
     #[export]
+    depot_button: OnEditor<Gd<Button>>,
+
+    #[export]
     warehouse_button: OnEditor<Gd<Button>>,
 
     #[export]
@@ -46,6 +49,7 @@ pub(crate) struct BuildingPalette {
 impl IPanelContainer for BuildingPalette {
     fn init(base: Base<PanelContainer>) -> Self {
         Self {
+            depot_button: OnEditor::default(),
             warehouse_button: OnEditor::default(),
             town_hall_button: OnEditor::default(),
             sawmill_button: OnEditor::default(),
@@ -62,6 +66,7 @@ impl IPanelContainer for BuildingPalette {
     }
 
     fn ready(&mut self) {
+        let depot_button = self.depot_button.clone();
         let warehouse_button = self.warehouse_button.clone();
         let town_hall_button = self.town_hall_button.clone();
         let sawmill_button = self.sawmill_button.clone();
@@ -73,6 +78,13 @@ impl IPanelContainer for BuildingPalette {
         let medium_house_button = self.medium_house_button.clone();
         let large_house_button = self.large_house_button.clone();
         let game_world = self.game_world.clone();
+
+        depot_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.start_depot_blueprint_placement();
+            },
+        );
 
         warehouse_button.signals().pressed().connect_other(
             &game_world,
@@ -153,6 +165,7 @@ mod tests {
     #[test]
     fn palette_scene_uses_the_specified_major_building_order() {
         let button_names = [
+            "DepotButton",
             "WarehouseButton",
             "TownHallButton",
             "SawmillButton",
