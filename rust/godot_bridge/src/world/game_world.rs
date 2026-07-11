@@ -19,6 +19,7 @@ use game_engine::forestry::{
     TreePlotState,
 };
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
+use game_engine::navigation::NpcRoute;
 use game_engine::npcs::{Npc, NpcName, NpcPosition};
 use game_engine::refining::{
     AiRefineResource, RecipeKind, RefineryProduction, RefiningTask, REFINING_TICKS_PER_UNIT,
@@ -88,6 +89,18 @@ struct SelectedCell {
 struct SelectedNpc {
     coord: CellCoord,
     entity: Entity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SelectedNpcRouteOverlay {
+    Route {
+        position: NpcPosition,
+        waypoints: Vec<CellCoord>,
+        destination: CellCoord,
+    },
+    Blocked {
+        position: NpcPosition,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +283,7 @@ pub(crate) struct GameWorld {
     rendered_surface: SurfaceId,
     selected_cell: Option<SelectedCell>,
     selected_npc: Option<SelectedNpc>,
+    selected_npc_route_overlay: Option<SelectedNpcRouteOverlay>,
     selected_building: Option<SelectedBuilding>,
     hovered_map_entity: Option<MapEntityTarget>,
     placement_mode: Option<PlacementMode>,
@@ -301,6 +315,7 @@ impl INode2D for GameWorld {
             rendered_surface,
             selected_cell: None,
             selected_npc: None,
+            selected_npc_route_overlay: None,
             selected_building: None,
             hovered_map_entity: None,
             placement_mode: None,
@@ -450,6 +465,7 @@ impl INode2D for GameWorld {
         self.populate_tree_plot_map(&mut tree_plot_map);
         let buildings_changed = self.sync_building_sprites();
         self.sync_npc_sprites();
+        self.sync_selected_npc_route_overlay();
         self.update_plot_drag_current();
         if self.placement_mode.is_some() || buildings_changed {
             self.base_mut().queue_redraw();
@@ -472,6 +488,7 @@ impl INode2D for GameWorld {
         let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
         let selected_cell = self.selected_cell;
         let selected_npc = self.selected_npc;
+        let selected_npc_route_overlay = self.selected_npc_route_overlay.clone();
         let selected_building = self.selected_building;
         let building_preview = self.building_preview();
         let plot_previews = self.plot_previews();
@@ -510,6 +527,68 @@ impl INode2D for GameWorld {
                 .filled(false)
                 .width(3.0)
                 .done();
+        }
+
+        if let Some(overlay) = selected_npc_route_overlay {
+            match overlay {
+                SelectedNpcRouteOverlay::Route {
+                    position,
+                    waypoints,
+                    destination,
+                } => {
+                    let route_color = Color::from_rgba(0.1, 0.85, 1.0, 0.9);
+                    let points = npc_route_points(position, &waypoints);
+                    if points.len() >= 2 {
+                        let polyline = PackedVector2Array::from(points.clone());
+                        base.draw_polyline_ex(&polyline, route_color)
+                            .width(3.0)
+                            .antialiased(true)
+                            .done();
+
+                        for segment in points.windows(2) {
+                            let Some(chevron) = route_chevron(segment[0], segment[1]) else {
+                                continue;
+                            };
+                            let chevron = PackedVector2Array::from(chevron.to_vec());
+                            base.draw_polyline_ex(&chevron, route_color)
+                                .width(2.0)
+                                .antialiased(true)
+                                .done();
+                        }
+                    }
+                    base.draw_circle_ex(cell_center(destination), 9.0, route_color)
+                        .filled(false)
+                        .width(3.0)
+                        .antialiased(true)
+                        .done();
+                }
+                SelectedNpcRouteOverlay::Blocked { position } => {
+                    let blocked_color = Color::from_rgba(1.0, 0.15, 0.15, 0.95);
+                    let center = npc_center(position);
+                    let radius = 13.0;
+                    base.draw_circle_ex(center, radius, blocked_color)
+                        .filled(false)
+                        .width(3.0)
+                        .antialiased(true)
+                        .done();
+                    base.draw_line_ex(
+                        center + Vector2::new(-8.0, -8.0),
+                        center + Vector2::new(8.0, 8.0),
+                        blocked_color,
+                    )
+                    .width(3.0)
+                    .antialiased(true)
+                    .done();
+                    base.draw_line_ex(
+                        center + Vector2::new(-8.0, 8.0),
+                        center + Vector2::new(8.0, -8.0),
+                        blocked_color,
+                    )
+                    .width(3.0)
+                    .antialiased(true)
+                    .done();
+                }
+            }
         }
 
         if let Some(selected) = selected_cell {
@@ -756,6 +835,7 @@ impl GameWorld {
                 &mut ignored_building_selection,
                 targets,
             );
+            self.sync_selected_npc_route_overlay();
             self.base_mut().queue_redraw();
             self.emit_selection_events(events);
         } else {
@@ -825,6 +905,7 @@ impl GameWorld {
 
     fn clear_npc_selection(&mut self) {
         if self.selected_npc.take().is_some() {
+            self.selected_npc_route_overlay = None;
             self.base_mut().queue_redraw();
             self.signals().npc_deselected().emit();
         }
@@ -1521,6 +1602,18 @@ impl GameWorld {
         self.with_rendered_surface_world(query_npc_render_infos)
     }
 
+    fn sync_selected_npc_route_overlay(&mut self) {
+        let next_overlay = self.selected_npc.and_then(|selected| {
+            self.with_rendered_surface_world(|world| {
+                query_selected_npc_route_overlay(world, selected.entity)
+            })
+        });
+        if self.selected_npc_route_overlay != next_overlay {
+            self.selected_npc_route_overlay = next_overlay;
+            self.base_mut().queue_redraw();
+        }
+    }
+
     fn switch_rendered_surface(&mut self, surface: SurfaceId) {
         if self.rendered_surface == surface {
             return;
@@ -1529,6 +1622,7 @@ impl GameWorld {
         self.rendered_surface = surface;
         self.selected_cell = None;
         self.selected_npc = None;
+        self.selected_npc_route_overlay = None;
         self.selected_building = None;
         self.hovered_map_entity = None;
         self.placement_mode = None;
@@ -2073,6 +2167,23 @@ fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
         .unwrap_or_default()
 }
 
+fn query_selected_npc_route_overlay(
+    world: &World,
+    entity: Entity,
+) -> Option<SelectedNpcRouteOverlay> {
+    let position = *world.get::<NpcPosition>(entity)?;
+    let route = world.get::<NpcRoute>(entity)?;
+    if route.is_blocked() {
+        return Some(SelectedNpcRouteOverlay::Blocked { position });
+    }
+
+    Some(SelectedNpcRouteOverlay::Route {
+        position,
+        waypoints: route.waypoints().collect(),
+        destination: route.destination()?,
+    })
+}
+
 fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
     let mut rows = world
         .try_query::<(Entity, &ProgressBuildingConstruction)>()
@@ -2313,12 +2424,48 @@ fn cell_top_left(coord: CellCoord) -> Vector2 {
     )
 }
 
+fn cell_center(coord: CellCoord) -> Vector2 {
+    cell_top_left(coord) + Vector2::new(grid::TILE_SIZE / 2.0, grid::TILE_SIZE / 2.0)
+}
+
 fn npc_top_left(coord: CellCoord, subtile_offset: SubtileOffset) -> Vector2 {
     cell_top_left(coord)
         + Vector2::new(
             subtile_units_to_pixels(subtile_offset.x_units),
             subtile_units_to_pixels(subtile_offset.y_units),
         )
+}
+
+fn npc_center(position: NpcPosition) -> Vector2 {
+    npc_top_left(position.coord, position.subtile_offset)
+        + Vector2::new(grid::TILE_SIZE / 2.0, grid::TILE_SIZE / 2.0)
+}
+
+fn npc_route_points(position: NpcPosition, waypoints: &[CellCoord]) -> Vec<Vector2> {
+    let mut points = Vec::with_capacity(waypoints.len() + 1);
+    points.push(npc_center(position));
+    for waypoint in waypoints {
+        let point = cell_center(*waypoint);
+        if points.last().copied() != Some(point) {
+            points.push(point);
+        }
+    }
+    points
+}
+
+fn route_chevron(from: Vector2, to: Vector2) -> Option<[Vector2; 3]> {
+    let delta = to - from;
+    let length = delta.length();
+    if length <= f32::EPSILON {
+        return None;
+    }
+
+    let direction = delta / length;
+    let perpendicular = Vector2::new(-direction.y, direction.x);
+    let midpoint = (from + to) * 0.5;
+    let tip = midpoint + direction * 6.0;
+    let tail = midpoint - direction * 6.0;
+    Some([tail + perpendicular * 5.0, tip, tail - perpendicular * 5.0])
 }
 
 fn subtile_units_to_pixels(units: i32) -> f32 {
@@ -2493,9 +2640,101 @@ mod tests {
     use game_engine::farming::{FarmInventory, FieldOwner};
     use game_engine::forestry::{ForesterLodgeInventory, TreePlotOwner, TREE_PLOT_GROWTH_TICKS};
     use game_engine::grid::GridSize;
+    use game_engine::navigation::{drive_npc_routes, refresh_navigation_snapshot};
     use game_engine::npcs::InitialNpcBundle;
     use game_engine::tasks::{ProgressBuildingConstructionTaskBundle, Task};
     use game_engine::tile::TileBundle;
+
+    #[test]
+    fn selected_npc_route_overlay_reads_remaining_planned_route() {
+        let mut world = route_test_world(4, 3);
+        let position = NpcPosition::new(CellCoord::new(0, 1));
+        let npc = world.spawn(InitialNpcBundle::new(position.coord)).id();
+        world
+            .entity_mut(npc)
+            .insert(NpcRoute::to_cell(CellCoord::new(3, 1)));
+        refresh_navigation_snapshot(&mut world);
+        drive_npc_routes(&mut world);
+
+        assert_eq!(
+            query_selected_npc_route_overlay(&world, npc),
+            Some(SelectedNpcRouteOverlay::Route {
+                position,
+                waypoints: vec![
+                    CellCoord::new(1, 1),
+                    CellCoord::new(2, 1),
+                    CellCoord::new(3, 1),
+                ],
+                destination: CellCoord::new(3, 1),
+            })
+        );
+    }
+
+    #[test]
+    fn selected_npc_route_overlay_reports_blocked_route_at_npc() {
+        let mut world = route_test_world(3, 1);
+        let blocked_tile = world
+            .resource::<TileIndex>()
+            .get(CellCoord::new(1, 0))
+            .expect("blocked tile should be indexed");
+        world.entity_mut(blocked_tile).insert(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 1,
+        });
+        let position = NpcPosition::new(CellCoord::new(0, 0));
+        let npc = world.spawn(InitialNpcBundle::new(position.coord)).id();
+        world
+            .entity_mut(npc)
+            .insert(NpcRoute::to_cell(CellCoord::new(2, 0)));
+        refresh_navigation_snapshot(&mut world);
+        drive_npc_routes(&mut world);
+
+        assert_eq!(
+            query_selected_npc_route_overlay(&world, npc),
+            Some(SelectedNpcRouteOverlay::Blocked { position })
+        );
+    }
+
+    #[test]
+    fn selected_npc_route_overlay_ignores_npc_without_route() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(1, 1)))
+            .id();
+
+        assert_eq!(query_selected_npc_route_overlay(&world, npc), None);
+    }
+
+    #[test]
+    fn npc_route_points_start_at_subtile_npc_center_and_use_cell_centers() {
+        let position = NpcPosition {
+            coord: CellCoord::new(1, 2),
+            subtile_offset: SubtileOffset::new(SUBTILE_UNITS_PER_TILE / 2, 0),
+        };
+
+        assert_eq!(
+            npc_route_points(position, &[CellCoord::new(2, 2), CellCoord::new(2, 1)]),
+            vec![
+                Vector2::new(128.0, 160.0),
+                Vector2::new(160.0, 160.0),
+                Vector2::new(160.0, 96.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn route_chevrons_point_along_each_cardinal_segment() {
+        let center = Vector2::new(32.0, 32.0);
+        for direction in [Vector2::RIGHT, Vector2::DOWN, Vector2::LEFT, Vector2::UP] {
+            let to = center + direction * grid::TILE_SIZE;
+            let chevron = route_chevron(center, to).expect("segment should produce a chevron");
+            let midpoint = (center + to) * 0.5;
+            assert!((chevron[1] - midpoint).dot(direction) > 0.0);
+            assert!((chevron[0] - midpoint).dot(direction) < 0.0);
+            assert!((chevron[2] - midpoint).dot(direction) < 0.0);
+        }
+        assert_eq!(route_chevron(center, center), None);
+    }
 
     #[test]
     fn npc_animation_name_returns_gather_when_gathering() {
@@ -3419,6 +3658,21 @@ mod tests {
         let mut index = TileIndex::new(GridSize::new(8, 8));
         for &coord in coords {
             let entity = world.spawn(TileBundle::new(coord)).id();
+            assert!(index.set(coord, entity));
+        }
+        world.insert_resource(index);
+        world
+    }
+
+    fn route_test_world(width: usize, height: usize) -> World {
+        let size = GridSize::new(width, height);
+        let mut world = World::new();
+        world.insert_resource(Grid::new(width, height));
+        let mut index = TileIndex::new(size);
+        for coord in size.iter_coords() {
+            let entity = world
+                .spawn(TileBundle::new_with_terrain(coord, TerrainKind::Grass))
+                .id();
             assert!(index.set(coord, entity));
         }
         world.insert_resource(index);

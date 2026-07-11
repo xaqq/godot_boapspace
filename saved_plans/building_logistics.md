@@ -3,6 +3,14 @@
 We want user to be able to configure / control some element of building logistics.
 We already have some stuff with warehouse resource whitelist.
 
+## New small-warehouse and current warehouse change
+
+We want to introduce a smaller warehouse. Maybe we call it a Dump or something else. Recommend me a few names.
+It should have a 2x2 footprints and cost wood and stone. It works exactly as the warehouse but has a smaller inventory.
+The current warehouse building should have its footprint extended to 4x4.
+
+We need new assets for that new smaller warehouse.
+
 ## General control
 
 Refinement building and warehouse should be able to be active or inactive.
@@ -53,3 +61,10 @@ gathering the raw resource and hauling it. This will probably need to be changed
 when the building input buffer is not empty and when its buffer is not full.
 If the input buffer is not full, task should be generated for gathering the resource and hauling it the building.
 If "pull" is enabled on the building, hauling task should be generated and should not generate "collect raw resource" activity.
+
+
+# Building mouse over overlay
+
+Remove the footprint and cell information from this.
+Instead, show either its inventory (for warehouse buildings) or its input/output buffer for production building.
+A small recap of building control should also be displayed (is "pull" enabled, and for which resources.)
