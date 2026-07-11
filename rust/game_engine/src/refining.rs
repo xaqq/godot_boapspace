@@ -910,36 +910,35 @@ pub(crate) fn stock_sources(
     {
         sources.push(StockEndpoint::NpcInventory(worker));
     }
-    for entity_ref in world.iter_entities() {
-        let entity = entity_ref.id();
-        if entity == exclude_refinery {
-            continue;
-        }
-        if entity_ref
-            .get::<ResourceNode>()
-            .is_some_and(|node| node.kind == kind && node.quantity > 0)
+    if let Some(mut query) = world.try_query::<(Entity, &ResourceNode)>() {
+        sources.extend(query.iter(world).filter_map(|(entity, node)| {
+            (entity != exclude_refinery && node.kind == kind && node.quantity > 0)
+                .then_some(StockEndpoint::NaturalNode(entity))
+        }));
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &WarehouseInventory)>() {
+        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
+            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
+                .then_some(StockEndpoint::Warehouse(entity))
+        }));
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &FarmInventory)>() {
+        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
+            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
+                .then_some(StockEndpoint::Farm(entity))
+        }));
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &ForesterLodgeInventory)>() {
+        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
+            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
+                .then_some(StockEndpoint::ForesterLodge(entity))
+        }));
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &RefineryInventory)>() {
+        for (entity, inv) in query
+            .iter(world)
+            .filter(|(entity, _)| *entity != exclude_refinery)
         {
-            sources.push(StockEndpoint::NaturalNode(entity));
-        }
-        if entity_ref
-            .get::<WarehouseInventory>()
-            .is_some_and(|inv| inv.contents().get(kind) > 0)
-        {
-            sources.push(StockEndpoint::Warehouse(entity));
-        }
-        if entity_ref
-            .get::<FarmInventory>()
-            .is_some_and(|inv| inv.contents().get(kind) > 0)
-        {
-            sources.push(StockEndpoint::Farm(entity));
-        }
-        if entity_ref
-            .get::<ForesterLodgeInventory>()
-            .is_some_and(|inv| inv.contents().get(kind) > 0)
-        {
-            sources.push(StockEndpoint::ForesterLodge(entity));
-        }
-        if let Some(inv) = entity_ref.get::<RefineryInventory>() {
             if inv.input_contents().get(kind) > 0 {
                 sources.push(StockEndpoint::RefineryInput(entity));
             }
@@ -1115,50 +1114,214 @@ fn cleanup_refining_claims(world: &mut World) {
 
 fn available_stock_readonly(world: &World, kind: ResourceKind, exclude: Entity) -> u32 {
     let mut total = 0u32;
-    for entity_ref in world.iter_entities() {
-        if entity_ref.id() == exclude {
-            if let Some(inv) = entity_ref.get::<RefineryInventory>() {
-                total = total.saturating_add(inv.input_contents().get(kind));
-            }
-            continue;
+    if let Some(mut query) = world.try_query::<(Entity, &ResourceNode)>() {
+        for (_, node) in query
+            .iter(world)
+            .filter(|(entity, node)| *entity != exclude && node.kind == kind)
+        {
+            total = total.saturating_add(node.quantity);
         }
-        total = total.saturating_add(
-            entity_ref
-                .get::<ResourceNode>()
-                .filter(|node| node.kind == kind)
-                .map_or(0, |node| node.quantity),
-        );
-        total = total.saturating_add(
-            entity_ref
-                .get::<WarehouseInventory>()
-                .map_or(0, |inv| inv.contents().get(kind)),
-        );
-        total = total.saturating_add(
-            entity_ref
-                .get::<FarmInventory>()
-                .map_or(0, |inv| inv.contents().get(kind)),
-        );
-        total = total.saturating_add(
-            entity_ref
-                .get::<ForesterLodgeInventory>()
-                .map_or(0, |inv| inv.contents().get(kind)),
-        );
-        if let Some(inv) = entity_ref.get::<RefineryInventory>() {
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &WarehouseInventory)>() {
+        for (_, inventory) in query.iter(world).filter(|(entity, _)| *entity != exclude) {
+            total = total.saturating_add(inventory.contents().get(kind));
+        }
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &FarmInventory)>() {
+        for (_, inventory) in query.iter(world).filter(|(entity, _)| *entity != exclude) {
+            total = total.saturating_add(inventory.contents().get(kind));
+        }
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &ForesterLodgeInventory)>() {
+        for (_, inventory) in query.iter(world).filter(|(entity, _)| *entity != exclude) {
+            total = total.saturating_add(inventory.contents().get(kind));
+        }
+    }
+    if let Some(mut query) = world.try_query::<(Entity, &RefineryInventory)>() {
+        for (entity, inv) in query.iter(world) {
             total = total.saturating_add(inv.input_contents().get(kind));
-            total = total.saturating_add(inv.output_contents().get(kind));
+            if entity != exclude {
+                total = total.saturating_add(inv.output_contents().get(kind));
+            }
         }
     }
     total
 }
 
 fn has_eligible_worker(world: &World, building: BuildingKind) -> bool {
-    world.iter_entities().any(|entity| {
-        entity.contains::<Npc>()
-            && match building {
-                BuildingKind::Sawmill => entity.contains::<Sawyer>(),
-                BuildingKind::Stoneworks => entity.contains::<Stonemason>(),
-                BuildingKind::Kitchen => entity.contains::<Cook>(),
-                _ => false,
-            }
-    })
+    world
+        .try_query::<(&Npc, Option<&Sawyer>, Option<&Stonemason>, Option<&Cook>)>()
+        .is_some_and(|mut query| {
+            query
+                .iter(world)
+                .any(|(_, sawyer, stonemason, cook)| match building {
+                    BuildingKind::Sawmill => sawyer.is_some(),
+                    BuildingKind::Stoneworks => stonemason.is_some(),
+                    BuildingKind::Kitchen => cook.is_some(),
+                    _ => false,
+                })
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stock_sources_query_each_supported_inventory_archetype_in_stable_order() {
+        let mut world = World::new();
+        for _ in 0..1_000 {
+            world.spawn_empty();
+        }
+
+        let worker = world
+            .spawn(NpcInventory::new(ResourceAmounts::of(
+                ResourceKind::Wood,
+                1,
+            )))
+            .id();
+        let natural_node = world
+            .spawn(ResourceNode {
+                kind: ResourceKind::Wood,
+                quantity: 2,
+            })
+            .id();
+        let warehouse = world.spawn(warehouse_inventory(ResourceKind::Wood, 3)).id();
+        let lodge = world.spawn(forester_inventory(4)).id();
+        let refinery = world
+            .spawn(refinery_inventory(
+                ResourceAmounts::of(ResourceKind::Wood, 5),
+                ResourceAmounts::of(ResourceKind::Wood, 6),
+            ))
+            .id();
+        let excluded_refinery = world
+            .spawn(refinery_inventory(
+                ResourceAmounts::of(ResourceKind::Wood, 7),
+                ResourceAmounts::of(ResourceKind::Wood, 8),
+            ))
+            .id();
+        world.spawn(WarehouseInventory::empty());
+
+        let mut expected = vec![
+            StockEndpoint::NpcInventory(worker),
+            StockEndpoint::NaturalNode(natural_node),
+            StockEndpoint::Warehouse(warehouse),
+            StockEndpoint::ForesterLodge(lodge),
+            StockEndpoint::RefineryInput(refinery),
+            StockEndpoint::RefineryOutput(refinery),
+        ];
+        expected.sort_unstable_by_key(|source| {
+            (endpoint_entity(*source).to_bits(), endpoint_order(*source))
+        });
+
+        assert_eq!(
+            stock_sources(&mut world, ResourceKind::Wood, excluded_refinery, worker,),
+            expected
+        );
+    }
+
+    #[test]
+    fn stock_sources_query_farm_inventory_and_ignore_empty_inventory() {
+        let mut world = World::new();
+        let worker = world.spawn(NpcInventory::default()).id();
+        let mut farm_inventory = FarmInventory::empty();
+        assert!(farm_inventory.add_crops(12));
+        let farm = world.spawn(farm_inventory).id();
+        world.spawn(FarmInventory::empty());
+
+        assert_eq!(
+            stock_sources(&mut world, ResourceKind::Crops, Entity::PLACEHOLDER, worker,),
+            vec![StockEndpoint::Farm(farm)]
+        );
+    }
+
+    #[test]
+    fn available_stock_queries_only_relevant_components_and_preserves_exclusion() {
+        let mut world = World::new();
+        for _ in 0..1_000 {
+            world.spawn_empty();
+        }
+        world.spawn(ResourceNode {
+            kind: ResourceKind::Wood,
+            quantity: 2,
+        });
+        world.spawn(warehouse_inventory(ResourceKind::Wood, 3));
+        world.spawn(forester_inventory(4));
+        world.spawn(NpcInventory::new(ResourceAmounts::of(
+            ResourceKind::Wood,
+            100,
+        )));
+        world.spawn(refinery_inventory(
+            ResourceAmounts::of(ResourceKind::Wood, 5),
+            ResourceAmounts::of(ResourceKind::Wood, 6),
+        ));
+        let excluded = world
+            .spawn(refinery_inventory(
+                ResourceAmounts::of(ResourceKind::Wood, 7),
+                ResourceAmounts::of(ResourceKind::Wood, 8),
+            ))
+            .id();
+
+        assert_eq!(
+            available_stock_readonly(&world, ResourceKind::Wood, excluded),
+            27
+        );
+    }
+
+    #[test]
+    fn available_stock_query_saturates() {
+        let mut world = World::new();
+        world.spawn(ResourceNode {
+            kind: ResourceKind::Stone,
+            quantity: u32::MAX,
+        });
+        world.spawn(ResourceNode {
+            kind: ResourceKind::Stone,
+            quantity: 1,
+        });
+
+        assert_eq!(
+            available_stock_readonly(&world, ResourceKind::Stone, Entity::PLACEHOLDER),
+            u32::MAX
+        );
+    }
+
+    #[test]
+    fn eligible_worker_query_requires_npc_and_matching_skill() {
+        let mut world = World::new();
+        world.spawn((Sawyer, Stonemason, Cook));
+        world.spawn(Npc);
+
+        assert!(!has_eligible_worker(&world, BuildingKind::Sawmill));
+        assert!(!has_eligible_worker(&world, BuildingKind::Stoneworks));
+        assert!(!has_eligible_worker(&world, BuildingKind::Kitchen));
+
+        world.spawn((Npc, Sawyer));
+        world.spawn((Npc, Stonemason));
+        world.spawn((Npc, Cook));
+
+        assert!(has_eligible_worker(&world, BuildingKind::Sawmill));
+        assert!(has_eligible_worker(&world, BuildingKind::Stoneworks));
+        assert!(has_eligible_worker(&world, BuildingKind::Kitchen));
+        assert!(!has_eligible_worker(&world, BuildingKind::Warehouse));
+    }
+
+    fn warehouse_inventory(kind: ResourceKind, amount: u32) -> WarehouseInventory {
+        let mut inventory = WarehouseInventory::empty();
+        assert!(inventory.add(kind, amount));
+        inventory
+    }
+
+    fn forester_inventory(wood: u32) -> ForesterLodgeInventory {
+        let mut inventory = ForesterLodgeInventory::empty();
+        assert!(inventory.add_wood(wood));
+        inventory
+    }
+
+    fn refinery_inventory(input: ResourceAmounts, output: ResourceAmounts) -> RefineryInventory {
+        RefineryInventory {
+            input: ResourceInventory::new(input, REFINERY_INPUT_CAPACITY),
+            output: ResourceInventory::new(output, REFINERY_OUTPUT_CAPACITY),
+        }
+    }
 }
