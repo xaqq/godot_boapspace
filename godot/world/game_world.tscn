@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
 [ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
+[ext_resource type="PackedScene" path="res://panel/roads_panel.tscn" id="13_roads_panel"]
 
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
@@ -118,6 +119,10 @@ layout_mode = 2
 game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
 layout_mode = 2
 
+[node name="RoadsPanel" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" node_paths=PackedStringArray("game_world") instance=ExtResource("13_roads_panel")]
+game_world = NodePath("../../../SubViewportContainer/SubViewport/GameWorld")
+layout_mode = 2
+
 [node name="HSeparator" type="HSeparator" parent="VBoxContainer/HBoxContainer/LeftMenuScroll/LeftMenu" unique_id=2139709325]
 layout_mode = 2
 
@@ -143,11 +148,13 @@ handle_input_locally = false
 size = Vector2i(948, 621)
 render_target_update_mode = 4
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "camera")]
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "road_map", "road_blueprint_map", "camera")]
 tile_map = NodePath("TileMap")
 resource_node_map = NodePath("ResourceNodeMap")
 crop_map = NodePath("CropMap")
 tree_plot_map = NodePath("TreePlotMap")
+road_map = NodePath("RoadMap")
+road_blueprint_map = NodePath("RoadBlueprintMap")
 camera = NodePath("Camera2D")
 physics_interpolation_mode = 2
 
@@ -155,6 +162,12 @@ physics_interpolation_mode = 2
 
 [node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
 collision_enabled = false
+navigation_enabled = false
+
+[node name="RoadMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld"]
+navigation_enabled = false
+
+[node name="RoadBlueprintMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld"]
 navigation_enabled = false
 
 [node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]

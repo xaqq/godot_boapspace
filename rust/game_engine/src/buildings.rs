@@ -6,10 +6,12 @@ use crate::housing::House;
 use crate::navigation::refresh_navigation_snapshot_cells;
 use crate::refining::{RefineryInventory, RefineryProduction};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
+use crate::roads::road_entity_at;
 use bevy_ecs::prelude::*;
 
 pub const DEFAULT_DEPOT_INVENTORY_MAX_SIZE: u32 = 500;
 pub const DEFAULT_WAREHOUSE_INVENTORY_MAX_SIZE: u32 = 2000;
+pub const CONSTRUCTION_LABOR_TICKS_PER_CELL: u32 = 180;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageResourceFilter {
@@ -370,15 +372,57 @@ impl BuildingFootprint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ConstructionProgress {
     deposited: ResourceAmounts,
+    labor_completed: u32,
+    labor_required: u32,
 }
 
 impl ConstructionProgress {
     pub const fn new(deposited: ResourceAmounts) -> Self {
-        Self { deposited }
+        Self {
+            deposited,
+            labor_completed: 0,
+            labor_required: 0,
+        }
+    }
+
+    pub const fn with_required_labor(mut self, labor_required: u32) -> Self {
+        self.labor_required = labor_required;
+        self
     }
 
     pub const fn deposited(self) -> ResourceAmounts {
         self.deposited
+    }
+
+    pub const fn labor_completed(self) -> u32 {
+        self.labor_completed
+    }
+
+    pub const fn labor_required(self) -> u32 {
+        self.labor_required
+    }
+
+    pub const fn materials_complete(self, cost: ResourceAmounts) -> bool {
+        let mut index = 0;
+        while index < crate::resources::ResourceKind::ALL.len() {
+            let kind = crate::resources::ResourceKind::ALL[index];
+            if self.deposited.get(kind) < cost.get(kind) {
+                return false;
+            }
+            index += 1;
+        }
+        true
+    }
+
+    pub fn advance_labor(&mut self) -> bool {
+        if self.labor_completed >= self.labor_required {
+            return false;
+        }
+        self.labor_completed = self
+            .labor_completed
+            .saturating_add(1)
+            .min(self.labor_required);
+        true
     }
 
     pub fn remaining(self, cost: ResourceAmounts, kind: crate::resources::ResourceKind) -> u32 {
@@ -402,9 +446,7 @@ impl ConstructionProgress {
     }
 
     pub fn is_complete(self, cost: ResourceAmounts) -> bool {
-        crate::resources::ResourceKind::ALL
-            .into_iter()
-            .all(|kind| self.remaining(cost, kind) == 0)
+        self.materials_complete(cost) && self.labor_completed >= self.labor_required
     }
 }
 
@@ -415,10 +457,16 @@ pub struct BuildingBlueprintBundle {
 }
 
 impl BuildingBlueprintBundle {
-    pub const fn new(kind: BuildingKind, footprint: BuildingFootprint) -> Self {
+    pub fn new(kind: BuildingKind, footprint: BuildingFootprint) -> Self {
+        let cell_count = footprint.width().saturating_mul(footprint.height());
+        let labor_required = match u32::try_from(cell_count) {
+            Ok(cells) => cells.saturating_mul(CONSTRUCTION_LABOR_TICKS_PER_CELL),
+            Err(_) => u32::MAX,
+        };
         Self {
             blueprint: BuildingBlueprint { kind, footprint },
-            construction_progress: ConstructionProgress::new(ResourceAmounts::zero()),
+            construction_progress: ConstructionProgress::new(ResourceAmounts::zero())
+                .with_required_labor(labor_required),
         }
     }
 }
@@ -625,6 +673,7 @@ pub enum BuildingPlacementError {
     OverlapsBuilding,
     InvalidTerrain,
     BlockedByResourceNode,
+    BlockedByRoad,
     FieldRequiresFarm,
     TreePlotRequiresLodge,
 }
@@ -679,6 +728,12 @@ pub(crate) fn validate_building_footprint_placement(
     }
     if overlaps_resource_node(world, footprint) {
         return Err(BuildingPlacementError::BlockedByResourceNode);
+    }
+    if footprint
+        .iter_coords()
+        .any(|coord| road_entity_at(world, coord).is_some())
+    {
+        return Err(BuildingPlacementError::BlockedByRoad);
     }
 
     Ok(footprint)

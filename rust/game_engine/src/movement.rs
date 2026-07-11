@@ -1,24 +1,24 @@
 use crate::components::{
-    MaxVelocity, MovementFacing, MovementTarget, Npc, NpcPosition, SubtileOffset, Velocity,
+    MaxVelocity, MovementFacing, MovementTarget, NpcPosition, SubtileOffset, Velocity,
     HALF_SUBTILE_UNITS_PER_TILE, SUBTILE_UNITS_PER_TILE,
 };
 use crate::grid::{CellCoord, Grid};
+use crate::roads::{Road, RoadMap};
 use bevy_ecs::prelude::*;
 
 pub fn update_npc_movement(
     mut commands: Commands,
     grid: Res<Grid>,
-    mut npcs: Query<
-        (
-            Entity,
-            &mut NpcPosition,
-            &mut Velocity,
-            &MaxVelocity,
-            &MovementTarget,
-            Option<&mut MovementFacing>,
-        ),
-        With<Npc>,
-    >,
+    roads: Option<Res<RoadMap>>,
+    road_query: Query<&Road>,
+    mut npcs: Query<(
+        Entity,
+        &mut NpcPosition,
+        &mut Velocity,
+        &MaxVelocity,
+        &MovementTarget,
+        Option<&mut MovementFacing>,
+    )>,
 ) {
     for (entity, mut position, mut velocity, max_velocity, target, facing) in &mut npcs {
         if !grid.size().contains(target.coord) {
@@ -28,7 +28,13 @@ pub fn update_npc_movement(
         }
 
         let delta = target_delta_units(*position, target.coord);
-        let max_step = i64::from(max_velocity.units_per_tick);
+        let (numerator, denominator) = roads
+            .as_ref()
+            .and_then(|roads| roads.entity_at(target.coord))
+            .and_then(|entity| road_query.get(entity).ok())
+            .map_or((1, 1), |road| road.tier.movement_ratio());
+        let max_step = i64::from(max_velocity.units_per_tick).saturating_mul(i64::from(numerator))
+            / i64::from(denominator);
         if delta == (0, 0) {
             *velocity = Velocity::ZERO;
             position.subtile_offset = SubtileOffset::ZERO;
@@ -163,6 +169,33 @@ mod tests {
                 .expect("facing should exist"),
             MovementFacing::East
         );
+    }
+
+    #[test]
+    fn completed_destination_road_multiplies_speed_without_mutating_base_velocity() {
+        for (tier, expected) in [
+            (crate::roads::RoadTier::DirtPath, 24),
+            (crate::roads::RoadTier::Cobblestone, 32),
+            (crate::roads::RoadTier::Flagstone, 48),
+        ] {
+            let mut world = movement_world(Grid::new(4, 4));
+            world.insert_resource(RoadMap::default());
+            let coord = CellCoord::new(2, 1);
+            let road = world.spawn(Road { coord, tier }).id();
+            world.resource_mut::<RoadMap>().insert(coord, road);
+            let entity = spawn_moving_npc(&mut world, CellCoord::new(1, 1), coord);
+
+            run_movement(&mut world);
+
+            assert_eq!(
+                world.get::<Velocity>(entity).unwrap().x_units_per_tick,
+                expected
+            );
+            assert_eq!(
+                world.get::<MaxVelocity>(entity).unwrap().units_per_tick,
+                DEFAULT_MAX_VELOCITY_UNITS_PER_TICK
+            );
+        }
     }
 
     #[test]

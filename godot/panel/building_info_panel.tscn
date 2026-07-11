@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("close_button", "name_label", "name_edit", "name_apply_button", "command_error_label", "active_button", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "inventory_container", "inventory_label", "inventory_rows_container", "warehouse_filter_container", "warehouse_filter_rows", "storage_pull_container", "storage_pull_rows", "refinery_pull_container", "refinery_pull_rows", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
+[node name="BuildingInfoPanel" type="BuildingInfoPanel" unique_id=963753132 node_paths=PackedStringArray("close_button", "name_label", "name_edit", "name_apply_button", "command_error_label", "active_button", "footprint_label", "farming_info_label", "fields_button", "tree_plots_button", "construction_container", "construction_rows_container", "construction_labor_label", "inventory_container", "inventory_label", "inventory_rows_container", "warehouse_filter_container", "warehouse_filter_rows", "storage_pull_container", "storage_pull_rows", "refinery_pull_container", "refinery_pull_rows", "refinery_container", "refinery_input_label", "refinery_input_rows_container", "refinery_output_label", "refinery_output_rows_container", "refinery_recipe_label", "refinery_progress_label", "refinery_worker_label", "refinery_blocked_label", "housing_container", "housing_occupancy_label", "housing_rows")]
 visible = false
 close_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/CloseButton")
 name_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/name_label")
@@ -14,6 +14,7 @@ fields_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/FieldsBu
 tree_plots_button = NodePath("MarginContainer/ScrollContainer/VBoxContainer/TreePlotsButton")
 construction_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer")
 construction_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer/ConstructionRows")
+construction_labor_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer/LaborLabel")
 inventory_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer")
 inventory_label = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer/InventoryLabel")
 inventory_rows_container = NodePath("MarginContainer/ScrollContainer/VBoxContainer/InventoryContainer/InventoryRows")
@@ -128,6 +129,10 @@ text = "Construction:"
 [node name="ConstructionRows" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer" unique_id=1173271524]
 layout_mode = 2
 theme_override_constants/separation = 4
+
+[node name="LaborLabel" type="Label" parent="MarginContainer/ScrollContainer/VBoxContainer/ConstructionContainer"]
+layout_mode = 2
+text = "Labor: 0/0"
 
 [node name="InventoryContainer" type="VBoxContainer" parent="MarginContainer/ScrollContainer/VBoxContainer" unique_id=1173271517]
 visible = false

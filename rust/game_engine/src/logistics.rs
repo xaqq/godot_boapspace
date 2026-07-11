@@ -25,6 +25,7 @@ use crate::refining::{
     RefineryInventory, Reservation, ReservationLedger, SinkEndpoint, StockEndpoint,
 };
 use crate::resources::ResourceKind;
+use crate::roads::RoadBlueprint;
 use crate::skills::{NpcSkills, SkillKind};
 
 const NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE: u32 = 1;
@@ -317,10 +318,20 @@ pub fn manage_construction_logistics(world: &mut World) {
         .collect::<Vec<_>>();
     npcs.sort_unstable_by_key(|(entity, ..)| entity.to_bits());
 
-    let mut blueprint_query = world.query::<(Entity, &BuildingBlueprint, &ConstructionProgress)>();
+    let mut blueprint_query = world.query::<(
+        Entity,
+        &ConstructionProgress,
+        Option<&BuildingBlueprint>,
+        Option<&RoadBlueprint>,
+    )>();
     let blueprints = blueprint_query
         .iter(world)
-        .map(|(entity, blueprint, progress)| (entity, *blueprint, *progress))
+        .filter_map(|(entity, progress, building, road)| {
+            let cost = building
+                .map(|blueprint| blueprint.kind.definition().construction_cost())
+                .or_else(|| road.map(|blueprint| blueprint.target_tier.material_cost()))?;
+            Some((entity, cost, *progress))
+        })
         .collect::<Vec<_>>();
     // Construction only looks sources up when the worker is not already carrying
     // the requested kind, so these lists are worker-independent. Populate each
@@ -331,13 +342,12 @@ pub fn manage_construction_logistics(world: &mut World) {
         let mut candidates = Vec::new();
         let mut distances = None;
         let mut distances_initialized = false;
-        for (blueprint_entity, blueprint, progress) in &blueprints {
-            let cost = blueprint.kind.definition().construction_cost();
+        for (blueprint_entity, cost, progress) in &blueprints {
             for kind in ResourceKind::ALL {
                 let reserved = world
                     .resource::<ReservationLedger>()
                     .reserved_to(SinkEndpoint::Blueprint(*blueprint_entity), kind);
-                let remaining = progress.remaining(cost, kind).saturating_sub(reserved);
+                let remaining = progress.remaining(*cost, kind).saturating_sub(reserved);
                 if remaining == 0 {
                     continue;
                 }
@@ -348,7 +358,7 @@ pub fn manage_construction_logistics(world: &mut World) {
                     continue;
                 }
                 if inventory.contents().get(kind) > 0 {
-                    let goals = blueprint_goals(&snapshot, *blueprint);
+                    let goals = construction_goals(world, &snapshot, *blueprint_entity);
                     if let Some(distance) = distance_to_any(
                         &snapshot,
                         position.coord,
@@ -474,7 +484,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
             clear_construction_haul(world, npc);
             continue;
         }
-        let Some(blueprint) = world.get::<BuildingBlueprint>(haul.blueprint).copied() else {
+        let Some(cost) = construction_cost(world, haul.blueprint) else {
             clear_construction_haul(world, npc);
             continue;
         };
@@ -559,7 +569,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                 world.entity_mut(npc).insert(haul);
             }
             ConstructionHaulPhase::ToBlueprint => {
-                let goals = blueprint_goals(snapshot, blueprint);
+                let goals = construction_goals(world, snapshot, haul.blueprint);
                 if !goals.contains(&position.coord) {
                     if goals.is_empty() {
                         clear_construction_haul(world, npc);
@@ -574,18 +584,14 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     clear_construction_haul(world, npc);
                     continue;
                 };
-                let amount = carried.min(haul.amount).min(
-                    progress.remaining(blueprint.kind.definition().construction_cost(), haul.kind),
-                );
+                let amount = carried
+                    .min(haul.amount)
+                    .min(progress.remaining(cost, haul.kind));
                 if amount > 0 && construction_cargo_consume(world, npc, haul, amount) {
                     if let Some(mut progress) =
                         world.get_mut::<ConstructionProgress>(haul.blueprint)
                     {
-                        progress.deposit(
-                            haul.kind,
-                            amount,
-                            blueprint.kind.definition().construction_cost(),
-                        );
+                        progress.deposit(haul.kind, amount, cost);
                     }
                 }
                 clear_construction_haul(world, npc);
@@ -1514,6 +1520,32 @@ fn blueprint_goals(
     }
 }
 
+fn construction_cost(world: &World, entity: Entity) -> Option<crate::resources::ResourceAmounts> {
+    world
+        .get::<BuildingBlueprint>(entity)
+        .map(|blueprint| blueprint.kind.definition().construction_cost())
+        .or_else(|| {
+            world
+                .get::<RoadBlueprint>(entity)
+                .map(|blueprint| blueprint.target_tier.material_cost())
+        })
+}
+
+fn construction_goals(
+    world: &World,
+    snapshot: &NavigationSnapshot,
+    entity: Entity,
+) -> Vec<crate::grid::CellCoord> {
+    if let Some(blueprint) = world.get::<BuildingBlueprint>(entity).copied() {
+        return blueprint_goals(snapshot, blueprint);
+    }
+    world
+        .get::<RoadBlueprint>(entity)
+        .filter(|blueprint| snapshot.is_walkable(blueprint.coord))
+        .map(|blueprint| vec![blueprint.coord])
+        .unwrap_or_default()
+}
+
 fn preempt_lower_priority_work(world: &mut World, npc: Entity) {
     if wheelbarrow_loaded(world, npc)
         && (world.get::<AiBuildingHaul>(npc).is_some()
@@ -1531,6 +1563,7 @@ fn preempt_lower_priority_work(world: &mut World, npc: Entity) {
         .remove::<AiConstructBuilding>()
         .remove::<AiConstructionHaul>()
         .remove::<AiBuildingHaul>()
+        .remove::<crate::tasks::AiConstructionLabor>()
         .remove::<AiSeedField>()
         .remove::<AiHarvestField>()
         .remove::<AiSeedTreePlot>()

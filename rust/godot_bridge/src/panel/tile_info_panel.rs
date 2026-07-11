@@ -5,6 +5,8 @@ use bevy_ecs::world::World;
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
 use game_engine::grid::CellCoord;
 use game_engine::resource_nodes::ResourceNode;
+use game_engine::resources::ResourceKind;
+use game_engine::roads::{road_cell_view, RoadCellView};
 use godot::classes::{IPanelContainer, Label, PanelContainer};
 use godot::obj::OnEditor;
 use godot::prelude::*;
@@ -22,6 +24,9 @@ pub(crate) struct TileInfoPanel {
     resource_quantity: OnEditor<Gd<ResourceQuantity>>,
 
     #[export]
+    road_label: OnEditor<Gd<Label>>,
+
+    #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
     selected_tile_entity_id: Option<i64>,
@@ -35,6 +40,7 @@ impl IPanelContainer for TileInfoPanel {
             pos_label: OnEditor::default(),
             terrain_label: OnEditor::default(),
             resource_quantity: OnEditor::default(),
+            road_label: OnEditor::default(),
             game_world: OnEditor::default(),
             selected_tile_entity_id: None,
             base,
@@ -95,19 +101,23 @@ impl TileInfoPanel {
         let mut pos_label = self.pos_label.clone();
         let mut terrain_label = self.terrain_label.clone();
         let mut resource_quantity = self.resource_quantity.clone();
+        let mut road_label = self.road_label.clone();
 
         let position_text = format!("Cell: ({}, {})", info.coord.x(), info.coord.y());
         pos_label.set_text(position_text.as_str());
         terrain_label.set_text(terrain_text(info.terrain).as_str());
         update_resource_quantity(&mut resource_quantity, info.resource);
+        road_label.set_text(road_text(info.road).as_str());
     }
 
     fn clear_tile_info(&mut self) {
         let mut pos_label = self.pos_label.clone();
         let mut terrain_label = self.terrain_label.clone();
         let mut resource_quantity = self.resource_quantity.clone();
+        let mut road_label = self.road_label.clone();
 
         clear_tile_info(&mut pos_label, &mut terrain_label, &mut resource_quantity);
+        road_label.set_text("Road: None");
     }
 }
 
@@ -116,6 +126,7 @@ struct TileInfo {
     coord: CellCoord,
     terrain: TerrainKind,
     resource: Option<ResourceNode>,
+    road: Option<RoadCellView>,
 }
 
 fn tile_info(game_world: &GameWorld, tile_entity_id: i64) -> Option<TileInfo> {
@@ -128,12 +139,63 @@ fn tile_info_from_world(world: &World, entity: Entity) -> Option<TileInfo> {
     let position = world.get::<TilePosition>(entity)?;
     let terrain = world.get::<Terrain>(entity)?;
     let resource = world.get::<ResourceNode>(entity).copied();
+    let road = road_cell_view(world, position.coord);
 
     Some(TileInfo {
         coord: position.coord,
         terrain: terrain.kind,
         resource,
+        road,
     })
+}
+
+fn road_text(road: Option<RoadCellView>) -> String {
+    let Some(road) = road else {
+        return "Road: None".to_owned();
+    };
+    let completed = road.completed_tier.map_or("None".to_owned(), |tier| {
+        let (numerator, denominator) = tier.movement_ratio();
+        let multiplier = numerator as f32 / denominator as f32;
+        format!("{} ({multiplier:.1}×)", tier.label())
+    });
+    let Some(target) = road.target_tier else {
+        return format!("Road: {completed}");
+    };
+    let progress = road
+        .construction
+        .expect("road blueprint has construction progress");
+    let cost = target.material_cost();
+    let materials = ResourceKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let required = cost.get(kind);
+            (required > 0).then(|| {
+                format!(
+                    "{} {}/{}",
+                    kind.label(),
+                    progress.deposited().get(kind),
+                    required
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let materials = if materials.is_empty() {
+        "None"
+    } else {
+        materials.as_str()
+    };
+    let operation = if road.completed_tier.is_some() {
+        "Upgrade"
+    } else {
+        "Blueprint"
+    };
+    format!(
+        "Road: {completed}\n{operation} to {}\nMaterials: {materials}\nLabor: {}/{}",
+        target.label(),
+        progress.labor_completed(),
+        progress.labor_required()
+    )
 }
 
 fn terrain_text(terrain: TerrainKind) -> String {
@@ -237,6 +299,7 @@ mod tests {
                 coord,
                 terrain: TerrainKind::Grass,
                 resource: None,
+                road: None,
             })
         );
     }

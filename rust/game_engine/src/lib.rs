@@ -14,6 +14,7 @@ mod plots;
 pub mod refining;
 pub mod resource_nodes;
 pub mod resources;
+pub mod roads;
 pub mod simulation;
 pub mod skills;
 pub mod systems;

@@ -1,6 +1,7 @@
 use crate::buildings::{Building, BuildingBlueprint, BuildingKind};
 use crate::components::{ResourceNode, Terrain, TerrainKind, Tile, TilePosition};
 use crate::grid::CellCoord;
+use crate::roads::road_entity_at;
 use crate::tile::TileIndex;
 use bevy_ecs::prelude::*;
 
@@ -42,6 +43,10 @@ pub fn collision_flags_at(world: &World, coord: CellCoord) -> Option<CollisionFl
     if resource_node_at(world, coord) {
         flags.block_building();
         flags.block_npc_walk();
+    }
+
+    if road_entity_at(world, coord).is_some() {
+        flags.block_building();
     }
 
     if let Some(mut query) = world.try_query::<&BuildingBlueprint>() {

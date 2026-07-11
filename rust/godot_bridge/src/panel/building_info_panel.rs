@@ -88,6 +88,9 @@ pub(crate) struct BuildingInfoPanel {
     construction_rows_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
+    construction_labor_label: OnEditor<Gd<Label>>,
+
+    #[export]
     inventory_container: OnEditor<Gd<VBoxContainer>>,
 
     #[export]
@@ -185,6 +188,7 @@ impl IPanelContainer for BuildingInfoPanel {
             tree_plots_button: OnEditor::default(),
             construction_container: OnEditor::default(),
             construction_rows_container: OnEditor::default(),
+            construction_labor_label: OnEditor::default(),
             inventory_container: OnEditor::default(),
             inventory_label: OnEditor::default(),
             inventory_rows_container: OnEditor::default(),
@@ -669,10 +673,17 @@ impl BuildingInfoPanel {
             construction_progress_rows(construction.progress, construction.cost)
         });
         self.sync_construction_rows(&rows);
-        if rows.is_empty() {
-            self.construction_container.clone().hide();
-        } else {
+        if let Some(construction) = construction {
+            self.construction_labor_label.clone().set_text(
+                format!(
+                    "Labor: {}/{}",
+                    construction.labor_completed, construction.labor_required
+                )
+                .as_str(),
+            );
             self.construction_container.clone().show();
+        } else {
+            self.construction_container.clone().hide();
         }
     }
 
@@ -862,6 +873,8 @@ struct HousingInfo {
 struct BuildingConstructionInfo {
     cost: ResourceAmounts,
     progress: ResourceAmounts,
+    labor_completed: u32,
+    labor_required: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -927,6 +940,8 @@ fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInf
             construction: Some(BuildingConstructionInfo {
                 cost: blueprint.kind.definition().construction_cost(),
                 progress: progress.deposited(),
+                labor_completed: progress.labor_completed(),
+                labor_required: progress.labor_required(),
             }),
             inventory,
             refinery: None,

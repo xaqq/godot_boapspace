@@ -159,6 +159,8 @@ fn building_tooltip_text(world: &World, entity: Entity) -> Option<String> {
             blueprint.kind.label(),
             progress.deposited(),
             blueprint.kind.definition().construction_cost(),
+            progress.labor_completed(),
+            progress.labor_required(),
         ));
     }
 
@@ -231,10 +233,14 @@ fn format_building_blueprint_tooltip(
     label: &str,
     progress: ResourceAmounts,
     cost: ResourceAmounts,
+    labor_completed: u32,
+    labor_required: u32,
 ) -> String {
     format!(
-        "[b]{name}[/b]\nBlueprint: {label}\nConstruction: {}",
-        format_deposited_over_required(progress, cost)
+        "[b]{name}[/b]\nBlueprint: {label}\nMaterials: {}\nLabor: {}/{}",
+        format_deposited_over_required(progress, cost),
+        labor_completed,
+        labor_required,
     )
 }
 
@@ -410,11 +416,13 @@ mod tests {
             "Depot",
             ResourceAmounts::new(5, 0, 0, 0),
             ResourceAmounts::new(20, 10, 0, 0),
+            12,
+            720,
         );
 
         assert_eq!(
             text,
-            "[b]Central Depot[/b]\nBlueprint: Depot\nConstruction: Wood: 5/20, Stone: 0/10"
+            "[b]Central Depot[/b]\nBlueprint: Depot\nMaterials: Wood: 5/20, Stone: 0/10\nLabor: 12/720"
         );
     }
 

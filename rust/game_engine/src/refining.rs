@@ -1306,7 +1306,7 @@ mod tests {
             ))
             .unwrap()
             .1;
-        assert_eq!((first_distance, second_distance), (1, 1));
+        assert_eq!((first_distance, second_distance), (6, 6));
 
         let selected = choose_recipe_and_source(
             &mut world,

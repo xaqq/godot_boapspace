@@ -209,6 +209,7 @@ impl From<BuildingPlacementError> for TreePlotPlacementError {
         match value {
             BuildingPlacementError::OutOfBounds => Self::OutOfBounds,
             BuildingPlacementError::OverlapsBuilding => Self::OverlapsBuilding,
+            BuildingPlacementError::BlockedByRoad => Self::OverlapsBuilding,
             BuildingPlacementError::InvalidTerrain => Self::InvalidTerrain,
             BuildingPlacementError::BlockedByResourceNode => Self::BlockedByResourceNode,
             BuildingPlacementError::FieldRequiresFarm

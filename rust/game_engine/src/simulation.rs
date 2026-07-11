@@ -22,6 +22,10 @@ use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_
 use crate::refining::{recipes_for_building, refinery_status, RefineryStatus, ReservationLedger};
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{resource_overview, ResourceHistory, ResourceKind, ResourceOverview};
+use crate::roads::{
+    place_road_blueprints, road_cell_view, validate_road_placement_batch, RoadCellView, RoadMap,
+    RoadPlacementBatchResult, RoadTier,
+};
 use crate::systems::build_surface_schedule;
 use crate::tile::{spawn_initial_tiles, TileIndex};
 use crate::time::SIMULATION_TICK_DURATION;
@@ -127,6 +131,7 @@ impl SurfaceRuntime {
         world.insert_resource(world_date_time);
         world.insert_resource(ReservationLedger::default());
         world.insert_resource(BuildingNameRegistry::default());
+        world.insert_resource(RoadMap::default());
         world
             .run_system_once(spawn_initial_tiles)
             .expect("initial tile spawn system should run");
@@ -646,6 +651,28 @@ impl GameSimulation {
     ) -> Vec<TreePlotPlacementPreview> {
         let surface = self.surface(surface_id);
         validate_tree_plot_blueprint_placement_batch(&surface.world, forester_lodge, coords)
+    }
+
+    pub fn validate_road_placement_batch(
+        &self,
+        surface_id: SurfaceId,
+        tier: RoadTier,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> RoadPlacementBatchResult {
+        validate_road_placement_batch(&self.surface(surface_id).world, tier, coords)
+    }
+
+    pub fn place_road_blueprints(
+        &mut self,
+        surface_id: SurfaceId,
+        tier: RoadTier,
+        coords: impl IntoIterator<Item = CellCoord>,
+    ) -> Result<Vec<Entity>, RoadPlacementBatchResult> {
+        place_road_blueprints(&mut self.surface_mut(surface_id).world, tier, coords)
+    }
+
+    pub fn road_cell_view(&self, surface_id: SurfaceId, coord: CellCoord) -> Option<RoadCellView> {
+        road_cell_view(&self.surface(surface_id).world, coord)
     }
 
     fn surface(&self, surface_id: SurfaceId) -> &SurfaceRuntime {

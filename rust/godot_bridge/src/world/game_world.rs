@@ -26,6 +26,9 @@ use game_engine::refining::{
 };
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
+use game_engine::roads::{
+    Road, RoadBlueprint, RoadPlacementBatchResult, RoadPlacementError, RoadTier,
+};
 use game_engine::simulation::{
     BuildingCommandError, BuildingTarget, GameSimulation, SimulationSpeed, SurfaceId,
 };
@@ -75,6 +78,9 @@ const CROP_GROWN_PATH: &str = "res://assets/generated/crop_grown.png";
 const TREE_PLOT_SAPLING_PATH: &str = "res://assets/generated/tree_plot_sapling.png";
 const TREE_PLOT_YOUNG_PATH: &str = "res://assets/generated/tree_plot_young.png";
 const TREE_PLOT_MATURE_PATH: &str = "res://assets/generated/tree_plot_mature.png";
+const ROAD_DIRT_PATH: &str = "res://assets/generated/road_dirt_path_atlas.png";
+const ROAD_COBBLESTONE_PATH: &str = "res://assets/generated/road_cobblestone_atlas.png";
+const ROAD_FLAGSTONE_PATH: &str = "res://assets/generated/road_flagstone_atlas.png";
 
 fn world_limit(value: f32) -> i32 {
     if !value.is_finite() {
@@ -251,12 +257,25 @@ enum PlacementMode {
         owner: PlotOwner,
         drag_cells: Vec<CellCoord>,
     },
+    Roads {
+        tier: RoadTier,
+        drag_cells: Vec<CellCoord>,
+        last_rejection: Option<RoadPlacementBatchResult>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PlotPlacementPreview {
     coord: CellCoord,
     valid: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoadPlacementStatus {
+    pub(crate) active_tier: Option<RoadTier>,
+    pub(crate) cell_count: usize,
+    pub(crate) aggregate_cost: ResourceAmounts,
+    pub(crate) errors: Vec<(CellCoord, RoadPlacementError)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,6 +305,12 @@ pub(crate) struct GameWorld {
     tree_plot_map: OnEditor<Gd<TileMapLayer>>,
 
     #[export]
+    road_map: OnEditor<Gd<TileMapLayer>>,
+
+    #[export]
+    road_blueprint_map: OnEditor<Gd<TileMapLayer>>,
+
+    #[export]
     camera: OnEditor<Gd<Camera2D>>,
 
     game: GameSimulation,
@@ -300,6 +325,7 @@ pub(crate) struct GameWorld {
     _resource_node_tile_set: Option<Gd<TileSet>>,
     _crop_tile_set: Option<Gd<TileSet>>,
     _tree_plot_tile_set: Option<Gd<TileSet>>,
+    _road_tile_set: Option<Gd<TileSet>>,
     npc_scenes: HashMap<NpcAppearance, Gd<PackedScene>>,
     wheelbarrow_scene: Option<Gd<PackedScene>>,
     wheelbarrow_frames: Option<Gd<SpriteFrames>>,
@@ -321,6 +347,8 @@ impl INode2D for GameWorld {
             resource_node_map: OnEditor::default(),
             crop_map: OnEditor::default(),
             tree_plot_map: OnEditor::default(),
+            road_map: OnEditor::default(),
+            road_blueprint_map: OnEditor::default(),
             camera: OnEditor::default(),
             game,
             rendered_surface,
@@ -334,6 +362,7 @@ impl INode2D for GameWorld {
             _resource_node_tile_set: None,
             _crop_tile_set: None,
             _tree_plot_tile_set: None,
+            _road_tile_set: None,
             npc_scenes: HashMap::new(),
             wheelbarrow_scene: None,
             wheelbarrow_frames: None,
@@ -349,6 +378,8 @@ impl INode2D for GameWorld {
         let mut resource_map = self.resource_node_map.clone();
         let mut crop_map = self.crop_map.clone();
         let mut tree_plot_map = self.tree_plot_map.clone();
+        let mut road_map = self.road_map.clone();
+        let mut road_blueprint_map = self.road_blueprint_map.clone();
         let mut cam = self.camera.clone();
 
         let ts = grid::TILE_SIZE as i32;
@@ -368,6 +399,22 @@ impl INode2D for GameWorld {
             return;
         }
 
+        let Some(road_tile_set) = self.build_road_tile_set(ts) else {
+            self.disable_processing();
+            return;
+        };
+        road_map.set_tile_set(&road_tile_set);
+        road_blueprint_map.set_tile_set(&road_tile_set);
+        self._road_tile_set = Some(road_tile_set);
+        for map in [&mut road_map, &mut road_blueprint_map] {
+            map.set_navigation_enabled(false);
+            map.set_texture_filter(TextureFilter::NEAREST);
+        }
+        road_map.set_z_index(1);
+        road_blueprint_map.set_z_index(2);
+        road_blueprint_map.set_modulate(Color::from_rgba(0.15, 0.85, 1.0, 0.72));
+        self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
+
         if !self.load_building_textures() {
             self.disable_processing();
             return;
@@ -382,7 +429,7 @@ impl INode2D for GameWorld {
         self._resource_node_tile_set = Some(resource_tile_set);
         resource_map.set_navigation_enabled(false);
         resource_map.set_texture_filter(TextureFilter::NEAREST);
-        resource_map.set_z_index(1);
+        resource_map.set_z_index(3);
         self.populate_resource_node_map(&mut resource_map);
 
         let Some(crop_tile_set) = self.build_crop_tile_set(ts) else {
@@ -393,7 +440,7 @@ impl INode2D for GameWorld {
         self._crop_tile_set = Some(crop_tile_set);
         crop_map.set_navigation_enabled(false);
         crop_map.set_texture_filter(TextureFilter::NEAREST);
-        crop_map.set_z_index(3);
+        crop_map.set_z_index(4);
         self.populate_crop_map(&mut crop_map);
 
         let Some(tree_plot_tile_set) = self.build_tree_plot_tile_set(ts) else {
@@ -404,7 +451,7 @@ impl INode2D for GameWorld {
         self._tree_plot_tile_set = Some(tree_plot_tile_set);
         tree_plot_map.set_navigation_enabled(false);
         tree_plot_map.set_texture_filter(TextureFilter::NEAREST);
-        tree_plot_map.set_z_index(3);
+        tree_plot_map.set_z_index(4);
         self.populate_tree_plot_map(&mut tree_plot_map);
 
         if !self.load_npc_scenes() {
@@ -480,10 +527,14 @@ impl INode2D for GameWorld {
         self.populate_crop_map(&mut crop_map);
         let mut tree_plot_map = self.tree_plot_map.clone();
         self.populate_tree_plot_map(&mut tree_plot_map);
+
+        let mut road_map = self.road_map.clone();
+        let mut road_blueprint_map = self.road_blueprint_map.clone();
+        self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
         let buildings_changed = self.sync_building_sprites();
         self.sync_npc_sprites();
         self.sync_selected_npc_route_overlay();
-        self.update_plot_drag_current();
+        self.update_drag_current();
         if self.placement_mode.is_some() || buildings_changed {
             self.base_mut().queue_redraw();
         }
@@ -509,6 +560,7 @@ impl INode2D for GameWorld {
         let selected_building = self.selected_building;
         let building_preview = self.building_preview();
         let plot_previews = self.plot_previews();
+        let road_previews = self.road_previews();
         let blueprint_footprints = self
             .building_render_infos()
             .into_iter()
@@ -543,6 +595,25 @@ impl INode2D for GameWorld {
             base.draw_rect_ex(rect, highlight)
                 .filled(false)
                 .width(3.0)
+                .done();
+        }
+
+        for (coord, valid) in road_previews {
+            let color = if valid {
+                Color::from_rgb(0.1, 0.9, 0.45)
+            } else {
+                Color::from_rgb(1.0, 0.1, 0.1)
+            };
+            let mut fill = color;
+            fill.a = 0.22;
+            let rect = Rect2::new(
+                Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts),
+                Vector2::new(ts, ts),
+            );
+            base.draw_rect_ex(rect, fill).filled(true).done();
+            base.draw_rect_ex(rect, color)
+                .filled(false)
+                .width(4.0)
                 .done();
         }
 
@@ -798,6 +869,9 @@ impl GameWorld {
             Some(PlacementMode::Plots { .. }) => {
                 self.begin_plot_drag();
             }
+            Some(PlacementMode::Roads { .. }) => {
+                self.begin_road_drag();
+            }
             None => {
                 self.handle_tile_click();
             }
@@ -807,6 +881,8 @@ impl GameWorld {
     fn handle_primary_release(&mut self) {
         if matches!(self.placement_mode, Some(PlacementMode::Plots { .. })) {
             self.finish_plot_drag();
+        } else if matches!(self.placement_mode, Some(PlacementMode::Roads { .. })) {
+            self.finish_road_drag();
         }
     }
 
@@ -1027,6 +1103,19 @@ impl GameWorld {
         self.base_mut().queue_redraw();
     }
 
+    fn start_road_placement_mode(&mut self, tier: RoadTier) {
+        self.placement_mode = Some(PlacementMode::Roads {
+            tier,
+            drag_cells: Vec::new(),
+            last_rejection: None,
+        });
+        self.clear_tile_selection();
+        self.clear_npc_selection();
+        self.clear_building_selection();
+        self.clear_hovered_map_entity();
+        self.base_mut().queue_redraw();
+    }
+
     fn cancel_placement_mode(&mut self) {
         if self.placement_mode.take().is_some() {
             self.base_mut().queue_redraw();
@@ -1097,6 +1186,45 @@ impl GameWorld {
         }
     }
 
+    fn road_validation(&self) -> Option<RoadPlacementBatchResult> {
+        let PlacementMode::Roads {
+            tier,
+            drag_cells,
+            last_rejection,
+        } = self.placement_mode.as_ref()?
+        else {
+            return None;
+        };
+        if drag_cells.is_empty() {
+            if let Some(rejection) = last_rejection {
+                return Some(rejection.clone());
+            }
+        }
+        let coords = if drag_cells.is_empty() {
+            self.placement_origin_under_mouse()
+                .map(|coord| vec![coord])
+                .unwrap_or_default()
+        } else {
+            drag_cells.clone()
+        };
+        Some(
+            self.game
+                .validate_road_placement_batch(self.rendered_surface, *tier, coords),
+        )
+    }
+
+    fn road_previews(&self) -> Vec<(CellCoord, bool)> {
+        self.road_validation()
+            .map(|validation| {
+                validation
+                    .cells
+                    .into_iter()
+                    .map(|cell| (cell.coord, cell.is_valid()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn begin_plot_drag(&mut self) {
         let Some(coord) = self.placement_origin_under_mouse() else {
             return;
@@ -1108,7 +1236,7 @@ impl GameWorld {
         }
     }
 
-    fn update_plot_drag_current(&mut self) {
+    fn update_drag_current(&mut self) {
         let coord = self.placement_origin_under_mouse();
         if let Some(PlacementMode::Plots { drag_cells, .. }) = &mut self.placement_mode {
             if !drag_cells.is_empty() {
@@ -1119,6 +1247,69 @@ impl GameWorld {
                 }
             }
         }
+        if let Some(PlacementMode::Roads { drag_cells, .. }) = &mut self.placement_mode {
+            if !drag_cells.is_empty() {
+                let before_len = drag_cells.len();
+                append_road_drag_cell(drag_cells, coord);
+                if drag_cells.len() != before_len {
+                    self.base_mut().queue_redraw();
+                }
+            }
+        }
+    }
+
+    fn begin_road_drag(&mut self) {
+        let Some(coord) = self.placement_origin_under_mouse() else {
+            return;
+        };
+        if let Some(PlacementMode::Roads {
+            drag_cells,
+            last_rejection,
+            ..
+        }) = &mut self.placement_mode
+        {
+            drag_cells.clear();
+            drag_cells.push(coord);
+            *last_rejection = None;
+            self.base_mut().queue_redraw();
+        }
+    }
+
+    fn finish_road_drag(&mut self) {
+        let Some(PlacementMode::Roads {
+            tier, drag_cells, ..
+        }) = self.placement_mode.clone()
+        else {
+            return;
+        };
+        if drag_cells.is_empty() {
+            return;
+        }
+        let result = self
+            .game
+            .place_road_blueprints(self.rendered_surface, tier, drag_cells);
+        let last_rejection = match result {
+            Ok(_) => None,
+            Err(validation) => {
+                for cell in &validation.cells {
+                    for error in &cell.errors {
+                        godot_warn!(
+                            "GameWorld: road placement rejected at ({}, {}): {}",
+                            cell.coord.x(),
+                            cell.coord.y(),
+                            error.label()
+                        );
+                    }
+                }
+                Some(validation)
+            }
+        };
+        self.placement_mode = Some(PlacementMode::Roads {
+            tier,
+            drag_cells: Vec::new(),
+            last_rejection,
+        });
+        self.base_mut().queue_redraw();
     }
 
     fn finish_plot_drag(&mut self) {
@@ -1505,6 +1696,26 @@ impl GameWorld {
         Some(tile_set)
     }
 
+    fn build_road_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
+        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+        let mut tile_set = TileSet::new_gd();
+        tile_set.set_tile_size(v2(tile_size, tile_size));
+        for tier in RoadTier::ALL {
+            let texture = load_texture(road_asset_path(tier), "GameWorld")?;
+            let source = build_road_atlas_source(texture, tile_size);
+            let expected_source_id = road_source_id(tier);
+            let source_id = tile_set
+                .add_source_ex(&source)
+                .atlas_source_id_override(expected_source_id)
+                .done();
+            if source_id != expected_source_id {
+                godot_error!("GameWorld: failed to add {} road atlas", tier.label());
+                return None;
+            }
+        }
+        Some(tile_set)
+    }
+
     fn build_crop_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
         let mut tile_set = TileSet::new_gd();
@@ -1598,6 +1809,47 @@ impl GameWorld {
         );
         self.wheelbarrow_frames = build_wheelbarrow_frames();
         self.wheelbarrow_scene.is_some() && self.wheelbarrow_frames.is_some()
+    }
+
+    fn populate_road_maps(
+        &self,
+        road_map: &mut Gd<TileMapLayer>,
+        blueprint_map: &mut Gd<TileMapLayer>,
+    ) {
+        road_map.clear();
+        blueprint_map.clear();
+        let (completed, blueprints) = self.with_rendered_surface_world(query_road_render_state);
+        let completed_cells = completed
+            .iter()
+            .map(|(coord, _)| *coord)
+            .collect::<HashSet<_>>();
+        let blueprint_cells = blueprints
+            .iter()
+            .map(|(coord, _)| *coord)
+            .collect::<HashSet<_>>();
+
+        for (coord, tier) in completed {
+            let mask = road_connectivity_mask(coord, &completed_cells);
+            road_map
+                .set_cell_ex(Vector2i::new(coord.x(), coord.y()))
+                .source_id(road_source_id(tier))
+                .atlas_coords(road_atlas_coord(mask))
+                .done();
+        }
+        let planned_cells = completed_cells
+            .union(&blueprint_cells)
+            .copied()
+            .collect::<HashSet<_>>();
+        for (coord, tier) in blueprints {
+            let mask = road_connectivity_mask(coord, &planned_cells);
+            blueprint_map
+                .set_cell_ex(Vector2i::new(coord.x(), coord.y()))
+                .source_id(road_source_id(tier))
+                .atlas_coords(road_atlas_coord(mask))
+                .done();
+        }
+        road_map.update_internals();
+        blueprint_map.update_internals();
     }
 
     fn populate_resource_node_map(&mut self, resource_map: &mut Gd<TileMapLayer>) {
@@ -1709,6 +1961,10 @@ impl GameWorld {
 
         let mut tree_plot_map = self.tree_plot_map.clone();
         self.populate_tree_plot_map(&mut tree_plot_map);
+
+        let mut road_map = self.road_map.clone();
+        let mut road_blueprint_map = self.road_blueprint_map.clone();
+        self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
 
         self.sync_building_sprites();
         self.sync_npc_sprites();
@@ -1877,6 +2133,34 @@ impl GameWorld {
     #[func]
     pub(crate) fn start_large_house_blueprint_placement(&mut self) {
         self.start_build_mode(BuildingKind::LargeHouse);
+    }
+
+    pub(crate) fn start_road_placement(&mut self, tier: RoadTier) {
+        self.start_road_placement_mode(tier);
+    }
+
+    pub(crate) fn road_placement_status(&self) -> RoadPlacementStatus {
+        let active_tier = match self.placement_mode.as_ref() {
+            Some(PlacementMode::Roads { tier, .. }) => Some(*tier),
+            _ => None,
+        };
+        let validation = self.road_validation();
+        RoadPlacementStatus {
+            active_tier,
+            cell_count: validation.as_ref().map_or(0, |result| result.cells.len()),
+            aggregate_cost: validation
+                .as_ref()
+                .map_or(ResourceAmounts::zero(), |result| result.aggregate_cost),
+            errors: validation
+                .into_iter()
+                .flat_map(|result| result.cells)
+                .flat_map(|cell| {
+                    cell.errors
+                        .into_iter()
+                        .map(move |error| (cell.coord, error))
+                })
+                .collect(),
+        }
     }
 
     #[func]
@@ -2158,6 +2442,32 @@ fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
         .unwrap_or_default()
 }
 
+fn query_road_render_state(
+    world: &World,
+) -> (Vec<(CellCoord, RoadTier)>, Vec<(CellCoord, RoadTier)>) {
+    let mut completed = world
+        .try_query::<&Road>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|road| (road.coord, road.tier))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut blueprints = world
+        .try_query::<&RoadBlueprint>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|road| (road.coord, road.target_tier))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    completed.sort_unstable_by_key(|(coord, _)| (coord.y(), coord.x()));
+    blueprints.sort_unstable_by_key(|(coord, _)| (coord.y(), coord.x()));
+    (completed, blueprints)
+}
+
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
     let mut buildings = world
         .try_query::<(Entity, &BuildingBlueprint)>()
@@ -2409,6 +2719,15 @@ fn format_construction_task_building(world: &World, blueprint: Entity) -> String
         .unwrap_or_else(|| "unknown".to_string());
 
     let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
+        if let Some(road) = world.get::<RoadBlueprint>(blueprint) {
+            return format!(
+                "{} Blueprint {} at ({}, {})",
+                road.target_tier.label(),
+                blueprint_id,
+                road.coord.x(),
+                road.coord.y()
+            );
+        }
         return format!("Blueprint {blueprint_id}: unavailable");
     };
 
@@ -2423,15 +2742,25 @@ fn format_construction_task_building(world: &World, blueprint: Entity) -> String
 }
 
 fn format_construction_task_progress(world: &World, blueprint: Entity) -> String {
-    let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
-        return em_dash();
-    };
     let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
         return em_dash();
     };
-    format_deposited_over_required(
-        progress.deposited(),
-        blueprint_data.kind.definition().construction_cost(),
+    let cost = world
+        .get::<BuildingBlueprint>(blueprint)
+        .map(|data| data.kind.definition().construction_cost())
+        .or_else(|| {
+            world
+                .get::<RoadBlueprint>(blueprint)
+                .map(|data| data.target_tier.material_cost())
+        });
+    let Some(cost) = cost else {
+        return em_dash();
+    };
+    format!(
+        "{} | Labor {}/{}",
+        format_deposited_over_required(progress.deposited(), cost),
+        progress.labor_completed(),
+        progress.labor_required()
     )
 }
 
@@ -2768,6 +3097,59 @@ fn terrain_source_id(kind: TerrainKind) -> i32 {
     kind as i32
 }
 
+fn road_asset_path(tier: RoadTier) -> &'static str {
+    match tier {
+        RoadTier::DirtPath => ROAD_DIRT_PATH,
+        RoadTier::Cobblestone => ROAD_COBBLESTONE_PATH,
+        RoadTier::Flagstone => ROAD_FLAGSTONE_PATH,
+    }
+}
+
+fn road_source_id(tier: RoadTier) -> i32 {
+    match tier {
+        RoadTier::DirtPath => 0,
+        RoadTier::Cobblestone => 1,
+        RoadTier::Flagstone => 2,
+    }
+}
+
+fn road_atlas_coord(mask: u8) -> Vector2i {
+    Vector2i::new(i32::from(mask % 4), i32::from(mask / 4))
+}
+
+fn road_connectivity_mask(coord: CellCoord, cells: &HashSet<CellCoord>) -> u8 {
+    let mut mask = 0;
+    if coord
+        .y()
+        .checked_sub(1)
+        .is_some_and(|y| cells.contains(&CellCoord::new(coord.x(), y)))
+    {
+        mask |= 1;
+    }
+    if coord
+        .x()
+        .checked_add(1)
+        .is_some_and(|x| cells.contains(&CellCoord::new(x, coord.y())))
+    {
+        mask |= 2;
+    }
+    if coord
+        .y()
+        .checked_add(1)
+        .is_some_and(|y| cells.contains(&CellCoord::new(coord.x(), y)))
+    {
+        mask |= 4;
+    }
+    if coord
+        .x()
+        .checked_sub(1)
+        .is_some_and(|x| cells.contains(&CellCoord::new(x, coord.y())))
+    {
+        mask |= 8;
+    }
+    mask
+}
+
 fn crop_tile_asset_paths() -> [(FieldCropState, &'static str); 4] {
     [
         (FieldCropState::Seedable, CROP_SEEDABLE_PATH),
@@ -2829,12 +3211,48 @@ fn append_plot_drag_cell(drag_cells: &mut Vec<CellCoord>, coord: Option<CellCoor
     }
 }
 
+fn append_road_drag_cell(drag_cells: &mut Vec<CellCoord>, coord: Option<CellCoord>) {
+    let Some(coord) = coord else {
+        return;
+    };
+    let Some(previous) = drag_cells.last().copied() else {
+        drag_cells.push(coord);
+        return;
+    };
+    let mut x = previous.x();
+    while x != coord.x() {
+        x += (coord.x() - x).signum();
+        let next = CellCoord::new(x, previous.y());
+        if !drag_cells.contains(&next) {
+            drag_cells.push(next);
+        }
+    }
+    let mut y = previous.y();
+    while y != coord.y() {
+        y += (coord.y() - y).signum();
+        let next = CellCoord::new(coord.x(), y);
+        if !drag_cells.contains(&next) {
+            drag_cells.push(next);
+        }
+    }
+}
+
 fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
     let v2 = |x: i32, y: i32| Vector2i::new(x, y);
     let mut source = TileSetAtlasSource::new_gd();
     source.set_texture(&texture);
     source.set_texture_region_size(v2(tile_size, tile_size));
     source.create_tile_ex(v2(0, 0)).done();
+    source.upcast::<TileSetSource>()
+}
+
+fn build_road_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
+    let mut source = TileSetAtlasSource::new_gd();
+    source.set_texture(&texture);
+    source.set_texture_region_size(Vector2i::new(tile_size, tile_size));
+    for mask in 0_u8..16 {
+        source.create_tile_ex(road_atlas_coord(mask)).done();
+    }
     source.upcast::<TileSetSource>()
 }
 
@@ -3128,7 +3546,7 @@ mod tests {
                     encode_entity_id(blueprint).expect("blueprint entity id should encode")
                 ),
                 recipe: em_dash(),
-                progress: "Planks: 0/40, Stone Blocks: 0/20".to_string(),
+                progress: "Planks: 0/40, Stone Blocks: 0/20 | Labor 0/720".to_string(),
             }]
         );
     }
@@ -3348,6 +3766,43 @@ mod tests {
         append_plot_drag_cell(&mut cells, Some(CellCoord::new(4, 2)));
 
         assert_eq!(cells, vec![CellCoord::new(3, 2), CellCoord::new(4, 2)]);
+    }
+
+    #[test]
+    fn road_drag_fills_horizontal_then_vertical_and_deduplicates() {
+        let mut cells = vec![CellCoord::new(1, 1)];
+        append_road_drag_cell(&mut cells, Some(CellCoord::new(3, 3)));
+        append_road_drag_cell(&mut cells, Some(CellCoord::new(1, 1)));
+        assert_eq!(
+            cells,
+            vec![
+                CellCoord::new(1, 1),
+                CellCoord::new(2, 1),
+                CellCoord::new(3, 1),
+                CellCoord::new(3, 2),
+                CellCoord::new(3, 3),
+                CellCoord::new(2, 3),
+                CellCoord::new(1, 3),
+                CellCoord::new(1, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn road_masks_use_north_east_south_west_bits_and_row_major_atlas_coords() {
+        let center = CellCoord::new(2, 2);
+        let cells = [
+            center,
+            CellCoord::new(2, 1),
+            CellCoord::new(3, 2),
+            CellCoord::new(2, 3),
+            CellCoord::new(1, 2),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>();
+        assert_eq!(road_connectivity_mask(center, &cells), 15);
+        assert_eq!(road_atlas_coord(15), Vector2i::new(3, 3));
+        assert_eq!(road_atlas_coord(5), Vector2i::new(1, 1));
     }
 
     #[test]

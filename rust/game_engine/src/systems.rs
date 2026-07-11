@@ -18,7 +18,9 @@ use crate::npcs::update_npc_hunger;
 use crate::refining::{
     assign_refining_work, maintain_refining_tasks, route_and_advance_refining_work,
 };
+use crate::roads::complete_road_construction;
 use crate::tasks::maintain_construction_tasks;
+use crate::tasks::manage_construction_labor;
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_ecs::schedule::Schedule;
 
@@ -37,6 +39,7 @@ pub fn build_surface_schedule() -> Schedule {
                 manage_food_logistics,
                 manage_wheelbarrow_recovery,
                 manage_construction_logistics,
+                manage_construction_labor,
                 assign_refining_work,
                 route_and_advance_refining_work,
                 manage_building_logistics,
@@ -53,6 +56,7 @@ pub fn build_surface_schedule() -> Schedule {
                 system_seed_tree_plots,
                 system_cut_tree_plots,
                 system_complete_building_construction,
+                complete_road_construction,
                 maintain_housing_assignments,
                 update_npc_hunger,
                 maintain_construction_tasks,

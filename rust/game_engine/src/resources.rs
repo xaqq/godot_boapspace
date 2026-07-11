@@ -7,6 +7,7 @@ use crate::components::{CarriedResource, Wheelbarrow};
 use crate::farming::FarmInventory;
 use crate::forestry::ForesterLodgeInventory;
 use crate::refining::RefineryInventory;
+use crate::roads::RoadBlueprint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, GodotConvert, Var, Export)]
 #[godot(via = i64)]
@@ -122,10 +123,12 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
         Query<&ForesterLodgeInventory>,
         Query<&RefineryInventory>,
         Query<(&BuildingBlueprint, &ConstructionProgress)>,
+        Query<(&RoadBlueprint, &ConstructionProgress)>,
     )> = SystemState::new(world);
-    let (npcs, wheelbarrows, warehouses, farms, lodges, refineries, blueprints) = state
-        .get(world)
-        .expect("resource overview queries should be compatible");
+    let (npcs, wheelbarrows, warehouses, farms, lodges, refineries, blueprints, road_blueprints) =
+        state
+            .get(world)
+            .expect("resource overview queries should be compatible");
 
     for cargo in npcs.iter() {
         overview.usable.add_amounts(cargo.contents());
@@ -148,6 +151,12 @@ pub fn resource_overview(world: &mut World) -> ResourceOverview {
     }
     for (blueprint, progress) in blueprints.iter() {
         let cost = blueprint.kind.definition().construction_cost();
+        if !progress.is_complete(cost) {
+            overview.committed.add_amounts(progress.deposited());
+        }
+    }
+    for (blueprint, progress) in road_blueprints.iter() {
+        let cost = blueprint.target_tier.material_cost();
         if !progress.is_complete(cost) {
             overview.committed.add_amounts(progress.deposited());
         }

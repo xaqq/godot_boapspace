@@ -58,7 +58,7 @@ fn target_selection_excludes_unreachable_and_uses_row_major_ties() {
         .expect("at least one interaction cell should be reachable");
 
     assert_eq!(selected.target(), CellCoord::new(2, 1));
-    assert_eq!(selected.distance(), 1);
+    assert_eq!(selected.distance(), 6);
 }
 
 #[test]

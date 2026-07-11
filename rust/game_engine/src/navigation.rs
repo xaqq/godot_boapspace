@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, VecDeque};
 use std::sync::Arc;
 
 use bevy_ecs::prelude::*;
@@ -9,16 +10,19 @@ use crate::components::{
     MovementTarget, Npc, NpcPosition, ResourceNode, Terrain, TerrainKind, Tile, TilePosition,
 };
 use crate::grid::{CellCoord, Grid, GridSize};
+use crate::roads::{completed_road_tier_at, Road, NORMAL_TRAVERSAL_WEIGHT};
 use crate::tile::TileIndex;
 
 /// Immutable, surface-local view of the cells NPCs may currently enter.
 ///
 /// Capturing collision once keeps path searches deterministic and avoids
-/// repeatedly scanning ECS collision components for every expanded BFS cell.
+/// repeatedly scanning ECS collision and road components for every expanded
+/// weighted-search cell.
 #[derive(Debug, Clone, PartialEq, Eq, Resource)]
 pub struct NavigationSnapshot {
     size: GridSize,
     walkable: Arc<Vec<bool>>,
+    traversal_weights: Arc<Vec<u32>>,
     fingerprint: u64,
 }
 
@@ -48,7 +52,9 @@ pub(crate) fn refresh_navigation_snapshot_cells(
         .map(|coord| {
             let walkable =
                 collision_flags_at(world, coord).is_some_and(|flags| !flags.is_npc_walk_blocked());
-            (coord, walkable)
+            let weight = completed_road_tier_at(world, coord)
+                .map_or(NORMAL_TRAVERSAL_WEIGHT, |tier| tier.traversal_weight());
+            (coord, walkable, weight)
         })
         .collect::<Vec<_>>();
 
@@ -56,8 +62,9 @@ pub(crate) fn refresh_navigation_snapshot_cells(
         return;
     };
     let mut changed = false;
-    for (coord, walkable) in updates {
+    for (coord, walkable, weight) in updates {
         changed |= snapshot.set_walkability(coord, walkable);
+        changed |= snapshot.set_traversal_weight(coord, weight);
     }
     if changed {
         snapshot.fingerprint = snapshot.fingerprint.wrapping_add(1);
@@ -70,7 +77,10 @@ pub fn invalidate_navigation_snapshot(world: &mut World) {
     let replacement = NavigationSnapshot::from_world(world);
     match (world.get_resource::<NavigationSnapshot>(), replacement) {
         (Some(current), Some(mut replacement)) => {
-            if current.size == replacement.size && current.walkable == replacement.walkable {
+            if current.size == replacement.size
+                && current.walkable == replacement.walkable
+                && current.traversal_weights == replacement.traversal_weights
+            {
                 return;
             }
             replacement.fingerprint = current.fingerprint.wrapping_add(1);
@@ -96,6 +106,7 @@ impl NavigationSnapshot {
         let cell_count = size.cell_count()?;
         let tile_index = world.get_resource::<TileIndex>()?;
         let mut walkable = vec![false; cell_count];
+        let mut traversal_weights = vec![NORMAL_TRAVERSAL_WEIGHT; cell_count];
 
         for coord in size.iter_coords() {
             let can_enter = tile_index
@@ -130,10 +141,22 @@ impl NavigationSnapshot {
             }
         }
 
-        let fingerprint = walkability_fingerprint(size, &walkable);
+        if let Some(mut roads) = world.try_query::<&Road>() {
+            for road in roads.iter(world) {
+                set_traversal_weight(
+                    size,
+                    &mut traversal_weights,
+                    road.coord,
+                    road.tier.traversal_weight(),
+                );
+            }
+        }
+
+        let fingerprint = navigation_fingerprint(size, &walkable, &traversal_weights);
         Some(Self {
             size,
             walkable: Arc::new(walkable),
+            traversal_weights: Arc::new(traversal_weights),
             fingerprint,
         })
     }
@@ -153,6 +176,12 @@ impl NavigationSnapshot {
         self.fingerprint
     }
 
+    pub fn traversal_weight(&self, coord: CellCoord) -> Option<u32> {
+        self.index(coord)
+            .and_then(|index| self.traversal_weights.get(index))
+            .copied()
+    }
+
     /// Computes cardinal distances from `start` once for reuse across many
     /// target sets. A blocked starting cell remains a valid origin.
     pub(crate) fn distances_from(&self, start: CellCoord) -> Option<NavigationDistances> {
@@ -162,19 +191,27 @@ impl NavigationSnapshot {
             return None;
         }
         let mut distances = vec![u32::MAX; cell_count];
-        let mut queue = VecDeque::from([start]);
+        let mut queue = BinaryHeap::from([Reverse((0_u32, 0_u64, start_index))]);
+        let mut sequence = 1_u64;
         distances[start_index] = 0;
 
-        while let Some(coord) = queue.pop_front() {
-            let coord_index = self.index(coord)?;
-            let next_distance = distances[coord_index].checked_add(1)?;
+        while let Some(Reverse((distance, _, coord_index))) = queue.pop() {
+            if distance != distances[coord_index] {
+                continue;
+            }
+            let coord = self.coord(coord_index)?;
             for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
                 let neighbor_index = self.index(neighbor)?;
-                if distances[neighbor_index] != u32::MAX || !self.is_walkable(neighbor) {
+                if !self.is_walkable(neighbor) {
+                    continue;
+                }
+                let next_distance = distance.checked_add(self.traversal_weight(neighbor)?)?;
+                if next_distance >= distances[neighbor_index] {
                     continue;
                 }
                 distances[neighbor_index] = next_distance;
-                queue.push_back(neighbor);
+                queue.push(Reverse((next_distance, sequence, neighbor_index)));
+                sequence = sequence.wrapping_add(1);
             }
         }
 
@@ -192,8 +229,8 @@ impl NavigationSnapshot {
             .map(|path| path.cells)
     }
 
-    /// Selects the reachable goal with the shortest cardinal distance. Equal
-    /// distances use lower y and then lower x, independently of caller order.
+    /// Selects the reachable goal with the lowest travel cost. Equal costs use
+    /// lower y and then lower x, independently of caller order.
     pub fn shortest_path_to_any(
         &self,
         start: CellCoord,
@@ -216,7 +253,10 @@ impl NavigationSnapshot {
         }
         let mut previous = vec![u32::MAX; cell_count];
         previous[start_index] = u32::try_from(start_index).ok()?;
-        let mut queue = VecDeque::from([(start, 0_u32)]);
+        let mut distances = vec![u32::MAX; cell_count];
+        distances[start_index] = 0;
+        let mut queue = BinaryHeap::from([Reverse((0_u32, 0_u64, start_index))]);
+        let mut sequence = 1_u64;
         let mut goal_indices = goals
             .iter()
             .filter_map(|goal| self.index(*goal))
@@ -229,23 +269,34 @@ impl NavigationSnapshot {
             found_distance = Some(0_u32);
         }
 
-        while let Some((coord, coord_distance)) = queue.pop_front() {
-            let coord_index = self.index(coord)?;
-            if found_distance.is_some_and(|found| coord_distance >= found) {
+        while let Some(Reverse((coord_distance, _, coord_index))) = queue.pop() {
+            if coord_distance != distances[coord_index] {
+                continue;
+            }
+            if found_distance.is_some_and(|found| coord_distance > found) {
                 break;
+            }
+            let coord = self.coord(coord_index)?;
+            if goal_indices.binary_search(&coord_index).is_ok()
+                && !found_goals.iter().any(|(goal, _)| *goal == coord)
+            {
+                found_distance = Some(coord_distance);
+                found_goals.push((coord, coord_distance));
             }
             for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
                 let neighbor_index = self.index(neighbor)?;
-                if previous[neighbor_index] != u32::MAX || !self.is_walkable(neighbor) {
+                if !self.is_walkable(neighbor) {
                     continue;
                 }
-                let neighbor_distance = coord_distance.checked_add(1)?;
-                previous[neighbor_index] = u32::try_from(coord_index).ok()?;
-                if goal_indices.binary_search(&neighbor_index).is_ok() {
-                    found_distance = Some(neighbor_distance);
-                    found_goals.push((neighbor, neighbor_distance));
+                let neighbor_distance =
+                    coord_distance.checked_add(self.traversal_weight(neighbor)?)?;
+                if neighbor_distance >= distances[neighbor_index] {
+                    continue;
                 }
-                queue.push_back((neighbor, neighbor_distance));
+                distances[neighbor_index] = neighbor_distance;
+                previous[neighbor_index] = u32::try_from(coord_index).ok()?;
+                queue.push(Reverse((neighbor_distance, sequence, neighbor_index)));
+                sequence = sequence.wrapping_add(1);
             }
         }
 
@@ -254,8 +305,7 @@ impl NavigationSnapshot {
             .min_by_key(|(goal, distance)| (*distance, goal.y(), goal.x()))?;
         let target_index = self.index(target)?;
 
-        let target_distance = usize::try_from(target_distance).ok()?;
-        let mut reversed = Vec::with_capacity(target_distance + 1);
+        let mut reversed = Vec::new();
         let mut cursor = target_index;
         loop {
             reversed.push(self.coord(cursor)?);
@@ -272,7 +322,7 @@ impl NavigationSnapshot {
 
         Some(NavigationPath {
             target,
-            distance: target_distance,
+            distance: usize::try_from(target_distance).ok()?,
             cells: reversed,
         })
     }
@@ -342,9 +392,24 @@ impl NavigationSnapshot {
         *cell = value;
         true
     }
+
+    fn set_traversal_weight(&mut self, coord: CellCoord, value: u32) -> bool {
+        let Some(index) = self.index(coord) else {
+            return false;
+        };
+        if self.traversal_weights.get(index).copied() == Some(value) {
+            return false;
+        }
+        let weights = Arc::make_mut(&mut self.traversal_weights);
+        let Some(cell) = weights.get_mut(index) else {
+            return false;
+        };
+        *cell = value;
+        true
+    }
 }
 
-/// Reusable cardinal distances from one origin.
+/// Reusable weighted travel costs from one origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NavigationDistances {
     size: GridSize,
@@ -352,7 +417,7 @@ pub(crate) struct NavigationDistances {
 }
 
 impl NavigationDistances {
-    /// Returns the reachable goal ordered by distance, then row and column.
+    /// Returns the reachable goal ordered by travel cost, then row and column.
     pub(crate) fn closest_reachable(
         &self,
         goals: impl IntoIterator<Item = CellCoord>,
@@ -589,7 +654,15 @@ fn navigation_index(size: GridSize, coord: CellCoord) -> Option<usize> {
     y.checked_mul(size.width())?.checked_add(x)
 }
 
-fn walkability_fingerprint(size: GridSize, walkable: &[bool]) -> u64 {
+fn set_traversal_weight(size: GridSize, weights: &mut [u32], coord: CellCoord, value: u32) {
+    if let Some(index) = navigation_index(size, coord) {
+        if let Some(weight) = weights.get_mut(index) {
+            *weight = value;
+        }
+    }
+}
+
+fn navigation_fingerprint(size: GridSize, walkable: &[bool], weights: &[u32]) -> u64 {
     // Stable FNV-1a; this is a change detector, not a persisted identifier.
     let mut hash = 0xcbf29ce484222325_u64;
     for byte in size
@@ -601,6 +674,12 @@ fn walkability_fingerprint(size: GridSize, walkable: &[bool]) -> u64 {
     {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x100000001b3);
+    }
+    for weight in weights {
+        for byte in weight.to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
     }
     hash
 }
@@ -616,10 +695,12 @@ mod tests {
     fn shortest_path_can_exit_a_starting_cell_that_became_blocked() {
         let size = GridSize::new(3, 1);
         let walkable = vec![false, true, true];
+        let weights = vec![NORMAL_TRAVERSAL_WEIGHT; 3];
         let snapshot = NavigationSnapshot {
             size,
-            fingerprint: walkability_fingerprint(size, &walkable),
+            fingerprint: navigation_fingerprint(size, &walkable, &weights),
             walkable: Arc::new(walkable),
+            traversal_weights: Arc::new(weights),
         };
 
         assert_eq!(
@@ -660,8 +741,13 @@ mod tests {
         }
         let snapshot = NavigationSnapshot {
             size,
-            fingerprint: walkability_fingerprint(size, &walkable),
+            fingerprint: navigation_fingerprint(
+                size,
+                &walkable,
+                &vec![NORMAL_TRAVERSAL_WEIGHT; size.cell_count().unwrap()],
+            ),
             walkable: Arc::new(walkable),
+            traversal_weights: Arc::new(vec![NORMAL_TRAVERSAL_WEIGHT; size.cell_count().unwrap()]),
         };
 
         let distances = snapshot
@@ -675,7 +761,7 @@ mod tests {
                 CellCoord::new(0, 0),
                 CellCoord::new(2, 2),
             ]),
-            Some((CellCoord::new(0, 0), 2))
+            Some((CellCoord::new(0, 0), 12))
         );
         assert_eq!(distances.closest_reachable([CellCoord::new(4, 1)]), None);
     }
@@ -684,10 +770,12 @@ mod tests {
     fn reusable_distances_can_exit_a_blocked_origin() {
         let size = GridSize::new(3, 1);
         let walkable = vec![false, true, true];
+        let weights = vec![NORMAL_TRAVERSAL_WEIGHT; 3];
         let snapshot = NavigationSnapshot {
             size,
-            fingerprint: walkability_fingerprint(size, &walkable),
+            fingerprint: navigation_fingerprint(size, &walkable, &weights),
             walkable: Arc::new(walkable),
+            traversal_weights: Arc::new(weights),
         };
         let distances = snapshot
             .distances_from(CellCoord::new(0, 0))
@@ -699,7 +787,7 @@ mod tests {
         );
         assert_eq!(
             distances.closest_reachable([CellCoord::new(2, 0)]),
-            Some((CellCoord::new(2, 0), 2))
+            Some((CellCoord::new(2, 0), 12))
         );
     }
 
