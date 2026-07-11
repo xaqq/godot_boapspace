@@ -26,6 +26,7 @@ use godot::classes::{
     control, Button, CheckButton, IPanelContainer, InputEvent, InputEventMouseButton, Label,
     PackedScene, PanelContainer, VBoxContainer,
 };
+use godot::global::MouseButton;
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
 
@@ -263,7 +264,11 @@ impl IPanelContainer for BuildingInfoPanel {
             && point.y >= rect.position.y
             && point.x <= rect.position.x + rect.size.x
             && point.y <= rect.position.y + rect.size.y;
-        if mouse.is_pressed() && !inside {
+        let dismiss_button = matches!(
+            mouse.get_button_index(),
+            MouseButton::LEFT | MouseButton::RIGHT | MouseButton::MIDDLE
+        );
+        if mouse.is_pressed() && dismiss_button && !inside {
             self.close_panel();
             self.mark_input_handled();
         }
@@ -376,7 +381,10 @@ impl BuildingInfoPanel {
     }
 
     fn close_panel(&mut self) {
-        self.game_world.bind_mut().close_building_context();
+        self.clear_selection_and_hide();
+        self.game_world
+            .bind_mut()
+            .dismiss_building_context_from_panel();
     }
 
     fn mark_input_handled(&self) {

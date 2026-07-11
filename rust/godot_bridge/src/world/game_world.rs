@@ -1760,9 +1760,10 @@ impl GameWorld {
         true
     }
 
-    #[func]
-    pub(crate) fn close_building_context(&mut self) {
-        self.clear_building_selection();
+    pub(crate) fn dismiss_building_context_from_panel(&mut self) {
+        if self.selected_building.take().is_some() {
+            self.base_mut().queue_redraw();
+        }
     }
 
     pub(crate) fn warehouse_resource_allowed(
