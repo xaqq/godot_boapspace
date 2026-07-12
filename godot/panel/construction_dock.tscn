@@ -1,4 +1,16 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="StyleBoxFlat" id="StyleDockPanel"]
+bg_color = Color(0.045, 0.09, 0.105, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.847, 0.584, 0.373, 0.48)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [node name="ConstructionDock" type="ConstructionDock" node_paths=PackedStringArray("drawer", "cards_container", "build_button", "cancel_button", "cancel_hint", "active_label", "status_label", "storage_button", "production_button", "processing_button", "housing_button", "civic_button", "roads_button")]
 drawer = NodePath("Drawer")
@@ -28,10 +40,11 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -184.0
-offset_bottom = -44.0
+offset_top = -252.0
+offset_bottom = -60.0
 grow_horizontal = 2
 grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleDockPanel")
 
 [node name="Margin" type="MarginContainer" parent="Drawer"]
 layout_mode = 2
@@ -89,16 +102,17 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -44.0
+offset_top = -60.0
 grow_horizontal = 2
 grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleDockPanel")
 
 [node name="Margin" type="MarginContainer" parent="Footer"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 6
+theme_override_constants/margin_top = 4
 theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 6
+theme_override_constants/margin_bottom = 4
 
 [node name="Row" type="HBoxContainer" parent="Footer/Margin"]
 layout_mode = 2

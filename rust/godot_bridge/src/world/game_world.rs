@@ -634,17 +634,13 @@ impl INode2D for GameWorld {
         let mut base = self.base_mut();
         for x in 0..=w {
             let px = x as f32 * ts;
-            base.draw_line_ex(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color)
-                .width(1.0)
-                .antialiased(true)
-                .done();
+            // The default negative width uses Godot's fixed one-pixel line primitive.
+            // A positive world-space width shimmers and changes weight as the camera zooms.
+            base.draw_line(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color);
         }
         for y in 0..=h {
             let py = y as f32 * ts;
-            base.draw_line_ex(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color)
-                .width(1.0)
-                .antialiased(true)
-                .done();
+            base.draw_line(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color);
         }
 
         base.draw_rect_ex(
