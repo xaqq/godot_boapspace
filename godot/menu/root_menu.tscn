@@ -178,6 +178,7 @@ mouse_filter = 2
 [node name="NewGameButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=3100485962]
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 focus_neighbor_bottom = NodePath("../SettingsButton")
 mouse_default_cursor_shape = 2
 text = "Begin New Colony"
@@ -188,6 +189,7 @@ alignment = 0
 [node name="SettingsButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=1218525467]
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 focus_neighbor_top = NodePath("../NewGameButton")
 focus_neighbor_bottom = NodePath("../ExitButton")
 mouse_default_cursor_shape = 2
@@ -199,6 +201,7 @@ alignment = 0
 [node name="ExitButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=737555083]
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 focus_neighbor_top = NodePath("../SettingsButton")
 mouse_default_cursor_shape = 2
 text = "Exit to Desktop"
