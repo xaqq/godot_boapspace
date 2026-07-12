@@ -11,7 +11,7 @@
 [ext_resource type="PackedScene" path="res://panel/npc_details_panel.tscn" id="10_npc_details_panel"]
 [ext_resource type="PackedScene" path="res://panel/housing_panel.tscn" id="11_housing_panel"]
 [ext_resource type="PackedScene" path="res://panel/resource_panel.tscn" id="12_resource_panel"]
-[ext_resource type="Texture2D" path="res://assets/icons_pack/WHITE/PNG_128/scifi_demo_pixarts_alert_warning.png" id="13_homeless_warning"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/warning.svg" id="13_homeless_warning"]
 [ext_resource type="PackedScene" path="res://panel/performance_info.tscn" id="14_performance_info"]
 
 [node name="GameView" type="Control" unique_id=888628405]
