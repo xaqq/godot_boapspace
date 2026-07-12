@@ -199,6 +199,29 @@ mod tests {
     }
 
     #[test]
+    fn completed_destination_road_multiplies_diagonal_speed() {
+        for (tier, expected_component) in [
+            (crate::roads::RoadTier::DirtPath, 16),
+            (crate::roads::RoadTier::Cobblestone, 22),
+            (crate::roads::RoadTier::Flagstone, 33),
+        ] {
+            let mut world = movement_world(Grid::new(4, 4));
+            world.insert_resource(RoadMap::default());
+            let coord = CellCoord::new(2, 2);
+            let road = world.spawn(Road { coord, tier }).id();
+            world.resource_mut::<RoadMap>().insert(coord, road);
+            let entity = spawn_moving_npc(&mut world, CellCoord::new(1, 1), coord);
+
+            run_movement(&mut world);
+
+            assert_eq!(
+                *world.get::<Velocity>(entity).unwrap(),
+                Velocity::new(expected_component, expected_component)
+            );
+        }
+    }
+
+    #[test]
     fn test_diagonal_movement_is_not_faster_than_cardinal_movement() {
         let mut world = movement_world(Grid::new(4, 4));
         let entity = spawn_moving_npc(&mut world, CellCoord::new(1, 1), CellCoord::new(2, 2));

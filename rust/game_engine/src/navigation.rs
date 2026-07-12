@@ -13,6 +13,11 @@ use crate::grid::{CellCoord, Grid, GridSize};
 use crate::roads::{completed_road_tier_at, Road, NORMAL_TRAVERSAL_WEIGHT};
 use crate::tile::TileIndex;
 
+/// Fixed-point edge-length factors used with per-cell traversal weights.
+/// A cardinal step has length 1.0 and a diagonal step approximates sqrt(2).
+const CARDINAL_STEP_COST_FACTOR: u32 = 1_000;
+const DIAGONAL_STEP_COST_FACTOR: u32 = 1_414;
+
 /// Immutable, surface-local view of the cells NPCs may currently enter.
 ///
 /// Capturing collision once keeps path searches deterministic and avoids
@@ -182,16 +187,16 @@ impl NavigationSnapshot {
             .copied()
     }
 
-    /// Computes cardinal distances from `start` once for reuse across many
-    /// target sets. A blocked starting cell remains a valid origin.
+    /// Computes weighted eight-way travel costs from `start` once for reuse
+    /// across many target sets. A blocked starting cell remains a valid origin.
     pub(crate) fn distances_from(&self, start: CellCoord) -> Option<NavigationDistances> {
         let start_index = self.index(start)?;
         let cell_count = self.size.cell_count()?;
         if cell_count >= u32::MAX as usize {
             return None;
         }
-        let mut distances = vec![u32::MAX; cell_count];
-        let mut queue = BinaryHeap::from([Reverse((0_u32, 0_u64, start_index))]);
+        let mut distances = vec![u64::MAX; cell_count];
+        let mut queue = BinaryHeap::from([Reverse((0_u64, 0_u64, start_index))]);
         let mut sequence = 1_u64;
         distances[start_index] = 0;
 
@@ -200,12 +205,9 @@ impl NavigationSnapshot {
                 continue;
             }
             let coord = self.coord(coord_index)?;
-            for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
-                let neighbor_index = self.index(neighbor)?;
-                if !self.is_walkable(neighbor) {
-                    continue;
-                }
-                let next_distance = distance.checked_add(self.traversal_weight(neighbor)?)?;
+            for edge in self.travel_edges(coord) {
+                let neighbor_index = self.index(edge.destination)?;
+                let next_distance = distance.saturating_add(edge.cost);
                 if next_distance >= distances[neighbor_index] {
                     continue;
                 }
@@ -221,9 +223,10 @@ impl NavigationSnapshot {
         })
     }
 
-    /// Returns a deterministic cardinal shortest path, including both `start`
+    /// Returns a deterministic eight-way shortest path, including both `start`
     /// and `goal`. The starting cell may have become blocked underneath an NPC;
-    /// all cells entered after it must be walkable.
+    /// all cells entered after it must be walkable. Diagonal steps require both
+    /// orthogonally adjacent flank cells to be walkable.
     pub fn shortest_path(&self, start: CellCoord, goal: CellCoord) -> Option<Vec<CellCoord>> {
         self.shortest_path_to_any(start, [goal])
             .map(|path| path.cells)
@@ -253,9 +256,9 @@ impl NavigationSnapshot {
         }
         let mut previous = vec![u32::MAX; cell_count];
         previous[start_index] = u32::try_from(start_index).ok()?;
-        let mut distances = vec![u32::MAX; cell_count];
+        let mut distances = vec![u64::MAX; cell_count];
         distances[start_index] = 0;
-        let mut queue = BinaryHeap::from([Reverse((0_u32, 0_u64, start_index))]);
+        let mut queue = BinaryHeap::from([Reverse((0_u64, 0_u64, start_index))]);
         let mut sequence = 1_u64;
         let mut goal_indices = goals
             .iter()
@@ -265,8 +268,8 @@ impl NavigationSnapshot {
         let mut found_goals = Vec::new();
         let mut found_distance = None;
         if goal_indices.binary_search(&start_index).is_ok() {
-            found_goals.push((start, 0_u32));
-            found_distance = Some(0_u32);
+            found_goals.push((start, 0_u64));
+            found_distance = Some(0_u64);
         }
 
         while let Some(Reverse((coord_distance, _, coord_index))) = queue.pop() {
@@ -283,13 +286,9 @@ impl NavigationSnapshot {
                 found_distance = Some(coord_distance);
                 found_goals.push((coord, coord_distance));
             }
-            for neighbor in cardinal_coords(coord).filter(|coord| self.size.contains(*coord)) {
-                let neighbor_index = self.index(neighbor)?;
-                if !self.is_walkable(neighbor) {
-                    continue;
-                }
-                let neighbor_distance =
-                    coord_distance.checked_add(self.traversal_weight(neighbor)?)?;
+            for edge in self.travel_edges(coord) {
+                let neighbor_index = self.index(edge.destination)?;
+                let neighbor_distance = coord_distance.saturating_add(edge.cost);
                 if neighbor_distance >= distances[neighbor_index] {
                     continue;
                 }
@@ -362,6 +361,33 @@ impl NavigationSnapshot {
         cells
     }
 
+    /// Returns walkable travel neighbors in row-major order. Diagonal travel is
+    /// allowed only when both cells flanking the corner are also walkable.
+    fn travel_edges(&self, origin: CellCoord) -> impl Iterator<Item = TravelEdge> + '_ {
+        TRAVEL_NEIGHBOR_OFFSETS
+            .into_iter()
+            .filter_map(move |(x_offset, y_offset, cost_factor)| {
+                let coord = offset_coord(origin, x_offset, y_offset)?;
+                if !self.size.contains(coord) || !self.is_walkable(coord) {
+                    return None;
+                }
+
+                if x_offset != 0 && y_offset != 0 {
+                    let horizontal_flank = offset_coord(origin, x_offset, 0)?;
+                    let vertical_flank = offset_coord(origin, 0, y_offset)?;
+                    if !self.is_walkable(horizontal_flank) || !self.is_walkable(vertical_flank) {
+                        return None;
+                    }
+                }
+
+                let cost = u64::from(self.traversal_weight(coord)?) * u64::from(cost_factor);
+                Some(TravelEdge {
+                    destination: coord,
+                    cost,
+                })
+            })
+    }
+
     fn index(&self, coord: CellCoord) -> Option<usize> {
         if !self.size.contains(coord) {
             return None;
@@ -413,14 +439,14 @@ impl NavigationSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NavigationDistances {
     size: GridSize,
-    distances: Vec<u32>,
+    distances: Vec<u64>,
 }
 
 impl NavigationDistances {
     pub(crate) fn is_reachable(&self, goal: CellCoord) -> bool {
         navigation_index(self.size, goal)
             .and_then(|index| self.distances.get(index))
-            .is_some_and(|distance| *distance != u32::MAX)
+            .is_some_and(|distance| *distance != u64::MAX)
     }
 
     /// Returns the reachable goal ordered by travel cost, then row and column.
@@ -433,7 +459,7 @@ impl NavigationDistances {
             .filter_map(|goal| {
                 let index = navigation_index(self.size, goal)?;
                 let distance = *self.distances.get(index)?;
-                if distance == u32::MAX {
+                if distance == u64::MAX {
                     return None;
                 }
                 Some((goal, usize::try_from(distance).ok()?))
@@ -454,6 +480,9 @@ impl NavigationPath {
         self.target
     }
 
+    /// Returns the fixed-point weighted travel cost. Cardinal steps multiply
+    /// the destination cell's traversal weight by 1,000; diagonal steps use
+    /// 1,414.
     pub const fn distance(&self) -> usize {
         self.distance
     }
@@ -468,7 +497,7 @@ impl NavigationPath {
 }
 
 /// A persistent NPC navigation request. The route driver owns its queued
-/// cardinal waypoints and replans them when surface collision changes.
+/// waypoints and replans them when surface collision changes.
 #[derive(Debug, Clone, PartialEq, Eq, Component)]
 pub struct NpcRoute {
     goals: Vec<CellCoord>,
@@ -522,7 +551,7 @@ impl NpcRoute {
     }
 }
 
-/// Feeds the next queued cardinal waypoint into the existing sub-tile movement
+/// Feeds the next queued waypoint into the existing sub-tile movement
 /// system. NPCs without `NpcRoute` retain the legacy direct-target behavior.
 pub fn drive_npc_routes(world: &mut World) {
     let Some(snapshot) = current_navigation_snapshot(world) else {
@@ -600,6 +629,31 @@ enum RouteAction {
     RemoveMovement,
     SetMovement(CellCoord),
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TravelEdge {
+    destination: CellCoord,
+    cost: u64,
+}
+
+/// Row-major around the origin, preserving deterministic tie-breaking.
+const TRAVEL_NEIGHBOR_OFFSETS: [(i32, i32, u32); 8] = [
+    (-1, -1, DIAGONAL_STEP_COST_FACTOR),
+    (0, -1, CARDINAL_STEP_COST_FACTOR),
+    (1, -1, DIAGONAL_STEP_COST_FACTOR),
+    (-1, 0, CARDINAL_STEP_COST_FACTOR),
+    (1, 0, CARDINAL_STEP_COST_FACTOR),
+    (-1, 1, DIAGONAL_STEP_COST_FACTOR),
+    (0, 1, CARDINAL_STEP_COST_FACTOR),
+    (1, 1, DIAGONAL_STEP_COST_FACTOR),
+];
+
+fn offset_coord(coord: CellCoord, x_offset: i32, y_offset: i32) -> Option<CellCoord> {
+    Some(CellCoord::new(
+        coord.x().checked_add(x_offset)?,
+        coord.y().checked_add(y_offset)?,
+    ))
 }
 
 fn cardinal_coords(coord: CellCoord) -> impl Iterator<Item = CellCoord> {
@@ -720,6 +774,24 @@ mod tests {
     }
 
     #[test]
+    fn shortest_path_can_exit_a_blocked_origin_diagonally_when_both_flanks_are_clear() {
+        let size = GridSize::new(2, 2);
+        let walkable = vec![false, true, true, true];
+        let weights = vec![NORMAL_TRAVERSAL_WEIGHT; 4];
+        let snapshot = NavigationSnapshot {
+            size,
+            fingerprint: navigation_fingerprint(size, &walkable, &weights),
+            walkable: Arc::new(walkable),
+            traversal_weights: Arc::new(weights),
+        };
+
+        assert_eq!(
+            snapshot.shortest_path(CellCoord::new(0, 0), CellCoord::new(1, 1)),
+            Some(vec![CellCoord::new(0, 0), CellCoord::new(1, 1)])
+        );
+    }
+
+    #[test]
     fn route_goals_are_normalized_to_row_major_unique_order() {
         let route = NpcRoute::new([
             CellCoord::new(2, 2),
@@ -767,7 +839,7 @@ mod tests {
                 CellCoord::new(0, 0),
                 CellCoord::new(2, 2),
             ]),
-            Some((CellCoord::new(0, 0), 12))
+            Some((CellCoord::new(0, 0), 8_484))
         );
         assert_eq!(distances.closest_reachable([CellCoord::new(4, 1)]), None);
     }
@@ -793,7 +865,23 @@ mod tests {
         );
         assert_eq!(
             distances.closest_reachable([CellCoord::new(2, 0)]),
-            Some((CellCoord::new(2, 0), 12))
+            Some((CellCoord::new(2, 0), 12_000))
+        );
+    }
+
+    #[test]
+    fn reusable_distances_match_diagonal_shortest_path_costs() {
+        let world = navigation_world(3, 3);
+        let snapshot = NavigationSnapshot::from_world(&world).unwrap();
+        let start = CellCoord::new(0, 0);
+        let goal = CellCoord::new(2, 2);
+        let path = snapshot.shortest_path_to_any(start, [goal]).unwrap();
+        let distances = snapshot.distances_from(start).unwrap();
+
+        assert_eq!(path.distance(), 16_968);
+        assert_eq!(
+            distances.closest_reachable([goal]),
+            Some((goal, path.distance()))
         );
     }
 

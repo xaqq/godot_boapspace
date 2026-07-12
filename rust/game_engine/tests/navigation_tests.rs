@@ -8,8 +8,11 @@ use game_engine::navigation::{
 use game_engine::resources::ResourceKind;
 use game_engine::tile::{TileBundle, TileIndex};
 
+const GROUND_CARDINAL_STEP_COST: usize = 6_000;
+const GROUND_DIAGONAL_STEP_COST: usize = 8_484;
+
 #[test]
-fn cardinal_bfs_routes_around_collision_deterministically() {
+fn eight_way_navigation_routes_around_collision_without_cutting_corners() {
     let mut world = navigation_world(5, 3);
     set_resource_node(&mut world, CellCoord::new(2, 1), true);
     let navigation = NavigationSnapshot::from_world(&world).expect("snapshot should exist");
@@ -31,6 +34,64 @@ fn cardinal_bfs_routes_around_collision_deterministically() {
     assert!(path
         .windows(2)
         .all(|pair| cardinal_distance(pair[0], pair[1]) == 1));
+}
+
+#[test]
+fn open_ground_routes_directly_in_all_four_diagonal_directions() {
+    let world = navigation_world(5, 5);
+    let navigation = NavigationSnapshot::from_world(&world).expect("snapshot should exist");
+    let start = CellCoord::new(2, 2);
+
+    for goal in [
+        CellCoord::new(1, 1),
+        CellCoord::new(3, 1),
+        CellCoord::new(1, 3),
+        CellCoord::new(3, 3),
+    ] {
+        let path = navigation
+            .shortest_path_to_any(start, [goal])
+            .expect("diagonal goal should be reachable");
+        assert_eq!(path.cells(), &[start, goal]);
+        assert_eq!(path.distance(), GROUND_DIAGONAL_STEP_COST);
+    }
+}
+
+#[test]
+fn diagonal_travel_requires_a_walkable_destination_and_both_clear_flanks() {
+    let start = CellCoord::new(0, 0);
+    let goal = CellCoord::new(1, 1);
+
+    for (blocked_flank, expected_path) in [
+        (
+            CellCoord::new(1, 0),
+            vec![start, CellCoord::new(0, 1), goal],
+        ),
+        (
+            CellCoord::new(0, 1),
+            vec![start, CellCoord::new(1, 0), goal],
+        ),
+    ] {
+        let mut world = navigation_world(2, 2);
+        set_resource_node(&mut world, blocked_flank, true);
+        let navigation = NavigationSnapshot::from_world(&world).expect("snapshot should exist");
+
+        let path = navigation
+            .shortest_path_to_any(start, [goal])
+            .expect("the remaining cardinal route should stay open");
+        assert_eq!(path.cells(), expected_path);
+        assert_eq!(path.distance(), 2 * GROUND_CARDINAL_STEP_COST);
+    }
+
+    let mut blocked_corner = navigation_world(2, 2);
+    set_resource_node(&mut blocked_corner, CellCoord::new(1, 0), true);
+    set_resource_node(&mut blocked_corner, CellCoord::new(0, 1), true);
+    let navigation = NavigationSnapshot::from_world(&blocked_corner).unwrap();
+    assert_eq!(navigation.shortest_path(start, goal), None);
+
+    let mut blocked_destination = navigation_world(2, 2);
+    set_resource_node(&mut blocked_destination, goal, true);
+    let navigation = NavigationSnapshot::from_world(&blocked_destination).unwrap();
+    assert_eq!(navigation.shortest_path(start, goal), None);
 }
 
 #[test]
@@ -58,7 +119,7 @@ fn target_selection_excludes_unreachable_and_uses_row_major_ties() {
         .expect("at least one interaction cell should be reachable");
 
     assert_eq!(selected.target(), CellCoord::new(2, 1));
-    assert_eq!(selected.distance(), 6);
+    assert_eq!(selected.distance(), GROUND_CARDINAL_STEP_COST);
 }
 
 #[test]
@@ -101,7 +162,7 @@ fn interaction_cells_cover_points_blocking_exteriors_and_walkable_footprints() {
 }
 
 #[test]
-fn route_driver_feeds_cardinal_waypoints_and_replans_after_collision_changes() {
+fn route_driver_feeds_waypoints_and_replans_after_collision_changes() {
     let mut world = navigation_world(5, 3);
     set_resource_node(&mut world, CellCoord::new(2, 1), true);
     let npc = world
@@ -131,6 +192,33 @@ fn route_driver_feeds_cardinal_waypoints_and_replans_after_collision_changes() {
     assert_eq!(
         world.get::<MovementTarget>(npc).map(|target| target.coord),
         Some(CellCoord::new(2, 1))
+    );
+}
+
+#[test]
+fn route_driver_feeds_a_diagonal_waypoint_on_open_ground() {
+    let mut world = navigation_world(3, 3);
+    let npc = world
+        .spawn((
+            Npc,
+            NpcPosition::new(CellCoord::new(0, 0)),
+            NpcRoute::to_cell(CellCoord::new(2, 2)),
+        ))
+        .id();
+
+    drive_npc_routes(&mut world);
+
+    assert_eq!(
+        world.get::<MovementTarget>(npc).map(|target| target.coord),
+        Some(CellCoord::new(1, 1))
+    );
+    assert_eq!(
+        world
+            .get::<NpcRoute>(npc)
+            .expect("route should remain queued")
+            .waypoints()
+            .collect::<Vec<_>>(),
+        vec![CellCoord::new(1, 1), CellCoord::new(2, 2)]
     );
 }
 

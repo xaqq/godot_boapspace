@@ -3188,9 +3188,18 @@ mod tests {
     }
 
     #[test]
-    fn route_chevrons_point_along_each_cardinal_segment() {
+    fn route_chevrons_point_along_cardinal_and_diagonal_segments() {
         let center = Vector2::new(32.0, 32.0);
-        for direction in [Vector2::RIGHT, Vector2::DOWN, Vector2::LEFT, Vector2::UP] {
+        for direction in [
+            Vector2::UP,
+            Vector2::new(1.0, -1.0),
+            Vector2::RIGHT,
+            Vector2::new(1.0, 1.0),
+            Vector2::DOWN,
+            Vector2::new(-1.0, 1.0),
+            Vector2::LEFT,
+            Vector2::new(-1.0, -1.0),
+        ] {
             let to = center + direction * grid::TILE_SIZE;
             let chevron = route_chevron(center, to).expect("segment should produce a chevron");
             let midpoint = (center + to) * 0.5;
@@ -3468,6 +3477,17 @@ mod tests {
         assert_eq!(road_connectivity_mask(center, &cells), 15);
         assert_eq!(road_atlas_coord(15), Vector2i::new(3, 3));
         assert_eq!(road_atlas_coord(5), Vector2i::new(1, 1));
+
+        let diagonal_cells = [
+            center,
+            CellCoord::new(1, 1),
+            CellCoord::new(3, 1),
+            CellCoord::new(1, 3),
+            CellCoord::new(3, 3),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>();
+        assert_eq!(road_connectivity_mask(center, &diagonal_cells), 0);
     }
 
     #[test]

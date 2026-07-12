@@ -83,7 +83,7 @@ fn upgrades_keep_the_old_tier_until_labor_finishes() {
 }
 
 #[test]
-fn weighted_navigation_prefers_a_longer_faster_road_route() {
+fn weighted_navigation_prefers_a_geometrically_longer_faster_road_route() {
     let mut world = road_world(5, 3);
     for coord in [
         CellCoord::new(0, 0),
@@ -100,10 +100,19 @@ fn weighted_navigation_prefers_a_longer_faster_road_route() {
     }
     let snapshot = NavigationSnapshot::from_world(&world).unwrap();
     let path = snapshot
-        .shortest_path(CellCoord::new(0, 1), CellCoord::new(4, 1))
+        .shortest_path_to_any(CellCoord::new(0, 1), [CellCoord::new(4, 1)])
         .unwrap();
-    assert!(path.contains(&CellCoord::new(2, 0)));
-    assert_eq!(path.len(), 7);
+    assert_eq!(
+        path.cells(),
+        &[
+            CellCoord::new(0, 1),
+            CellCoord::new(1, 0),
+            CellCoord::new(2, 0),
+            CellCoord::new(3, 0),
+            CellCoord::new(4, 1),
+        ]
+    );
+    assert_eq!(path.distance(), 9_656);
 }
 
 #[test]
