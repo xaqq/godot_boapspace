@@ -392,12 +392,13 @@ fn card_texture(tool: ConstructionTool) -> Option<Gd<Texture2D>> {
         }
         ConstructionTool::Road(tier) => {
             let texture = load_texture(road_asset_path(tier), "ConstructionDock")?;
+            let tile_size = texture.get_width() as f32 / 4.0;
             let mut atlas = AtlasTexture::new_gd();
             atlas.set_atlas(&texture);
             // East + west connectivity (mask 10) is a representative straight road tile.
             atlas.set_region(Rect2::new(
-                Vector2::new(128.0, 128.0),
-                Vector2::new(64.0, 64.0),
+                Vector2::new(tile_size * 2.0, tile_size * 2.0),
+                Vector2::new(tile_size, tile_size),
             ));
             Some(atlas.upcast())
         }

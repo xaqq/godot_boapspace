@@ -1,0 +1,194 @@
+schema_version = 1
+logical_tile_pixels = 64
+source_tile_pixels = 256
+render_scale = 0.25
+style = "painterly-lived-in-sci-fi-frontier-copper-cyan"
+
+# `ready` is intentionally family-wide. Flip it only when every listed file is final.
+# `legacy_dir` records the superseded 64 px source so coverage stays auditable.
+
+[[family]]
+id = "terrain"
+category = "world/terrain"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/terrain"
+files = ["terrain_dirt.png", "terrain_grass.png", "terrain_sand.png", "terrain_water.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 4
+rows = 1
+alpha = "opaque"
+seams = "tileable"
+anchor = [0.5, 0.5]
+
+[[family]]
+id = "buildings-1x1"
+category = "world/buildings"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/buildings"
+files = ["building_field.png", "building_field_blueprint.png", "building_house_small.png", "building_tree_plot.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 1.0]
+
+[[family]]
+id = "buildings-2x2"
+category = "world/buildings"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/buildings"
+files = ["building_depot.png", "building_house_medium.png", "building_kitchen.png", "building_sawmill.png", "building_stoneworks.png"]
+ready = true
+frame_width = 512
+frame_height = 512
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 1.0]
+
+[[family]]
+id = "buildings-3x3"
+category = "world/buildings"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/buildings"
+files = ["building_farm.png", "building_forester_lodge.png", "building_house_large.png", "building_townhall.png"]
+ready = true
+frame_width = 768
+frame_height = 768
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 1.0]
+
+[[family]]
+id = "buildings-4x4"
+category = "world/buildings"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/buildings"
+files = ["building_warehouse.png"]
+ready = true
+frame_width = 1024
+frame_height = 1024
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 1.0]
+
+[[family]]
+id = "crop-stages"
+category = "world/farming"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/farming"
+files = ["crop_seedable_plot.png", "crop_growing_step1.png", "crop_growing_step2.png", "crop_grown.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 0.5]
+
+[[family]]
+id = "tree-stages"
+category = "world/farming"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/farming"
+files = ["tree_plot_sapling.png", "tree_plot_young.png", "tree_plot_mature.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 1.0]
+
+[[family]]
+id = "world-resources"
+category = "world/resources"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/resources"
+files = ["resource_wood.png", "resource_stone.png", "resource_food.png", "resource_gold.png", "resource_crops.png", "resource_wild_berries.png", "resource_planks.png", "resource_stone_blocks.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 1
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 0.875]
+
+[[family]]
+id = "road-atlases"
+category = "world/roads"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/roads"
+files = ["road_dirt_path_atlas.png", "road_cobblestone_atlas.png", "road_flagstone_atlas.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 4
+rows = 4
+alpha = "required"
+seams = "connected-atlas"
+anchor = [0.5, 0.5]
+
+[[family]]
+id = "character-activities"
+category = "world/characters"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/characters"
+files = [
+  "npc_botanist_cook_sheet.png", "npc_botanist_gather_sheet.png", "npc_botanist_idle_sheet.png", "npc_botanist_saw_sheet.png", "npc_botanist_stonecut_sheet.png",
+  "npc_colonist_cook_sheet.png", "npc_colonist_gather_sheet.png", "npc_colonist_idle_sheet.png", "npc_colonist_saw_sheet.png", "npc_colonist_stonecut_sheet.png",
+  "npc_engineer_cook_sheet.png", "npc_engineer_gather_sheet.png", "npc_engineer_idle_sheet.png", "npc_engineer_saw_sheet.png", "npc_engineer_stonecut_sheet.png",
+  "npc_miner_cook_sheet.png", "npc_miner_gather_sheet.png", "npc_miner_idle_sheet.png", "npc_miner_saw_sheet.png", "npc_miner_stonecut_sheet.png",
+  "npc_scout_cook_sheet.png", "npc_scout_gather_sheet.png", "npc_scout_idle_sheet.png", "npc_scout_saw_sheet.png", "npc_scout_stonecut_sheet.png",
+]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 4
+rows = 1
+alpha = "required"
+seams = "none"
+anchor = [0.5, 0.875]
+
+[[family]]
+id = "character-walk"
+category = "world/characters"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/characters"
+files = ["npc_botanist_walk_sheet.png", "npc_colonist_walk_sheet.png", "npc_engineer_walk_sheet.png", "npc_miner_walk_sheet.png", "npc_scout_walk_sheet.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 4
+rows = 8
+alpha = "required"
+seams = "none"
+anchor = [0.5, 0.875]
+
+[[family]]
+id = "wheelbarrows"
+category = "world/vehicles"
+legacy_dir = "godot/assets/generated"
+target_dir = "godot/assets/visual/world/vehicles"
+files = ["wheelbarrow_empty_sheet.png", "wheelbarrow_wood_sheet.png", "wheelbarrow_stone_sheet.png", "wheelbarrow_food_sheet.png", "wheelbarrow_gold_sheet.png", "wheelbarrow_crops_sheet.png", "wheelbarrow_wild_berries_sheet.png", "wheelbarrow_planks_sheet.png", "wheelbarrow_stone_blocks_sheet.png"]
+ready = true
+frame_width = 256
+frame_height = 256
+columns = 4
+rows = 8
+alpha = "required"
+seams = "none"
+anchor = [0.5, 0.875]

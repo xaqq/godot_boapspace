@@ -4,6 +4,7 @@ use crate::assets::{
 };
 use crate::entity_id::BridgeEntityId;
 use crate::panel::construction_dock::ConstructionDock;
+use crate::world::visual::{WorldArtMetrics, LOGICAL_TILE_SIZE};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
@@ -35,8 +36,8 @@ use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
     canvas_item::TextureFilter, AnimatedSprite2D, AtlasTexture, Camera2D, INode2D, Input,
-    InputEvent, InputEventMouseButton, Node2D, PackedScene, Sprite2D, SpriteFrames, Texture2D,
-    TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
+    InputEvent, InputEventMouseButton, Node2D, PackedScene, Polygon2D, Sprite2D, SpriteFrames,
+    Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
@@ -56,15 +57,18 @@ const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
 const ACTION_CAMERA_PAN_RIGHT: &str = "camera_pan_right";
 const ACTION_MENU_TOGGLE: &str = "menu_toggle";
+const WORLD_ENTITY_Z_BASE: i32 = 5;
+const TERRAIN_VARIANT_COUNT: i32 = 4;
 const WHEELBARROW_OVERLAY_SCENE_PATH: &str = "res://world/wheelbarrow_overlay.tscn";
-const WHEELBARROW_EMPTY_PATH: &str = "res://assets/generated/wheelbarrow_empty_sheet.png";
-const CROP_SEEDABLE_PATH: &str = "res://assets/generated/crop_seedable_plot.png";
-const CROP_GROWING_STEP1_PATH: &str = "res://assets/generated/crop_growing_step1.png";
-const CROP_GROWING_STEP2_PATH: &str = "res://assets/generated/crop_growing_step2.png";
-const CROP_GROWN_PATH: &str = "res://assets/generated/crop_grown.png";
-const TREE_PLOT_SAPLING_PATH: &str = "res://assets/generated/tree_plot_sapling.png";
-const TREE_PLOT_YOUNG_PATH: &str = "res://assets/generated/tree_plot_young.png";
-const TREE_PLOT_MATURE_PATH: &str = "res://assets/generated/tree_plot_mature.png";
+const WHEELBARROW_EMPTY_PATH: &str =
+    "res://assets/visual/world/vehicles/wheelbarrow_empty_sheet.png";
+const CROP_SEEDABLE_PATH: &str = "res://assets/visual/world/farming/crop_seedable_plot.png";
+const CROP_GROWING_STEP1_PATH: &str = "res://assets/visual/world/farming/crop_growing_step1.png";
+const CROP_GROWING_STEP2_PATH: &str = "res://assets/visual/world/farming/crop_growing_step2.png";
+const CROP_GROWN_PATH: &str = "res://assets/visual/world/farming/crop_grown.png";
+const TREE_PLOT_SAPLING_PATH: &str = "res://assets/visual/world/farming/tree_plot_sapling.png";
+const TREE_PLOT_YOUNG_PATH: &str = "res://assets/visual/world/farming/tree_plot_young.png";
+const TREE_PLOT_MATURE_PATH: &str = "res://assets/visual/world/farming/tree_plot_mature.png";
 static GENERATION_SEED_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn fresh_generation_seed() -> u64 {
@@ -209,10 +213,16 @@ struct NpcRenderInfo {
 struct RenderedNpcSprite {
     appearance: NpcAppearance,
     sprite: Gd<AnimatedSprite2D>,
+    shadow: Gd<Polygon2D>,
     cargo_icon: Gd<Sprite2D>,
     carried_kind: Option<ResourceKind>,
     wheelbarrow: Gd<AnimatedSprite2D>,
     has_wheelbarrow: bool,
+}
+
+struct BuiltTileSet {
+    tile_set: Gd<TileSet>,
+    metrics: WorldArtMetrics,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,9 +367,11 @@ pub(crate) struct GameWorld {
     npc_scenes: HashMap<NpcAppearance, Gd<PackedScene>>,
     wheelbarrow_scene: Option<Gd<PackedScene>>,
     wheelbarrow_frames: Option<Gd<SpriteFrames>>,
+    wheelbarrow_overlay_scale: Vector2,
     npc_sprites: HashMap<Entity, RenderedNpcSprite>,
     building_textures: HashMap<BuildingKind, Gd<Texture2D>>,
     building_sprites: HashMap<Entity, Gd<Sprite2D>>,
+    building_shadows: HashMap<Entity, Gd<Polygon2D>>,
     tick_performance_sample: Option<TickPerformanceSample>,
     tick_performance_sequence: u64,
 
@@ -396,9 +408,11 @@ impl INode2D for GameWorld {
             npc_scenes: HashMap::new(),
             wheelbarrow_scene: None,
             wheelbarrow_frames: None,
+            wheelbarrow_overlay_scale: Vector2::ONE,
             npc_sprites: HashMap::new(),
             building_textures: HashMap::new(),
             building_sprites: HashMap::new(),
+            building_shadows: HashMap::new(),
             tick_performance_sample: None,
             tick_performance_sequence: 0,
             base,
@@ -414,16 +428,17 @@ impl INode2D for GameWorld {
         let mut road_blueprint_map = self.road_blueprint_map.clone();
         let mut cam = self.camera.clone();
 
-        let ts = grid::TILE_SIZE as i32;
-        let Some(tile_set) = self.build_terrain_tile_set(ts) else {
+        debug_assert_eq!(grid::TILE_SIZE as i32, LOGICAL_TILE_SIZE);
+        let Some(terrain) = self.build_terrain_tile_set() else {
             self.disable_processing();
             return;
         };
 
-        tm.set_tile_set(&tile_set);
-        self._tile_set = Some(tile_set);
+        tm.set_tile_set(&terrain.tile_set);
+        tm.set_scale(terrain.metrics.node_scale());
+        self._tile_set = Some(terrain.tile_set);
         tm.set_navigation_enabled(false);
-        tm.set_texture_filter(TextureFilter::NEAREST);
+        tm.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
         tm.set_draw_behind_parent(true);
 
         if !self.populate_tile_map(&mut tm) {
@@ -431,16 +446,17 @@ impl INode2D for GameWorld {
             return;
         }
 
-        let Some(road_tile_set) = self.build_road_tile_set(ts) else {
+        let Some(roads) = self.build_road_tile_set() else {
             self.disable_processing();
             return;
         };
-        road_map.set_tile_set(&road_tile_set);
-        road_blueprint_map.set_tile_set(&road_tile_set);
-        self._road_tile_set = Some(road_tile_set);
+        road_map.set_tile_set(&roads.tile_set);
+        road_blueprint_map.set_tile_set(&roads.tile_set);
+        self._road_tile_set = Some(roads.tile_set);
         for map in [&mut road_map, &mut road_blueprint_map] {
+            map.set_scale(roads.metrics.node_scale());
             map.set_navigation_enabled(false);
-            map.set_texture_filter(TextureFilter::NEAREST);
+            map.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
         }
         road_map.set_z_index(1);
         road_blueprint_map.set_z_index(2);
@@ -453,36 +469,39 @@ impl INode2D for GameWorld {
         }
         self.sync_building_sprites();
 
-        let Some(resource_tile_set) = self.build_resource_node_tile_set(ts) else {
+        let Some(resources) = self.build_resource_node_tile_set() else {
             self.disable_processing();
             return;
         };
-        resource_map.set_tile_set(&resource_tile_set);
-        self._resource_node_tile_set = Some(resource_tile_set);
+        resource_map.set_tile_set(&resources.tile_set);
+        resource_map.set_scale(resources.metrics.node_scale());
+        self._resource_node_tile_set = Some(resources.tile_set);
         resource_map.set_navigation_enabled(false);
-        resource_map.set_texture_filter(TextureFilter::NEAREST);
+        resource_map.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
         resource_map.set_z_index(3);
         self.populate_resource_node_map(&mut resource_map);
 
-        let Some(crop_tile_set) = self.build_crop_tile_set(ts) else {
+        let Some(crops) = self.build_crop_tile_set() else {
             self.disable_processing();
             return;
         };
-        crop_map.set_tile_set(&crop_tile_set);
-        self._crop_tile_set = Some(crop_tile_set);
+        crop_map.set_tile_set(&crops.tile_set);
+        crop_map.set_scale(crops.metrics.node_scale());
+        self._crop_tile_set = Some(crops.tile_set);
         crop_map.set_navigation_enabled(false);
-        crop_map.set_texture_filter(TextureFilter::NEAREST);
+        crop_map.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
         crop_map.set_z_index(4);
         self.populate_crop_map(&mut crop_map);
 
-        let Some(tree_plot_tile_set) = self.build_tree_plot_tile_set(ts) else {
+        let Some(tree_plots) = self.build_tree_plot_tile_set() else {
             self.disable_processing();
             return;
         };
-        tree_plot_map.set_tile_set(&tree_plot_tile_set);
-        self._tree_plot_tile_set = Some(tree_plot_tile_set);
+        tree_plot_map.set_tile_set(&tree_plots.tile_set);
+        tree_plot_map.set_scale(tree_plots.metrics.node_scale());
+        self._tree_plot_tile_set = Some(tree_plots.tile_set);
         tree_plot_map.set_navigation_enabled(false);
-        tree_plot_map.set_texture_filter(TextureFilter::NEAREST);
+        tree_plot_map.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
         tree_plot_map.set_z_index(4);
         self.populate_tree_plot_map(&mut tree_plot_map);
 
@@ -597,7 +616,7 @@ impl INode2D for GameWorld {
             godot_warn!("GameWorld: grid height is too large to draw");
             return;
         };
-        let grid_color = Color::from_rgb(0.12, 0.35, 0.05);
+        let grid_color = Color::from_rgba(0.15, 0.24, 0.20, 0.22);
         let selected_cell = self.selected_cell;
         let selected_npc = self.selected_npc;
         let selected_npc_route_overlay = self.selected_npc_route_overlay.clone();
@@ -615,11 +634,17 @@ impl INode2D for GameWorld {
         let mut base = self.base_mut();
         for x in 0..=w {
             let px = x as f32 * ts;
-            base.draw_line(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color);
+            base.draw_line_ex(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color)
+                .width(1.0)
+                .antialiased(true)
+                .done();
         }
         for y in 0..=h {
             let py = y as f32 * ts;
-            base.draw_line(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color);
+            base.draw_line_ex(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color)
+                .width(1.0)
+                .antialiased(true)
+                .done();
         }
 
         base.draw_rect_ex(
@@ -894,7 +919,10 @@ impl GameWorld {
             tile_map
                 .set_cell_ex(v2(coord.x(), coord.y()))
                 .source_id(terrain_source_id(terrain))
-                .atlas_coords(v2(0, 0))
+                .atlas_coords(v2(
+                    terrain_variant(self.rendered_surface, coord, terrain),
+                    0,
+                ))
                 .done();
         }
         tile_map.update_internals();
@@ -1512,6 +1540,9 @@ impl GameWorld {
                 sprite.queue_free();
                 redraw_needed = true;
             }
+            if let Some(mut shadow) = self.building_shadows.remove(&entity) {
+                shadow.queue_free();
+            }
         }
 
         for building in buildings {
@@ -1525,16 +1556,37 @@ impl GameWorld {
             };
 
             let position = cell_top_left(building.footprint.origin());
+            let texture_size =
+                Vector2::new(texture.get_width() as f32, texture.get_height() as f32);
+            let Some(scale) = building_visual_scale(building.footprint, texture_size) else {
+                godot_error!(
+                    "GameWorld: building texture for {:?} has invalid dimensions",
+                    building.kind
+                );
+                self.disable_processing();
+                return redraw_needed;
+            };
+            let footprint = footprint_rect(building.footprint);
+            let z_index = world_entity_z_index(footprint.position.y + footprint.size.y);
+            let shadow_position = Vector2::new(
+                footprint.position.x + footprint.size.x * 0.5,
+                footprint.position.y + footprint.size.y - 7.0,
+            );
+            let shadow_radii = Vector2::new(footprint.size.x * 0.38, 10.0);
             let modulate = building_sprite_modulate(building.state);
             if !self.building_sprites.contains_key(&building.entity) {
+                let shadow = create_contact_shadow(shadow_position, shadow_radii, z_index - 1);
+                self.base_mut().add_child(&shadow);
                 let mut sprite = Sprite2D::new_alloc();
                 sprite.set_texture(&texture);
                 sprite.set_centered(false);
-                sprite.set_texture_filter(TextureFilter::NEAREST);
-                sprite.set_z_index(2);
+                sprite.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
+                sprite.set_scale(scale);
+                sprite.set_z_index(z_index);
                 sprite.set_position(position);
                 sprite.set_modulate(modulate);
                 self.base_mut().add_child(&sprite);
+                self.building_shadows.insert(building.entity, shadow);
                 self.building_sprites.insert(building.entity, sprite);
                 redraw_needed = true;
                 continue;
@@ -1546,7 +1598,13 @@ impl GameWorld {
                 }
                 sprite.set_texture(&texture);
                 sprite.set_position(position);
+                sprite.set_scale(scale);
+                sprite.set_z_index(z_index);
                 sprite.set_modulate(modulate);
+            }
+            if let Some(shadow) = self.building_shadows.get_mut(&building.entity) {
+                shadow.set_position(shadow_position);
+                shadow.set_z_index(z_index - 1);
             }
         }
 
@@ -1579,6 +1637,7 @@ impl GameWorld {
         for entity in stale_entities {
             if let Some(mut rendered) = self.npc_sprites.remove(&entity) {
                 rendered.sprite.queue_free();
+                rendered.shadow.queue_free();
             }
         }
 
@@ -1628,12 +1687,19 @@ impl GameWorld {
                     }
                 };
                 sprite.set_position(position);
+                let z_index = world_entity_z_index(position.y + grid::TILE_SIZE);
+                sprite.set_z_index(z_index);
                 set_npc_animation(&mut sprite, npc);
+                let shadow = create_contact_shadow(
+                    position + Vector2::new(32.0, 57.0),
+                    Vector2::new(14.0, 6.0),
+                    z_index - 1,
+                );
                 let mut cargo_icon = Sprite2D::new_alloc();
                 cargo_icon.set_centered(true);
-                cargo_icon.set_position(Vector2::new(46.0, 12.0));
+                cargo_icon.set_position(Vector2::new(184.0, 48.0));
                 cargo_icon.set_scale(Vector2::new(0.35, 0.35));
-                cargo_icon.set_texture_filter(TextureFilter::NEAREST);
+                cargo_icon.set_texture_filter(TextureFilter::LINEAR_WITH_MIPMAPS);
                 cargo_icon.set_z_index(1);
                 update_cargo_icon(
                     &mut cargo_icon,
@@ -1668,14 +1734,17 @@ impl GameWorld {
                     return;
                 };
                 wheelbarrow.set_sprite_frames(frames);
+                wheelbarrow.set_scale(self.wheelbarrow_overlay_scale);
                 set_wheelbarrow_animation(&mut wheelbarrow, npc);
                 sprite.add_child(&wheelbarrow);
+                self.base_mut().add_child(&shadow);
                 self.base_mut().add_child(&sprite);
                 self.npc_sprites.insert(
                     npc.entity,
                     RenderedNpcSprite {
                         appearance: npc.appearance,
                         sprite,
+                        shadow,
                         cargo_icon,
                         carried_kind: npc.carried_kind,
                         wheelbarrow,
@@ -1687,6 +1756,12 @@ impl GameWorld {
 
             if let Some(rendered) = self.npc_sprites.get_mut(&npc.entity) {
                 rendered.sprite.set_position(position);
+                let z_index = world_entity_z_index(position.y + grid::TILE_SIZE);
+                rendered.sprite.set_z_index(z_index);
+                rendered
+                    .shadow
+                    .set_position(position + Vector2::new(32.0, 57.0));
+                rendered.shadow.set_z_index(z_index - 1);
                 set_npc_animation(&mut rendered.sprite, npc);
                 if rendered.carried_kind != npc.carried_kind
                     || rendered.has_wheelbarrow != npc.has_wheelbarrow
@@ -1717,15 +1792,21 @@ impl GameWorld {
         }
     }
 
-    fn build_terrain_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    fn build_terrain_tile_set(&self) -> Option<BuiltTileSet> {
         let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let mut common_metrics = None;
 
         for kind in TerrainKind::ALL {
             let path = terrain_asset_path(kind);
             let texture = load_texture(path, "GameWorld")?;
-            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let metrics = include_texture_metrics(
+                &mut common_metrics,
+                &texture,
+                TERRAIN_VARIANT_COUNT,
+                1,
+                path,
+            )?;
+            let source_ts = build_horizontal_atlas_source(texture, metrics, TERRAIN_VARIANT_COUNT);
             let expected_source_id = terrain_source_id(kind);
             let source_id = tile_set
                 .add_source_ex(&source_ts)
@@ -1740,18 +1821,18 @@ impl GameWorld {
             }
         }
 
-        Some(tile_set)
+        finish_tile_set(tile_set, common_metrics)
     }
 
-    fn build_resource_node_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    fn build_resource_node_tile_set(&self) -> Option<BuiltTileSet> {
         let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let mut common_metrics = None;
 
         for kind in ResourceKind::ALL {
             let path = resource_asset_path(kind);
             let texture = load_texture(path, "GameWorld")?;
-            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let metrics = include_texture_metrics(&mut common_metrics, &texture, 1, 1, path)?;
+            let source_ts = build_single_tile_atlas_source(texture, metrics);
             let expected_source_id = kind as i32;
             let source_id = tile_set
                 .add_source_ex(&source_ts)
@@ -1766,16 +1847,17 @@ impl GameWorld {
             }
         }
 
-        Some(tile_set)
+        finish_tile_set(tile_set, common_metrics)
     }
 
-    fn build_road_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    fn build_road_tile_set(&self) -> Option<BuiltTileSet> {
         let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let mut common_metrics = None;
         for tier in RoadTier::ALL {
-            let texture = load_texture(road_asset_path(tier), "GameWorld")?;
-            let source = build_road_atlas_source(texture, tile_size);
+            let path = road_asset_path(tier);
+            let texture = load_texture(path, "GameWorld")?;
+            let metrics = include_texture_metrics(&mut common_metrics, &texture, 4, 4, path)?;
+            let source = build_road_atlas_source(texture, metrics);
             let expected_source_id = road_source_id(tier);
             let source_id = tile_set
                 .add_source_ex(&source)
@@ -1786,17 +1868,17 @@ impl GameWorld {
                 return None;
             }
         }
-        Some(tile_set)
+        finish_tile_set(tile_set, common_metrics)
     }
 
-    fn build_crop_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    fn build_crop_tile_set(&self) -> Option<BuiltTileSet> {
         let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let mut common_metrics = None;
 
         for (state, path) in crop_tile_asset_paths() {
             let texture = load_texture(path, "GameWorld")?;
-            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let metrics = include_texture_metrics(&mut common_metrics, &texture, 1, 1, path)?;
+            let source_ts = build_single_tile_atlas_source(texture, metrics);
             let expected_source_id = crop_source_id(state);
             let source_id = tile_set
                 .add_source_ex(&source_ts)
@@ -1811,17 +1893,17 @@ impl GameWorld {
             }
         }
 
-        Some(tile_set)
+        finish_tile_set(tile_set, common_metrics)
     }
 
-    fn build_tree_plot_tile_set(&self, tile_size: i32) -> Option<Gd<TileSet>> {
-        let v2 = |x: i32, y: i32| Vector2i::new(x, y);
+    fn build_tree_plot_tile_set(&self) -> Option<BuiltTileSet> {
         let mut tile_set = TileSet::new_gd();
-        tile_set.set_tile_size(v2(tile_size, tile_size));
+        let mut common_metrics = None;
 
         for (state, path) in tree_plot_tile_asset_paths() {
             let texture = load_texture(path, "GameWorld")?;
-            let source_ts = build_single_tile_atlas_source(texture, tile_size);
+            let metrics = include_texture_metrics(&mut common_metrics, &texture, 1, 1, path)?;
+            let source_ts = build_single_tile_atlas_source(texture, metrics);
             let expected_source_id = tree_plot_source_id(state);
             let source_id = tile_set
                 .add_source_ex(&source_ts)
@@ -1836,7 +1918,7 @@ impl GameWorld {
             }
         }
 
-        Some(tile_set)
+        finish_tile_set(tile_set, common_metrics)
     }
 
     fn load_building_textures(&mut self) -> bool {
@@ -1880,7 +1962,11 @@ impl GameWorld {
             WHEELBARROW_OVERLAY_SCENE_PATH,
             "GameWorld wheelbarrow overlay",
         );
-        self.wheelbarrow_frames = build_wheelbarrow_frames();
+        self.wheelbarrow_frames = build_wheelbarrow_frames().map(|(frames, metrics)| {
+            let relative_scale = metrics.render_scale() / WorldArtMetrics::AUTHORED.render_scale();
+            self.wheelbarrow_overlay_scale = Vector2::new(relative_scale, relative_scale);
+            frames
+        });
         self.wheelbarrow_scene.is_some() && self.wheelbarrow_frames.is_some()
     }
 
@@ -2767,6 +2853,11 @@ fn update_cargo_icon(icon: &mut Gd<Sprite2D>, kind: Option<ResourceKind>) {
         return;
     };
     if let Some(texture) = load_texture(resource_asset_path(kind), "GameWorld cargo overlay") {
+        if let Some(metrics) = WorldArtMetrics::from_texture(&texture) {
+            let relative_scale =
+                0.35 * metrics.render_scale() / WorldArtMetrics::AUTHORED.render_scale();
+            icon.set_scale(Vector2::new(relative_scale, relative_scale));
+        }
         icon.set_texture(&texture);
         icon.show();
     } else {
@@ -2774,7 +2865,7 @@ fn update_cargo_icon(icon: &mut Gd<Sprite2D>, kind: Option<ResourceKind>) {
     }
 }
 
-fn build_wheelbarrow_frames() -> Option<Gd<SpriteFrames>> {
+fn build_wheelbarrow_frames() -> Option<(Gd<SpriteFrames>, WorldArtMetrics)> {
     const DIRECTIONS: [&str; 8] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
     let sheets = std::iter::once(("empty", WHEELBARROW_EMPTY_PATH)).chain(
         ResourceKind::ALL
@@ -2783,9 +2874,11 @@ fn build_wheelbarrow_frames() -> Option<Gd<SpriteFrames>> {
     );
     let mut frames = SpriteFrames::new_gd();
     frames.clear_all();
+    let mut common_metrics = None;
 
     for (load, path) in sheets {
         let texture = load_texture(path, "GameWorld wheelbarrow frames")?;
+        let metrics = include_texture_metrics(&mut common_metrics, &texture, 4, 8, path)?;
         for (row, direction) in DIRECTIONS.into_iter().enumerate() {
             let animation_name = format!("{load}_{direction}");
             let animation = StringName::from(&animation_name);
@@ -2795,17 +2888,14 @@ fn build_wheelbarrow_frames() -> Option<Gd<SpriteFrames>> {
             for column in 0..4 {
                 let mut atlas = AtlasTexture::new_gd();
                 atlas.set_atlas(&texture);
-                atlas.set_region(Rect2::new(
-                    Vector2::new(column as f32 * 64.0, row as f32 * 64.0),
-                    Vector2::new(64.0, 64.0),
-                ));
+                atlas.set_region(metrics.atlas_region(column, row as i32));
                 let frame: Gd<Texture2D> = atlas.upcast();
                 frames.add_frame(&animation, &frame);
             }
         }
     }
 
-    Some(frames)
+    Some((frames, common_metrics?))
 }
 
 fn set_wheelbarrow_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderInfo) {
@@ -2832,8 +2922,10 @@ fn set_wheelbarrow_animation(sprite: &mut Gd<AnimatedSprite2D>, npc: NpcRenderIn
 }
 
 fn wheelbarrow_transform(facing: MovementFacing) -> (Vector2, i32) {
-    const CARDINAL_OFFSET: f32 = 24.0;
-    const DIAGONAL_OFFSET: f32 = 18.0;
+    // The overlay is a child of the authored 0.25-scale NPC sprite, so its
+    // local offsets use source-pixel coordinates.
+    const CARDINAL_OFFSET: f32 = 96.0;
+    const DIAGONAL_OFFSET: f32 = 72.0;
 
     let position = match facing {
         MovementFacing::North => Vector2::new(0.0, -CARDINAL_OFFSET),
@@ -2887,14 +2979,18 @@ const fn resource_animation_slug(kind: ResourceKind) -> &'static str {
 
 const fn wheelbarrow_asset_path(kind: ResourceKind) -> &'static str {
     match kind {
-        ResourceKind::Wood => "res://assets/generated/wheelbarrow_wood_sheet.png",
-        ResourceKind::Stone => "res://assets/generated/wheelbarrow_stone_sheet.png",
-        ResourceKind::Food => "res://assets/generated/wheelbarrow_food_sheet.png",
-        ResourceKind::Gold => "res://assets/generated/wheelbarrow_gold_sheet.png",
-        ResourceKind::Crops => "res://assets/generated/wheelbarrow_crops_sheet.png",
-        ResourceKind::WildBerries => "res://assets/generated/wheelbarrow_wild_berries_sheet.png",
-        ResourceKind::Planks => "res://assets/generated/wheelbarrow_planks_sheet.png",
-        ResourceKind::StoneBlocks => "res://assets/generated/wheelbarrow_stone_blocks_sheet.png",
+        ResourceKind::Wood => "res://assets/visual/world/vehicles/wheelbarrow_wood_sheet.png",
+        ResourceKind::Stone => "res://assets/visual/world/vehicles/wheelbarrow_stone_sheet.png",
+        ResourceKind::Food => "res://assets/visual/world/vehicles/wheelbarrow_food_sheet.png",
+        ResourceKind::Gold => "res://assets/visual/world/vehicles/wheelbarrow_gold_sheet.png",
+        ResourceKind::Crops => "res://assets/visual/world/vehicles/wheelbarrow_crops_sheet.png",
+        ResourceKind::WildBerries => {
+            "res://assets/visual/world/vehicles/wheelbarrow_wild_berries_sheet.png"
+        }
+        ResourceKind::Planks => "res://assets/visual/world/vehicles/wheelbarrow_planks_sheet.png",
+        ResourceKind::StoneBlocks => {
+            "res://assets/visual/world/vehicles/wheelbarrow_stone_blocks_sheet.png"
+        }
     }
 }
 
@@ -2933,6 +3029,46 @@ fn footprint_rect(footprint: BuildingFootprint) -> Rect2 {
     )
 }
 
+fn building_visual_scale(footprint: BuildingFootprint, texture_size: Vector2) -> Option<Vector2> {
+    if texture_size.x <= 0.0 || texture_size.y <= 0.0 {
+        return None;
+    }
+    let logical_size = footprint_rect(footprint).size;
+    Some(Vector2::new(
+        logical_size.x / texture_size.x,
+        logical_size.y / texture_size.y,
+    ))
+}
+
+fn world_entity_z_index(feet_y: f32) -> i32 {
+    WORLD_ENTITY_Z_BASE.saturating_add(feet_y.round().clamp(0.0, 4090.0) as i32)
+}
+
+fn create_contact_shadow(position: Vector2, radii: Vector2, z_index: i32) -> Gd<Polygon2D> {
+    let mut shadow = Polygon2D::new_alloc();
+    shadow.set_polygon(&ellipse_polygon(radii, 20));
+    shadow.set_color(Color::from_rgba(0.035, 0.055, 0.07, 0.24));
+    shadow.set_position(position);
+    shadow.set_z_index(z_index);
+    shadow
+}
+
+fn ellipse_polygon(radii: Vector2, segments: usize) -> PackedVector2Array {
+    PackedVector2Array::from(ellipse_points(radii, segments))
+}
+
+fn ellipse_points(radii: Vector2, segments: usize) -> Vec<Vector2> {
+    if segments < 3 || radii.x <= 0.0 || radii.y <= 0.0 {
+        return Vec::new();
+    }
+    (0..segments)
+        .map(|index| {
+            let angle = std::f32::consts::TAU * index as f32 / segments as f32;
+            Vector2::new(angle.cos() * radii.x, angle.sin() * radii.y)
+        })
+        .collect()
+}
+
 fn building_sprite_modulate(state: BuildingRenderState) -> Color {
     match state {
         BuildingRenderState::Blueprint => {
@@ -2946,6 +3082,19 @@ fn building_sprite_modulate(state: BuildingRenderState) -> Color {
 
 fn terrain_source_id(kind: TerrainKind) -> i32 {
     kind as i32
+}
+
+fn terrain_variant(surface: SurfaceId, coord: CellCoord, kind: TerrainKind) -> i32 {
+    let mut hash = surface.index() as u64 ^ 0x9e37_79b9_7f4a_7c15;
+    hash ^= (coord.x() as i64 as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash ^= (coord.y() as i64 as u64).wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^= (kind as u64).wrapping_mul(0xd6e8_feb8_6659_fd93);
+    hash ^= hash >> 30;
+    hash = hash.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash ^= hash >> 27;
+    hash = hash.wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^= hash >> 31;
+    (hash % TERRAIN_VARIANT_COUNT as u64) as i32
 }
 
 fn road_source_id(tier: RoadTier) -> i32 {
@@ -3080,19 +3229,76 @@ fn append_road_drag_cell(drag_cells: &mut Vec<CellCoord>, coord: Option<CellCoor
     }
 }
 
-fn build_single_tile_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
+fn include_texture_metrics(
+    common: &mut Option<WorldArtMetrics>,
+    texture: &Gd<Texture2D>,
+    columns: i32,
+    rows: i32,
+    path: &str,
+) -> Option<WorldArtMetrics> {
+    let sheet_size = Vector2i::new(texture.get_width(), texture.get_height());
+    let Some(metrics) = WorldArtMetrics::from_sheet_size(sheet_size, columns, rows) else {
+        godot_error!(
+            "GameWorld: visual asset {path} has invalid {columns}x{rows} sheet dimensions {}x{}",
+            sheet_size.x,
+            sheet_size.y
+        );
+        return None;
+    };
+
+    if let Some(expected) = *common {
+        if expected != metrics {
+            godot_error!(
+                "GameWorld: visual asset {path} uses {}px frames, expected {}px frames",
+                metrics.source_frame_size(),
+                expected.source_frame_size()
+            );
+            return None;
+        }
+    } else {
+        *common = Some(metrics);
+    }
+    Some(metrics)
+}
+
+fn finish_tile_set(
+    mut tile_set: Gd<TileSet>,
+    metrics: Option<WorldArtMetrics>,
+) -> Option<BuiltTileSet> {
+    let metrics = metrics?;
+    let frame_size = metrics.source_frame_size();
+    tile_set.set_tile_size(Vector2i::new(frame_size, frame_size));
+    Some(BuiltTileSet { tile_set, metrics })
+}
+
+fn build_single_tile_atlas_source(
+    texture: Gd<Texture2D>,
+    metrics: WorldArtMetrics,
+) -> Gd<TileSetSource> {
+    build_horizontal_atlas_source(texture, metrics, 1)
+}
+
+fn build_horizontal_atlas_source(
+    texture: Gd<Texture2D>,
+    metrics: WorldArtMetrics,
+    columns: i32,
+) -> Gd<TileSetSource> {
     let v2 = |x: i32, y: i32| Vector2i::new(x, y);
     let mut source = TileSetAtlasSource::new_gd();
     source.set_texture(&texture);
-    source.set_texture_region_size(v2(tile_size, tile_size));
-    source.create_tile_ex(v2(0, 0)).done();
+    let frame_size = metrics.source_frame_size();
+    source.set_texture_region_size(v2(frame_size, frame_size));
+    for column in 0..columns {
+        source.create_tile_ex(v2(column, 0)).done();
+    }
     source.upcast::<TileSetSource>()
 }
 
-fn build_road_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSetSource> {
+fn build_road_atlas_source(texture: Gd<Texture2D>, metrics: WorldArtMetrics) -> Gd<TileSetSource> {
     let mut source = TileSetAtlasSource::new_gd();
     source.set_texture(&texture);
-    source.set_texture_region_size(Vector2i::new(tile_size, tile_size));
+    let frame_size = metrics.source_frame_size();
+    source.set_texture_region_size(Vector2i::new(frame_size, frame_size));
     for mask in 0_u8..16 {
         source.create_tile_ex(road_atlas_coord(mask)).done();
     }
@@ -3274,8 +3480,9 @@ mod tests {
 
         for (appearance, scene) in scenes {
             for activity in ["saw", "stonecut", "cook"] {
-                let asset_path =
-                    format!("res://assets/generated/npc_{appearance}_{activity}_sheet.png");
+                let asset_path = format!(
+                    "res://assets/visual/world/characters/npc_{appearance}_{activity}_sheet.png"
+                );
                 assert!(scene.contains(asset_path.as_str()));
                 assert!(scene.contains(format!("\"name\": &\"{activity}\"").as_str()));
                 assert_eq!(
@@ -3290,6 +3497,9 @@ mod tests {
                     4
                 );
             }
+            assert!(scene.contains("region = Rect2(768, 0, 256, 256)"));
+            assert!(scene.contains("texture_filter = 4"));
+            assert!(scene.contains("scale = Vector2(0.25, 0.25)"));
         }
     }
 
@@ -3491,14 +3701,62 @@ mod tests {
     }
 
     #[test]
+    fn terrain_variants_are_stable_bounded_and_spatially_varied() {
+        let simulation = GameSimulation::new(7);
+        let surface = simulation.default_surface_id();
+        let coord = CellCoord::new(11, 19);
+        let first = terrain_variant(surface, coord, TerrainKind::Grass);
+        assert_eq!(terrain_variant(surface, coord, TerrainKind::Grass), first);
+
+        let variants = (0..32)
+            .flat_map(|y| (0..32).map(move |x| CellCoord::new(x, y)))
+            .map(|coord| terrain_variant(surface, coord, TerrainKind::Grass))
+            .collect::<HashSet<_>>();
+        assert!(variants.iter().all(|variant| (0..4).contains(variant)));
+        assert_eq!(variants.len(), TERRAIN_VARIANT_COUNT as usize);
+    }
+
+    #[test]
+    fn building_visual_scale_preserves_logical_footprint_size() {
+        let footprint = BuildingFootprint::new(CellCoord::new(3, 4), 2, 3);
+        assert_eq!(
+            building_visual_scale(footprint, Vector2::new(512.0, 768.0)),
+            Some(Vector2::new(0.25, 0.25))
+        );
+        assert_eq!(
+            building_visual_scale(footprint, Vector2::new(128.0, 192.0)),
+            Some(Vector2::ONE)
+        );
+        assert_eq!(building_visual_scale(footprint, Vector2::ZERO), None);
+    }
+
+    #[test]
+    fn world_entity_depth_follows_feet_and_stays_in_godot_range() {
+        assert!(world_entity_z_index(128.0) < world_entity_z_index(192.0));
+        assert_eq!(world_entity_z_index(-100.0), WORLD_ENTITY_Z_BASE);
+        assert_eq!(world_entity_z_index(f32::MAX), 4095);
+    }
+
+    #[test]
+    fn contact_shadow_geometry_is_a_bounded_ellipse() {
+        let points = ellipse_points(Vector2::new(14.0, 6.0), 20);
+        assert_eq!(points.len(), 20);
+        assert!(points
+            .iter()
+            .all(|point| point.x.abs() <= 14.0 && point.y.abs() <= 6.0));
+        assert!(ellipse_points(Vector2::ZERO, 20).is_empty());
+        assert!(ellipse_points(Vector2::ONE, 2).is_empty());
+    }
+
+    #[test]
     fn building_asset_paths_include_farming_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::Farm),
-            "res://assets/generated/building_farm.png"
+            "res://assets/visual/world/buildings/building_farm.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::Field),
-            "res://assets/generated/building_field.png"
+            "res://assets/visual/world/buildings/building_field.png"
         );
     }
 
@@ -3506,11 +3764,11 @@ mod tests {
     fn building_asset_paths_include_storage_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::Depot),
-            "res://assets/generated/building_depot.png"
+            "res://assets/visual/world/buildings/building_depot.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::Warehouse),
-            "res://assets/generated/building_warehouse.png"
+            "res://assets/visual/world/buildings/building_warehouse.png"
         );
     }
 
@@ -3542,14 +3800,14 @@ mod tests {
     #[test]
     fn wheelbarrow_transform_places_it_ahead_of_the_npc() {
         for (facing, expected_position, expected_z_index) in [
-            (MovementFacing::North, Vector2::new(0.0, -24.0), -1),
-            (MovementFacing::NorthEast, Vector2::new(18.0, -18.0), -1),
-            (MovementFacing::East, Vector2::new(24.0, 0.0), 1),
-            (MovementFacing::SouthEast, Vector2::new(18.0, 18.0), 1),
-            (MovementFacing::South, Vector2::new(0.0, 24.0), 1),
-            (MovementFacing::SouthWest, Vector2::new(-18.0, 18.0), 1),
-            (MovementFacing::West, Vector2::new(-24.0, 0.0), 1),
-            (MovementFacing::NorthWest, Vector2::new(-18.0, -18.0), -1),
+            (MovementFacing::North, Vector2::new(0.0, -96.0), -1),
+            (MovementFacing::NorthEast, Vector2::new(72.0, -72.0), -1),
+            (MovementFacing::East, Vector2::new(96.0, 0.0), 1),
+            (MovementFacing::SouthEast, Vector2::new(72.0, 72.0), 1),
+            (MovementFacing::South, Vector2::new(0.0, 96.0), 1),
+            (MovementFacing::SouthWest, Vector2::new(-72.0, 72.0), 1),
+            (MovementFacing::West, Vector2::new(-96.0, 0.0), 1),
+            (MovementFacing::NorthWest, Vector2::new(-72.0, -72.0), -1),
         ] {
             assert_eq!(
                 wheelbarrow_transform(facing),
@@ -3562,7 +3820,7 @@ mod tests {
     fn wheelbarrow_assets_cover_every_resource_kind() {
         for kind in ResourceKind::ALL {
             let path = wheelbarrow_asset_path(kind);
-            assert!(path.starts_with("res://assets/generated/wheelbarrow_"));
+            assert!(path.starts_with("res://assets/visual/world/vehicles/wheelbarrow_"));
             assert!(path.ends_with("_sheet.png"));
         }
     }
@@ -3602,15 +3860,15 @@ mod tests {
     fn building_asset_paths_include_refinery_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::Sawmill),
-            "res://assets/generated/building_sawmill.png"
+            "res://assets/visual/world/buildings/building_sawmill.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::Stoneworks),
-            "res://assets/generated/building_stoneworks.png"
+            "res://assets/visual/world/buildings/building_stoneworks.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::Kitchen),
-            "res://assets/generated/building_kitchen.png"
+            "res://assets/visual/world/buildings/building_kitchen.png"
         );
     }
 
@@ -3618,11 +3876,11 @@ mod tests {
     fn building_asset_paths_include_forestry_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::ForesterLodge),
-            "res://assets/generated/building_forester_lodge.png"
+            "res://assets/visual/world/buildings/building_forester_lodge.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::TreePlot),
-            "res://assets/generated/building_tree_plot.png"
+            "res://assets/visual/world/buildings/building_tree_plot.png"
         );
     }
 
@@ -3630,15 +3888,15 @@ mod tests {
     fn building_asset_paths_include_housing_assets() {
         assert_eq!(
             building_asset_path(BuildingKind::SmallHouse),
-            "res://assets/generated/building_house_small.png"
+            "res://assets/visual/world/buildings/building_house_small.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::MediumHouse),
-            "res://assets/generated/building_house_medium.png"
+            "res://assets/visual/world/buildings/building_house_medium.png"
         );
         assert_eq!(
             building_asset_path(BuildingKind::LargeHouse),
-            "res://assets/generated/building_house_large.png"
+            "res://assets/visual/world/buildings/building_house_large.png"
         );
     }
 

@@ -1,71 +1,236 @@
-[gd_scene format=3 uid="uid://c2j3sybrbf8vi"]
+[gd_scene load_steps=8 format=3 uid="uid://c2j3sybrbf8vi"]
 
-[node name="UI" type="RootMenu" unique_id=303904047 node_paths=PackedStringArray("new_game_button", "exit_button", "settings_button")]
-new_game_button = NodePath("NewGameButton")
-exit_button = NodePath("ExitButton")
-settings_button = NodePath("SettingsButton")
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/colony_mark.svg" id="1_mark"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/new_game.svg" id="2_new"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/settings.svg" id="3_settings"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/exit.svg" id="4_exit"]
+[ext_resource type="Texture2D" path="res://assets/visual/menu/frontier_vista.png" id="5_vista"]
+
+[sub_resource type="Gradient" id="GradientBackdrop"]
+offsets = PackedFloat32Array(0, 0.55, 1)
+colors = PackedColorArray(0.018, 0.045, 0.055, 1, 0.045, 0.105, 0.12, 1, 0.13, 0.09, 0.065, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTextureBackdrop"]
+gradient = SubResource("GradientBackdrop")
+width = 1440
+height = 900
+fill_from = Vector2(0.08, 0.12)
+fill_to = Vector2(0.94, 0.9)
+
+[node name="UI" type="RootMenu" unique_id=303904047 node_paths=PackedStringArray("new_game_button", "exit_button", "settings_button", "horizon_glow")]
+new_game_button = NodePath("SafeArea/MenuPanel/MenuMargin/MenuStack/NewGameButton")
+exit_button = NodePath("SafeArea/MenuPanel/MenuMargin/MenuStack/ExitButton")
+settings_button = NodePath("SafeArea/MenuPanel/MenuMargin/MenuStack/SettingsButton")
+horizon_glow = NodePath("HorizonGlow")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="NewGameButton" type="Button" parent="." unique_id=3100485962]
+[node name="Backdrop" type="TextureRect" parent="."]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -75.0
-offset_top = -70.0
-offset_right = 75.0
-offset_bottom = -30.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-text = "New Game"
+mouse_filter = 2
+texture = SubResource("GradientTextureBackdrop")
+expand_mode = 1
+stretch_mode = 6
 
-[node name="ExitButton" type="Button" parent="." unique_id=737555083]
+[node name="PainterlyBackgroundLayer" type="TextureRect" parent="."]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -75.0
-offset_top = -20.0
-offset_right = 75.0
-offset_bottom = 20.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-text = "Exit"
+mouse_filter = 2
+texture = ExtResource("5_vista")
+expand_mode = 1
+stretch_mode = 6
 
-[node name="TitleLabel" type="Label" parent="." unique_id=2142846413]
-modulate = Color(0, 1, 0.254902, 1)
+[node name="PainterlyMidgroundLayer" type="TextureRect" parent="."]
 layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -250.0
-offset_top = 100.0
-offset_right = 250.0
-offset_bottom = 199.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
-theme_override_font_sizes/font_size = 72
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="HorizonGlow" type="ColorRect" parent="."]
+modulate = Color(0.388, 0.847, 0.871, 0.08)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -220.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0.23, 0.62, 0.65, 1)
+
+[node name="PainterlyForegroundLayer" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="TopRule" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 3.0
+grow_horizontal = 2
+mouse_filter = 2
+color = Color(0.847, 0.584, 0.373, 0.72)
+
+[node name="BottomRule" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -2.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0.388, 0.847, 0.871, 0.58)
+
+[node name="SafeArea" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = 24.0
+offset_right = -32.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MenuPanel" type="PanelContainer" parent="SafeArea"]
+custom_minimum_size = Vector2(440, 0)
+layout_mode = 2
+
+[node name="MenuMargin" type="MarginContainer" parent="SafeArea/MenuPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 38
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 38
+theme_override_constants/margin_bottom = 34
+
+[node name="MenuStack" type="VBoxContainer" parent="SafeArea/MenuPanel/MenuMargin"]
+layout_mode = 2
+theme_override_constants/separation = 13
+
+[node name="ColonyMark" type="TextureRect" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+custom_minimum_size = Vector2(96, 96)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("1_mark")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Eyebrow" type="Label" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.388, 0.847, 0.871, 0.92)
+theme_override_font_sizes/font_size = 14
+text = "COLONY COMMAND // FRONTIER SYSTEM"
+horizontal_alignment = 1
+
+[node name="TitleLabel" type="Label" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=2142846413]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.91, 0.72, 0.49, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 3
+theme_override_font_sizes/font_size = 48
 text = "BOAPSPACE"
 horizontal_alignment = 1
 
-[node name="SettingsButton" type="Button" parent="." unique_id=1218525467]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -75.0
-offset_top = 30.0
-offset_right = 75.0
-offset_bottom = 70.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="Tagline" type="Label" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.75, 0.72, 0.88)
+theme_override_font_sizes/font_size = 14
+text = "BUILD A HOME BEYOND THE HORIZON"
+horizontal_alignment = 1
+
+[node name="TitleSeparator" type="HSeparator" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+
+[node name="ButtonSpacer" type="Control" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+custom_minimum_size = Vector2(0, 3)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="NewGameButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=3100485962]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_bottom = NodePath("../SettingsButton")
+mouse_default_cursor_shape = 2
+text = "Begin New Colony"
+icon = ExtResource("2_new")
+icon_max_width = 26
+alignment = 0
+
+[node name="SettingsButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=1218525467]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_top = NodePath("../NewGameButton")
+focus_neighbor_bottom = NodePath("../ExitButton")
+mouse_default_cursor_shape = 2
 text = "Settings"
+icon = ExtResource("3_settings")
+icon_max_width = 26
+alignment = 0
+
+[node name="ExitButton" type="Button" parent="SafeArea/MenuPanel/MenuMargin/MenuStack" unique_id=737555083]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_top = NodePath("../SettingsButton")
+mouse_default_cursor_shape = 2
+text = "Exit to Desktop"
+icon = ExtResource("4_exit")
+icon_max_width = 26
+alignment = 0
+
+[node name="StatusSeparator" type="HSeparator" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+
+[node name="StatusLabel" type="Label" parent="SafeArea/MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.52, 0.68, 0.67, 0.82)
+theme_override_font_sizes/font_size = 12
+text = "SYSTEM READY  •  AWAITING COMMAND"
+horizontal_alignment = 1
+
+[node name="BuildMark" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -310.0
+offset_top = -42.0
+offset_right = -28.0
+offset_bottom = -18.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.55, 0.64, 0.62, 0.62)
+theme_override_font_sizes/font_size = 12
+text = "DEEP SPACE SETTLEMENT PROGRAM"
+horizontal_alignment = 2

@@ -1,4 +1,4 @@
-use godot::classes::{Button, Control, IControl, SceneTree};
+use godot::classes::{Button, ColorRect, Control, IControl, SceneTree};
 use godot::global::Error;
 use godot::obj::OnEditor;
 use godot::prelude::*;
@@ -17,6 +17,11 @@ struct RootMenu {
     #[export]
     settings_button: OnEditor<Gd<Button>>,
 
+    #[export]
+    horizon_glow: OnEditor<Gd<ColorRect>>,
+
+    ambient_phase_seconds: f64,
+
     base: Base<Control>,
 }
 
@@ -27,6 +32,8 @@ impl IControl for RootMenu {
             new_game_button: OnEditor::default(),
             exit_button: OnEditor::default(),
             settings_button: OnEditor::default(),
+            horizon_glow: OnEditor::default(),
+            ambient_phase_seconds: 0.0,
             base,
         }
     }
@@ -48,6 +55,17 @@ impl IControl for RootMenu {
         settings_btn.signals().pressed().connect(|| {
             godot_print!("Settings pressed");
         });
+    }
+
+    fn process(&mut self, delta: f64) {
+        const LOOP_SECONDS: f64 = 30.0;
+        self.ambient_phase_seconds = (self.ambient_phase_seconds + delta) % LOOP_SECONDS;
+        let radians = self.ambient_phase_seconds / LOOP_SECONDS * std::f64::consts::TAU;
+        let pulse = (radians.sin() * 0.5 + 0.5) as f32;
+        let mut glow = self.horizon_glow.clone();
+        let mut color = glow.get_modulate();
+        color.a = 0.045 + 0.035 * pulse;
+        glow.set_modulate(color);
     }
 }
 

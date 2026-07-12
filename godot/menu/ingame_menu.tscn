@@ -1,9 +1,13 @@
-[gd_scene format=3 uid="uid://bgl6fb1fuuabc"]
+[gd_scene load_steps=4 format=3 uid="uid://bgl6fb1fuuabc"]
+
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/continue.svg" id="1_continue"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/main_menu.svg" id="2_home"]
+[ext_resource type="Texture2D" path="res://assets/visual/ui/icons/exit.svg" id="3_exit"]
 
 [node name="IngameMenu" type="IngameMenu" unique_id=802676807 node_paths=PackedStringArray("continue_button", "return_button", "exit_button")]
-continue_button = NodePath("VBoxContainer/ContinueButton")
-return_button = NodePath("VBoxContainer/ReturnButton")
-exit_button = NodePath("VBoxContainer/ExitButton")
+continue_button = NodePath("MenuPanel/MenuMargin/MenuStack/ContinueButton")
+return_button = NodePath("MenuPanel/MenuMargin/MenuStack/ReturnButton")
+exit_button = NodePath("MenuPanel/MenuMargin/MenuStack/ExitButton")
 process_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -11,34 +15,133 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=2047825681]
+[node name="Dimmer" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -100.0
-offset_top = -80.0
-offset_right = 100.0
-offset_bottom = 80.0
+offset_left = -10000.0
+offset_top = -10000.0
+offset_right = 10000.0
+offset_bottom = 10000.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.012, 0.03, 0.037, 0.8)
+
+[node name="CyanWash" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -10000.0
+offset_top = -1.0
+offset_right = 10000.0
+offset_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.388, 0.847, 0.871, 0.24)
+
+[node name="MenuPanel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -230.0
+offset_top = -260.0
+offset_right = 230.0
+offset_bottom = 260.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="TitleLabel" type="Label" parent="VBoxContainer" unique_id=630636274]
+[node name="MenuMargin" type="MarginContainer" parent="MenuPanel"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 36
-text = "Menu"
+theme_override_constants/margin_left = 38
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 38
+theme_override_constants/margin_bottom = 32
+
+[node name="MenuStack" type="VBoxContainer" parent="MenuPanel/MenuMargin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Eyebrow" type="Label" parent="MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.388, 0.847, 0.871, 0.9)
+theme_override_font_sizes/font_size = 14
+text = "COLONY COMMAND // SESSION HOLD"
 horizontal_alignment = 1
 
-[node name="ContinueButton" type="Button" parent="VBoxContainer" unique_id=581653373]
+[node name="TitleLabel" type="Label" parent="MenuPanel/MenuMargin/MenuStack" unique_id=630636274]
 layout_mode = 2
-text = "Continue"
+theme_override_colors/font_color = Color(0.91, 0.72, 0.49, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.72)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 3
+theme_override_font_sizes/font_size = 42
+text = "PAUSED"
+horizontal_alignment = 1
 
-[node name="ReturnButton" type="Button" parent="VBoxContainer" unique_id=520943892]
+[node name="Subtitle" type="Label" parent="MenuPanel/MenuMargin/MenuStack"]
 layout_mode = 2
-text = "Return to main menu"
+theme_override_colors/font_color = Color(0.66, 0.72, 0.7, 0.9)
+theme_override_font_sizes/font_size = 14
+text = "The colony awaits your next command."
+horizontal_alignment = 1
 
-[node name="ExitButton" type="Button" parent="VBoxContainer" unique_id=100852675]
+[node name="TitleSeparator" type="HSeparator" parent="MenuPanel/MenuMargin/MenuStack"]
 layout_mode = 2
-text = "Exit to desktop"
+
+[node name="ButtonSpacer" type="Control" parent="MenuPanel/MenuMargin/MenuStack"]
+custom_minimum_size = Vector2(0, 3)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="ContinueButton" type="Button" parent="MenuPanel/MenuMargin/MenuStack" unique_id=581653373]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_bottom = NodePath("../ReturnButton")
+mouse_default_cursor_shape = 2
+text = "Continue Colony"
+icon = ExtResource("1_continue")
+icon_max_width = 26
+alignment = 0
+
+[node name="ReturnButton" type="Button" parent="MenuPanel/MenuMargin/MenuStack" unique_id=520943892]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_top = NodePath("../ContinueButton")
+focus_neighbor_bottom = NodePath("../ExitButton")
+mouse_default_cursor_shape = 2
+text = "Return to Main Menu"
+icon = ExtResource("2_home")
+icon_max_width = 26
+alignment = 0
+
+[node name="ExitButton" type="Button" parent="MenuPanel/MenuMargin/MenuStack" unique_id=100852675]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+focus_neighbor_top = NodePath("../ReturnButton")
+mouse_default_cursor_shape = 2
+text = "Exit to Desktop"
+icon = ExtResource("3_exit")
+icon_max_width = 26
+alignment = 0
+
+[node name="FooterSeparator" type="HSeparator" parent="MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+
+[node name="HintLabel" type="Label" parent="MenuPanel/MenuMargin/MenuStack"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.51, 0.65, 0.64, 0.78)
+theme_override_font_sizes/font_size = 12
+text = "ESC  •  RETURN TO COLONY"
+horizontal_alignment = 1

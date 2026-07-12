@@ -10,3 +10,8 @@ crate-type = ["cdylib"]
 bevy_ecs = "0.19"
 game_engine = { path = "../game_engine" }
 godot = { version = "0.5", features = ["api-4-7", "register-docs"] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

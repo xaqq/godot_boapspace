@@ -30,6 +30,7 @@ mod panel {
 
 mod world {
     pub(crate) mod game_world;
+    pub(crate) mod visual;
 }
 
 struct GodotBoapspaceExtension;
