@@ -20,10 +20,10 @@ use crate::navigation::{
     NavigationSnapshot, NpcRoute,
 };
 use crate::refining::{
-    cancel_refining_work_for_building, endpoint_entity, recipes_for_building,
-    source_interaction_cells, source_stock, stock_sources, withdraw_source, RefineryInventory,
-    Reservation, ReservationLedger, SinkEndpoint, StockEndpoint,
+    cancel_refining_work_for_building, recipes_for_building, source_interaction_cells,
+    source_stock, stock_sources, withdraw_source, RefineryInventory,
 };
+use crate::resource_flow::{Reservation, ReservationLedger, SinkEndpoint, StockEndpoint};
 use crate::resources::ResourceKind;
 use crate::roads::RoadBlueprint;
 use crate::skills::{NpcSkills, SkillKind};
@@ -409,7 +409,10 @@ pub fn manage_construction_logistics(world: &mut World) {
                     candidate.0,
                     candidate.1,
                     candidate.2,
-                    candidate.5.map(endpoint_entity).map_or(0, Entity::to_bits),
+                    candidate
+                        .5
+                        .map(StockEndpoint::entity)
+                        .map_or(0, Entity::to_bits),
                 )
             })
         else {
@@ -738,7 +741,7 @@ pub fn manage_building_logistics(world: &mut World) {
             sink: candidate.sink,
             kind: candidate.kind,
             amount: candidate.amount,
-            task: sink_entity(candidate.sink),
+            task: candidate.sink.entity(),
         };
         if !world.resource_mut::<ReservationLedger>().claim(reservation) {
             continue;
@@ -877,7 +880,7 @@ fn refinery_supply_opportunities(
                 };
                 opportunities.push(BuildingHaulOpportunity {
                     source_goals,
-                    source_bits: endpoint_entity(source).to_bits(),
+                    source_bits: source.entity().to_bits(),
                     sink_bits: refinery.to_bits(),
                     kind,
                     source,
@@ -929,7 +932,7 @@ fn supply_sources(world: &mut World, kind: ResourceKind, storage_only: bool) -> 
             }
         }
     }
-    sources.sort_unstable_by_key(|source| endpoint_entity(*source).to_bits());
+    sources.sort_unstable_by_key(|source| source.entity().to_bits());
     sources
 }
 
@@ -1170,19 +1173,9 @@ fn sink_interaction_cells(
     sink: SinkEndpoint,
 ) -> Vec<crate::grid::CellCoord> {
     world
-        .get::<Building>(sink_entity(sink))
+        .get::<Building>(sink.entity())
         .map(|building| snapshot.exterior_interaction_cells(building.footprint))
         .unwrap_or_default()
-}
-
-fn sink_entity(sink: SinkEndpoint) -> Entity {
-    match sink {
-        SinkEndpoint::Blueprint(entity)
-        | SinkEndpoint::FoodPouch(entity)
-        | SinkEndpoint::Storage(entity)
-        | SinkEndpoint::RefineryInput(entity)
-        | SinkEndpoint::RefineryOutput(entity) => entity,
-    }
 }
 
 fn building_is_active(world: &World, entity: Entity) -> bool {
@@ -1249,9 +1242,7 @@ pub fn cancel_work_involving_building(world: &mut World, building: Entity) {
     let building_hauls = world
         .query::<(Entity, &AiBuildingHaul)>()
         .iter(world)
-        .filter(|(_, haul)| {
-            endpoint_entity(haul.source()) == building || sink_entity(haul.sink()) == building
-        })
+        .filter(|(_, haul)| haul.source().entity() == building || haul.sink().entity() == building)
         .map(|(worker, haul)| (worker, *haul))
         .collect::<Vec<_>>();
     for (worker, haul) in building_hauls {
@@ -1267,7 +1258,7 @@ pub fn cancel_work_involving_building(world: &mut World, building: Entity) {
         .iter(world)
         .filter(|(_, haul)| {
             haul.source()
-                .is_some_and(|source| endpoint_entity(source) == building)
+                .is_some_and(|source| source.entity() == building)
         })
         .map(|(worker, _)| worker)
         .collect::<Vec<_>>();
@@ -1278,7 +1269,7 @@ pub fn cancel_work_involving_building(world: &mut World, building: Entity) {
     let food = world
         .query::<(Entity, &AiFoodHaul)>()
         .iter(world)
-        .filter(|(_, haul)| endpoint_entity(haul.source()) == building)
+        .filter(|(_, haul)| haul.source().entity() == building)
         .map(|(worker, _)| worker)
         .collect::<Vec<_>>();
     for worker in food {
@@ -1461,7 +1452,7 @@ fn choose_food_source(
         .iter()
         .copied()
         .filter_map(|source| {
-            let entity = endpoint_entity(source);
+            let entity = source.entity();
             let reserved = world
                 .resource::<ReservationLedger>()
                 .reserved_from(source, ResourceKind::Food);

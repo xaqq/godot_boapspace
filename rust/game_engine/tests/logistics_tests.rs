@@ -15,10 +15,8 @@ use game_engine::logistics::{
     manage_construction_logistics, manage_food_logistics, AiConstructionHaul, AiFoodHaul,
     AiWheelbarrowRecovery,
 };
-use game_engine::refining::{
-    RefineryInventory, RefineryProduction, Reservation, ReservationLedger, SinkEndpoint,
-    StockEndpoint,
-};
+use game_engine::refining::{RefineryInventory, RefineryProduction};
+use game_engine::resource_flow::{Reservation, ReservationLedger, SinkEndpoint, StockEndpoint};
 use game_engine::resources::{ResourceAmounts, ResourceKind};
 use game_engine::tile::{TileBundle, TileIndex};
 

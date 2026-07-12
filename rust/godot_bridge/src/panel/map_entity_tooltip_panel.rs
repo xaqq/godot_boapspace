@@ -1,6 +1,7 @@
 use super::resource_quantity::ResourceQuantity;
 use crate::assets::load_packed_scene;
-use crate::world::game_world::{decode_entity_id, GameWorld, MapEntityKind};
+use crate::entity_id::BridgeEntityId;
+use crate::world::game_world::{GameWorld, MapEntityKind};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
@@ -77,7 +78,7 @@ pub(crate) struct MapEntityTooltipPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    hovered_target: Option<(MapEntityKind, i64)>,
+    hovered_target: Option<(MapEntityKind, BridgeEntityId)>,
     cached_view: Option<TooltipView>,
     resource_quantity_scene: Option<Gd<PackedScene>>,
     resource_section_controls: Vec<ResourceSectionControls>,
@@ -130,6 +131,10 @@ impl IPanelContainer for MapEntityTooltipPanel {
 impl MapEntityTooltipPanel {
     fn show_entity_tooltip(&mut self, kind_value: i64, entity_id: i64) {
         let Some(kind) = MapEntityKind::from_signal_value(kind_value) else {
+            self.hide_tooltip();
+            return;
+        };
+        let Ok(entity_id) = BridgeEntityId::try_from(entity_id) else {
             self.hide_tooltip();
             return;
         };
@@ -297,9 +302,9 @@ impl MapEntityTooltipPanel {
 fn map_entity_tooltip_view(
     game_world: &GameWorld,
     kind: MapEntityKind,
-    entity_id: i64,
+    entity_id: BridgeEntityId,
 ) -> Option<TooltipView> {
-    let entity = decode_entity_id(entity_id)?;
+    let entity = entity_id.entity();
     game_world.with_rendered_surface_world(|world| match kind {
         MapEntityKind::Building => building_tooltip_view(world, entity),
         MapEntityKind::Npc => npc_tooltip_text(world, entity).map(TooltipView::text_only),

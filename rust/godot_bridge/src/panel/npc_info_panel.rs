@@ -4,6 +4,7 @@ use super::npc_details::{
 };
 use super::resource_quantity::ResourceQuantity;
 use crate::assets::load_packed_scene;
+use crate::entity_id::BridgeEntityId;
 use crate::world::game_world::GameWorld;
 use game_engine::npcs::NpcHunger;
 use game_engine::resources::ResourceKind;
@@ -59,7 +60,7 @@ pub(crate) struct NpcInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    selected_npc_entity_id: Option<i64>,
+    selected_npc_entity_id: Option<BridgeEntityId>,
     resource_quantity_scene: Option<Gd<PackedScene>>,
     inventory_rows: Vec<InventoryRowControl>,
     base: Base<PanelContainer>,
@@ -121,6 +122,10 @@ impl IPanelContainer for NpcInfoPanel {
 
 impl NpcInfoPanel {
     fn select_npc(&mut self, npc_entity_id: i64) {
+        let Ok(npc_entity_id) = BridgeEntityId::try_from(npc_entity_id) else {
+            self.clear_and_hide();
+            return;
+        };
         self.selected_npc_entity_id = Some(npc_entity_id);
         self.refresh_selected_npc();
     }

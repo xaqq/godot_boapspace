@@ -13,7 +13,8 @@ use game_engine::logistics::{
     BuildingHaulPhase,
 };
 use game_engine::navigation::{refresh_navigation_snapshot, NpcRoute};
-use game_engine::refining::{RefineryInventory, ReservationLedger, SinkEndpoint, StockEndpoint};
+use game_engine::refining::RefineryInventory;
+use game_engine::resource_flow::{ReservationLedger, SinkEndpoint, StockEndpoint};
 use game_engine::resources::{resource_overview, ResourceAmounts, ResourceKind};
 use game_engine::roads::{RoadBlueprint, RoadTier};
 use game_engine::tasks::{manage_construction_labor, AiConstructionLabor};
@@ -217,7 +218,7 @@ fn mixed_input_reservations_share_the_refinery_total_capacity() {
     assert_eq!(
         world
             .resource::<ReservationLedger>()
-            .reserved_capacity_to(game_engine::refining::SinkEndpoint::RefineryInput(kitchen)),
+            .reserved_capacity_to(SinkEndpoint::RefineryInput(kitchen)),
         100
     );
 }

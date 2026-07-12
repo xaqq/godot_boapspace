@@ -1,6 +1,7 @@
 use godot::prelude::*;
 
 mod assets;
+mod entity_id;
 
 mod menu {
     mod ingame_menu;
@@ -23,6 +24,7 @@ mod panel {
     mod simulation_header_bar;
     mod surface_selector;
     mod task_list_panel;
+    mod task_table_view;
     mod tile_info_panel;
 }
 

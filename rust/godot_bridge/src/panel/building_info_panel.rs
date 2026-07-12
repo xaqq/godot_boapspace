@@ -1,7 +1,8 @@
 use super::resource_quantity::ResourceQuantity;
 use super::resource_quantity_progress::ResourceQuantityProgress;
 use crate::assets::{load_packed_scene, load_texture, resource_asset_path};
-use crate::world::game_world::{decode_entity_id, GameWorld};
+use crate::entity_id::BridgeEntityId;
+use crate::world::game_world::GameWorld;
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
@@ -156,7 +157,7 @@ pub(crate) struct BuildingInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    selected_building_entity_id: Option<i64>,
+    selected_building_entity_id: Option<BridgeEntityId>,
     resource_quantity_scene: Option<Gd<PackedScene>>,
     resource_quantity_progress_scene: Option<Gd<PackedScene>>,
     construction_rows: Vec<ConstructionRowControl>,
@@ -334,6 +335,10 @@ impl IPanelContainer for BuildingInfoPanel {
 
 impl BuildingInfoPanel {
     fn select_building(&mut self, building_entity_id: i64) {
+        let Ok(building_entity_id) = BridgeEntityId::try_from(building_entity_id) else {
+            self.clear_selection_and_hide();
+            return;
+        };
         self.selected_building_entity_id = Some(building_entity_id);
         self.suppress_opening_mouse_press = true;
         self.refresh_selected_building();
@@ -919,9 +924,13 @@ enum ForestryInfo {
     },
 }
 
-fn building_info(game_world: &GameWorld, building_entity_id: i64) -> Option<BuildingInfo> {
-    let entity = decode_entity_id(building_entity_id)?;
-    game_world.with_rendered_surface_world(|world| building_info_from_world(world, entity))
+fn building_info(
+    game_world: &GameWorld,
+    building_entity_id: BridgeEntityId,
+) -> Option<BuildingInfo> {
+    game_world.with_rendered_surface_world(|world| {
+        building_info_from_world(world, building_entity_id.entity())
+    })
 }
 
 fn building_info_from_world(world: &World, entity: Entity) -> Option<BuildingInfo> {

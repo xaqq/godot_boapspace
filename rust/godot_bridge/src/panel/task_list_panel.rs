@@ -1,4 +1,5 @@
-use crate::world::game_world::{GameWorld, TaskTableRow};
+use super::task_table_view::{query_task_table_rows, TaskTableRow};
+use crate::world::game_world::GameWorld;
 use godot::classes::{control, Button, GridContainer, IPanelContainer, Label, PanelContainer};
 use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
@@ -77,7 +78,10 @@ impl TaskListPanel {
     }
 
     fn refresh_rows(&mut self) {
-        let rows = self.game_world.bind().task_table_rows();
+        let rows = self
+            .game_world
+            .bind()
+            .with_rendered_surface_world(query_task_table_rows);
         if self.cached_rows.as_ref() == Some(&rows) {
             return;
         }
@@ -110,7 +114,7 @@ impl TaskListPanel {
                 self.add_row(
                     &mut row_container,
                     [
-                        row.entity_id.to_string().as_str(),
+                        row.entity_id.signal_value().to_string().as_str(),
                         row.task_type.as_str(),
                         row.assignment.as_str(),
                         row.worker.as_str(),

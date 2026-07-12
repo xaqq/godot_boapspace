@@ -2,31 +2,27 @@ use crate::assets::{
     building_asset_path, load_packed_scene, load_texture, npc_scene_path, resource_asset_path,
     road_asset_path, terrain_asset_path,
 };
+use crate::entity_id::BridgeEntityId;
 use crate::panel::construction_dock::ConstructionDock;
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
-    ConstructionProgress,
 };
 use game_engine::components::{
     AiGatherResource, CarriedResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind,
     Tile, TilePosition, Velocity, Wheelbarrow, SUBTILE_UNITS_PER_TILE,
 };
 use game_engine::farming::{
-    field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState, HarvestField,
-    SeedField,
+    field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState,
 };
 use game_engine::forestry::{
-    tree_plot_state, AiCutTreePlot, AiSeedTreePlot, CutTreePlot, SeedTreePlot, TreePlotGrowth,
-    TreePlotState,
+    tree_plot_state, AiCutTreePlot, AiSeedTreePlot, TreePlotGrowth, TreePlotState,
 };
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::navigation::NpcRoute;
-use game_engine::npcs::{Npc, NpcName, NpcPosition};
-use game_engine::refining::{
-    AiRefineResource, RecipeKind, RefineryProduction, RefiningTask, REFINING_TICKS_PER_UNIT,
-};
+use game_engine::npcs::{Npc, NpcPosition};
+use game_engine::refining::{AiRefineResource, RecipeKind};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
 use game_engine::roads::{
@@ -35,7 +31,6 @@ use game_engine::roads::{
 use game_engine::simulation::{
     BuildingCommandError, BuildingTarget, GameSimulation, SimulationSpeed, SurfaceId,
 };
-use game_engine::tasks::{ProgressBuildingConstruction, TaskAssignment};
 use game_engine::tile::TileIndex;
 use godot::builtin::Side;
 use godot::classes::{
@@ -320,17 +315,6 @@ pub(crate) struct ConstructionPlacementStatus {
     pub(crate) active_tool: Option<ConstructionTool>,
     pub(crate) building_feedback: Option<BuildingPlacementFeedback>,
     pub(crate) road: Option<RoadPlacementStatus>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskTableRow {
-    pub(crate) entity_id: i64,
-    pub(crate) task_type: String,
-    pub(crate) assignment: String,
-    pub(crate) worker: String,
-    pub(crate) building: String,
-    pub(crate) recipe: String,
-    pub(crate) progress: String,
 }
 
 #[derive(GodotClass)]
@@ -1020,11 +1004,13 @@ impl GameWorld {
         };
         self.selected_building = Some(building);
         self.base_mut().queue_redraw();
-        let Some(entity_id) = encode_entity_id(building.entity) else {
+        let Ok(entity_id) = BridgeEntityId::try_from(building.entity) else {
             godot_error!("GameWorld: building context entity id is too large for Godot");
             return false;
         };
-        self.signals().building_selected().emit(entity_id);
+        self.signals()
+            .building_selected()
+            .emit(entity_id.signal_value());
         true
     }
 
@@ -1083,33 +1069,39 @@ impl GameWorld {
         for event in events {
             match event {
                 SelectionEvent::TileSelected(entity) => {
-                    let Some(tile_entity_id) = encode_entity_id(entity) else {
+                    let Ok(tile_entity_id) = BridgeEntityId::try_from(entity) else {
                         godot_error!("GameWorld: selected tile entity id is too large for Godot");
                         continue;
                     };
-                    self.signals().tile_selected().emit(tile_entity_id);
+                    self.signals()
+                        .tile_selected()
+                        .emit(tile_entity_id.signal_value());
                 }
                 SelectionEvent::TileDeselected => {
                     self.signals().tile_deselected().emit();
                 }
                 SelectionEvent::NpcSelected(entity) => {
-                    let Some(npc_entity_id) = encode_entity_id(entity) else {
+                    let Ok(npc_entity_id) = BridgeEntityId::try_from(entity) else {
                         godot_error!("GameWorld: selected NPC entity id is too large for Godot");
                         continue;
                     };
-                    self.signals().npc_selected().emit(npc_entity_id);
+                    self.signals()
+                        .npc_selected()
+                        .emit(npc_entity_id.signal_value());
                 }
                 SelectionEvent::NpcDeselected => {
                     self.signals().npc_deselected().emit();
                 }
                 SelectionEvent::BuildingSelected(entity) => {
-                    let Some(building_entity_id) = encode_entity_id(entity) else {
+                    let Ok(building_entity_id) = BridgeEntityId::try_from(entity) else {
                         godot_error!(
                             "GameWorld: selected building entity id is too large for Godot"
                         );
                         continue;
                     };
-                    self.signals().building_selected().emit(building_entity_id);
+                    self.signals()
+                        .building_selected()
+                        .emit(building_entity_id.signal_value());
                 }
                 SelectionEvent::BuildingDeselected => {
                     self.signals().building_deselected().emit();
@@ -1138,7 +1130,7 @@ impl GameWorld {
             return;
         };
 
-        let Some(entity_id) = encode_entity_id(target.entity) else {
+        let Ok(entity_id) = BridgeEntityId::try_from(target.entity) else {
             godot_error!("GameWorld: hovered map entity id is too large for Godot");
             self.hovered_map_entity = None;
             self.signals().map_entity_unhovered().emit();
@@ -1147,7 +1139,7 @@ impl GameWorld {
 
         self.signals()
             .map_entity_hovered()
-            .emit(target.kind.signal_value(), entity_id);
+            .emit(target.kind.signal_value(), entity_id.signal_value());
     }
 
     fn start_build_mode(&mut self, kind: BuildingKind) {
@@ -1491,10 +1483,6 @@ impl GameWorld {
     ) -> R {
         self.game
             .with_surface_resource_overview(self.rendered_surface, f)
-    }
-
-    pub(crate) fn task_table_rows(&self) -> Vec<TaskTableRow> {
-        self.with_rendered_surface_world(query_task_table_rows)
     }
 
     pub(crate) fn simulation_datetime_text_string(&self) -> String {
@@ -2320,63 +2308,53 @@ impl GameWorld {
 
     pub(crate) fn rename_building(
         &mut self,
-        building_entity_id: i64,
+        building_entity_id: BridgeEntityId,
         requested_name: &str,
     ) -> Result<(), BuildingCommandError> {
-        let entity =
-            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
-        let target = BuildingTarget::new(self.rendered_surface, entity);
+        let target = BuildingTarget::new(self.rendered_surface, building_entity_id.entity());
         self.game
             .rename_building(self.rendered_surface, target, requested_name)
     }
 
     pub(crate) fn set_building_active(
         &mut self,
-        building_entity_id: i64,
+        building_entity_id: BridgeEntityId,
         active: bool,
     ) -> Result<(), BuildingCommandError> {
-        let entity =
-            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
-        let target = BuildingTarget::new(self.rendered_surface, entity);
+        let target = BuildingTarget::new(self.rendered_surface, building_entity_id.entity());
         self.game
             .set_building_active(self.rendered_surface, target, active)
     }
 
     pub(crate) fn set_storage_resource_allowed(
         &mut self,
-        building_entity_id: i64,
+        building_entity_id: BridgeEntityId,
         kind: ResourceKind,
         allowed: bool,
     ) -> Result<(), BuildingCommandError> {
-        let entity =
-            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
-        let target = BuildingTarget::new(self.rendered_surface, entity);
+        let target = BuildingTarget::new(self.rendered_surface, building_entity_id.entity());
         self.game
             .set_storage_resource_allowed(self.rendered_surface, target, kind, allowed)
     }
 
     pub(crate) fn set_storage_pulls_from_refineries(
         &mut self,
-        building_entity_id: i64,
+        building_entity_id: BridgeEntityId,
         kind: ResourceKind,
         enabled: bool,
     ) -> Result<(), BuildingCommandError> {
-        let entity =
-            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
-        let target = BuildingTarget::new(self.rendered_surface, entity);
+        let target = BuildingTarget::new(self.rendered_surface, building_entity_id.entity());
         self.game
             .set_storage_pulls_from_refineries(self.rendered_surface, target, kind, enabled)
     }
 
     pub(crate) fn set_refinery_pulls_from_storage(
         &mut self,
-        building_entity_id: i64,
+        building_entity_id: BridgeEntityId,
         kind: ResourceKind,
         enabled: bool,
     ) -> Result<(), BuildingCommandError> {
-        let entity =
-            decode_entity_id(building_entity_id).ok_or(BuildingCommandError::MissingEntity)?;
-        let target = BuildingTarget::new(self.rendered_surface, entity);
+        let target = BuildingTarget::new(self.rendered_surface, building_entity_id.entity());
         self.game
             .set_refinery_pulls_from_storage(self.rendered_surface, target, kind, enabled)
     }
@@ -2389,15 +2367,6 @@ impl GameWorld {
 
 fn surface_index_i32(surface: SurfaceId) -> i32 {
     i32::try_from(surface.index()).unwrap_or(i32::MAX)
-}
-
-fn encode_entity_id(entity: Entity) -> Option<i64> {
-    i64::try_from(entity.to_bits()).ok()
-}
-
-pub(crate) fn decode_entity_id(entity_id: i64) -> Option<Entity> {
-    let bits = u64::try_from(entity_id).ok()?;
-    Entity::try_from_bits(bits)
 }
 
 fn click_selection_targets_at(world: &World, coord: CellCoord) -> ClickSelectionTargets {
@@ -2724,258 +2693,6 @@ fn query_selected_npc_route_overlay(
         waypoints: route.waypoints().collect(),
         destination: route.destination()?,
     })
-}
-
-fn query_task_table_rows(world: &World) -> Vec<TaskTableRow> {
-    let mut rows = world
-        .try_query::<(Entity, &ProgressBuildingConstruction)>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .filter_map(|(entity, construction)| {
-                    let entity_id = encode_entity_id(entity)?;
-                    Some(TaskTableRow {
-                        entity_id,
-                        task_type: ProgressBuildingConstruction::label().to_string(),
-                        assignment: em_dash(),
-                        worker: em_dash(),
-                        building: format_construction_task_building(
-                            world,
-                            construction.blueprint(),
-                        ),
-                        recipe: em_dash(),
-                        progress: format_construction_task_progress(
-                            world,
-                            construction.blueprint(),
-                        ),
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    if let Some(mut query) = world.try_query::<(Entity, &SeedField)>() {
-        rows.extend(query.iter(world).filter_map(|(entity, seed)| {
-            let entity_id = encode_entity_id(entity)?;
-            Some(TaskTableRow {
-                entity_id,
-                task_type: SeedField::label().to_string(),
-                assignment: em_dash(),
-                worker: em_dash(),
-                building: format_plot_task_building(world, "Field", seed.field()),
-                recipe: em_dash(),
-                progress: em_dash(),
-            })
-        }));
-    }
-
-    if let Some(mut query) = world.try_query::<(Entity, &HarvestField)>() {
-        rows.extend(query.iter(world).filter_map(|(entity, harvest)| {
-            let entity_id = encode_entity_id(entity)?;
-            Some(TaskTableRow {
-                entity_id,
-                task_type: HarvestField::label().to_string(),
-                assignment: em_dash(),
-                worker: em_dash(),
-                building: format_plot_task_building(world, "Field", harvest.field()),
-                recipe: em_dash(),
-                progress: em_dash(),
-            })
-        }));
-    }
-
-    if let Some(mut query) = world.try_query::<(Entity, &SeedTreePlot)>() {
-        rows.extend(query.iter(world).filter_map(|(entity, seed)| {
-            let entity_id = encode_entity_id(entity)?;
-            Some(TaskTableRow {
-                entity_id,
-                task_type: SeedTreePlot::label().to_string(),
-                assignment: em_dash(),
-                worker: em_dash(),
-                building: format_plot_task_building(world, "Tree Plot", seed.tree_plot()),
-                recipe: em_dash(),
-                progress: em_dash(),
-            })
-        }));
-    }
-
-    if let Some(mut query) = world.try_query::<(Entity, &CutTreePlot)>() {
-        rows.extend(query.iter(world).filter_map(|(entity, cut)| {
-            let entity_id = encode_entity_id(entity)?;
-            Some(TaskTableRow {
-                entity_id,
-                task_type: CutTreePlot::label().to_string(),
-                assignment: em_dash(),
-                worker: em_dash(),
-                building: format_plot_task_building(world, "Tree Plot", cut.tree_plot()),
-                recipe: em_dash(),
-                progress: em_dash(),
-            })
-        }));
-    }
-
-    if let Some(mut query) = world.try_query::<(Entity, &RefiningTask, Option<&TaskAssignment>)>() {
-        rows.extend(
-            query
-                .iter(world)
-                .filter_map(|(entity, refining, assignment)| {
-                    let entity_id = encode_entity_id(entity)?;
-                    Some(refining_task_table_row(
-                        world,
-                        entity_id,
-                        refining.refinery(),
-                        assignment
-                            .copied()
-                            .unwrap_or_else(TaskAssignment::unassigned),
-                    ))
-                }),
-        );
-    }
-
-    rows.sort_by_key(|row| row.entity_id);
-    rows
-}
-
-fn format_construction_task_building(world: &World, blueprint: Entity) -> String {
-    let blueprint_id = encode_entity_id(blueprint)
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let Some(blueprint_data) = world.get::<BuildingBlueprint>(blueprint) else {
-        if let Some(road) = world.get::<RoadBlueprint>(blueprint) {
-            return format!(
-                "{} Blueprint {} at ({}, {})",
-                road.target_tier.label(),
-                blueprint_id,
-                road.coord.x(),
-                road.coord.y()
-            );
-        }
-        return format!("Blueprint {blueprint_id}: unavailable");
-    };
-
-    let origin = blueprint_data.footprint.origin();
-    format!(
-        "{} Blueprint {} at ({}, {})",
-        blueprint_data.kind.label(),
-        blueprint_id,
-        origin.x(),
-        origin.y()
-    )
-}
-
-fn format_construction_task_progress(world: &World, blueprint: Entity) -> String {
-    let Some(progress) = world.get::<ConstructionProgress>(blueprint) else {
-        return em_dash();
-    };
-    let cost = world
-        .get::<BuildingBlueprint>(blueprint)
-        .map(|data| data.kind.definition().construction_cost())
-        .or_else(|| {
-            world
-                .get::<RoadBlueprint>(blueprint)
-                .map(|data| data.target_tier.material_cost())
-        });
-    let Some(cost) = cost else {
-        return em_dash();
-    };
-    format!(
-        "{} | Labor {}/{}",
-        format_deposited_over_required(progress.deposited(), cost),
-        progress.labor_completed(),
-        progress.labor_required()
-    )
-}
-
-fn format_plot_task_building(world: &World, label: &str, plot: Entity) -> String {
-    let plot_id = encode_entity_id(plot)
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    let Some(building) = world.get::<Building>(plot) else {
-        return format!("{label} {plot_id}: unavailable");
-    };
-    let origin = building.footprint.origin();
-    format!("{label} {plot_id} at ({}, {})", origin.x(), origin.y())
-}
-
-fn refining_task_table_row(
-    world: &World,
-    entity_id: i64,
-    refinery: Entity,
-    assignment: TaskAssignment,
-) -> TaskTableRow {
-    let assigned_worker = assignment.worker();
-    let production = world
-        .get::<RefineryProduction>(refinery)
-        .copied()
-        .unwrap_or_default();
-    let recipe = production.recipe().or_else(|| {
-        assigned_worker
-            .and_then(|worker| world.get::<AiRefineResource>(worker))
-            .map(|work| work.recipe())
-    });
-    let building = world
-        .get::<Building>(refinery)
-        .map_or_else(em_dash, |building| {
-            let id = encode_entity_id(refinery)
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            format!("{} {id}", building.kind.label())
-        });
-    let progress = if production.recipe().is_some() {
-        format!(
-            "{}/{} ({} remaining)",
-            production.progress_ticks(),
-            REFINING_TICKS_PER_UNIT,
-            production.remaining_ticks()
-        )
-    } else {
-        em_dash()
-    };
-
-    TaskTableRow {
-        entity_id,
-        task_type: RefiningTask::label().to_string(),
-        assignment: if assigned_worker.is_some() {
-            "Assigned".to_string()
-        } else {
-            "Unassigned".to_string()
-        },
-        worker: assigned_worker.map_or_else(em_dash, |worker| format_worker(world, worker)),
-        building,
-        recipe: recipe.map_or_else(em_dash, |recipe| recipe.label().to_string()),
-        progress,
-    }
-}
-
-fn format_worker(world: &World, worker: Entity) -> String {
-    let id = encode_entity_id(worker)
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    world.get::<NpcName>(worker).map_or_else(
-        || format!("NPC {id}"),
-        |name| format!("{} ({id})", name.as_str()),
-    )
-}
-
-fn em_dash() -> String {
-    "—".to_string()
-}
-
-fn format_deposited_over_required(progress: ResourceAmounts, cost: ResourceAmounts) -> String {
-    let parts = ResourceKind::ALL
-        .into_iter()
-        .filter_map(|kind| {
-            let required = cost.get(kind);
-            (required > 0).then(|| format!("{}: {}/{}", kind.label(), progress.get(kind), required))
-        })
-        .collect::<Vec<_>>();
-
-    if parts.is_empty() {
-        "None".to_string()
-    } else {
-        parts.join(", ")
-    }
 }
 
 fn cell_top_left(coord: CellCoord) -> Vector2 {
@@ -3385,13 +3102,12 @@ fn build_road_atlas_source(texture: Gd<Texture2D>, tile_size: i32) -> Gd<TileSet
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::buildings::BuildingBlueprintBundle;
+    use game_engine::buildings::{BuildingBlueprintBundle, ConstructionProgress};
     use game_engine::farming::{FarmInventory, FieldOwner};
     use game_engine::forestry::{ForesterLodgeInventory, TreePlotOwner, TREE_PLOT_GROWTH_TICKS};
     use game_engine::grid::GridSize;
     use game_engine::navigation::{drive_npc_routes, refresh_navigation_snapshot};
     use game_engine::npcs::InitialNpcBundle;
-    use game_engine::tasks::{ProgressBuildingConstructionTaskBundle, Task};
     use game_engine::tile::TileBundle;
 
     #[test]
@@ -3643,183 +3359,6 @@ mod tests {
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].entity, npc);
         assert_eq!(infos[0].appearance, NpcAppearance::Miner);
-    }
-
-    #[test]
-    fn task_table_rows_format_construction_tasks() {
-        let mut world = World::new();
-        let blueprint = world
-            .spawn(BuildingBlueprintBundle::new(
-                BuildingKind::Warehouse,
-                BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
-            ))
-            .id();
-        let task = world
-            .spawn(ProgressBuildingConstructionTaskBundle::new(blueprint))
-            .id();
-
-        let rows = query_task_table_rows(&world);
-
-        assert_eq!(
-            rows,
-            vec![TaskTableRow {
-                entity_id: encode_entity_id(task).expect("task entity id should encode"),
-                task_type: "ProgressBuildingConstruction".to_string(),
-                assignment: em_dash(),
-                worker: em_dash(),
-                building: format!(
-                    "Warehouse Blueprint {} at (4, 7)",
-                    encode_entity_id(blueprint).expect("blueprint entity id should encode")
-                ),
-                recipe: em_dash(),
-                progress: "Planks: 0/40, Stone Blocks: 0/20 | Labor 0/720".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn task_table_rows_format_farming_tasks() {
-        let mut world = World::new();
-        let farm = world
-            .spawn((
-                Building::new(
-                    BuildingKind::Farm,
-                    BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
-                ),
-                FarmInventory::empty(),
-            ))
-            .id();
-        let field = world
-            .spawn((
-                Building::new(
-                    BuildingKind::Field,
-                    BuildingFootprint::new(CellCoord::new(3, 1), 1, 1),
-                ),
-                FieldOwner::new(farm),
-                FieldCrop::seedable(),
-            ))
-            .id();
-        let seed_task = world.spawn((Task, SeedField::new(field))).id();
-        let harvest_task = world.spawn((Task, HarvestField::new(field))).id();
-
-        let rows = query_task_table_rows(&world);
-
-        assert_eq!(rows.len(), 2);
-        assert!(rows.contains(&TaskTableRow {
-            entity_id: encode_entity_id(seed_task).expect("task entity id should encode"),
-            task_type: "SeedField".to_string(),
-            assignment: em_dash(),
-            worker: em_dash(),
-            building: format!(
-                "Field {} at (3, 1)",
-                encode_entity_id(field).expect("field entity id should encode")
-            ),
-            recipe: em_dash(),
-            progress: em_dash(),
-        }));
-        assert!(rows.contains(&TaskTableRow {
-            entity_id: encode_entity_id(harvest_task).expect("task entity id should encode"),
-            task_type: "HarvestField".to_string(),
-            assignment: em_dash(),
-            worker: em_dash(),
-            building: format!(
-                "Field {} at (3, 1)",
-                encode_entity_id(field).expect("field entity id should encode")
-            ),
-            recipe: em_dash(),
-            progress: em_dash(),
-        }));
-    }
-
-    #[test]
-    fn task_table_rows_format_forestry_tasks() {
-        let mut world = World::new();
-        let lodge = world
-            .spawn((
-                Building::new(
-                    BuildingKind::ForesterLodge,
-                    BuildingFootprint::new(CellCoord::new(0, 0), 3, 3),
-                ),
-                ForesterLodgeInventory::empty(),
-            ))
-            .id();
-        let tree_plot = world
-            .spawn((
-                Building::new(
-                    BuildingKind::TreePlot,
-                    BuildingFootprint::new(CellCoord::new(3, 1), 1, 1),
-                ),
-                TreePlotOwner::new(lodge),
-                TreePlotGrowth::seedable(),
-            ))
-            .id();
-        let seed_task = world.spawn((Task, SeedTreePlot::new(tree_plot))).id();
-        let cut_task = world.spawn((Task, CutTreePlot::new(tree_plot))).id();
-
-        let rows = query_task_table_rows(&world);
-
-        assert_eq!(rows.len(), 2);
-        assert!(rows.contains(&TaskTableRow {
-            entity_id: encode_entity_id(seed_task).expect("task entity id should encode"),
-            task_type: "SeedTreePlot".to_string(),
-            assignment: em_dash(),
-            worker: em_dash(),
-            building: format!(
-                "Tree Plot {} at (3, 1)",
-                encode_entity_id(tree_plot).expect("tree plot entity id should encode")
-            ),
-            recipe: em_dash(),
-            progress: em_dash(),
-        }));
-        assert!(rows.contains(&TaskTableRow {
-            entity_id: encode_entity_id(cut_task).expect("task entity id should encode"),
-            task_type: "CutTreePlot".to_string(),
-            assignment: em_dash(),
-            worker: em_dash(),
-            building: format!(
-                "Tree Plot {} at (3, 1)",
-                encode_entity_id(tree_plot).expect("tree plot entity id should encode")
-            ),
-            recipe: em_dash(),
-            progress: em_dash(),
-        }));
-    }
-
-    #[test]
-    fn task_table_rows_include_refining_assignment_and_building() {
-        let mut world = World::new();
-        let refinery = world
-            .spawn((
-                Building::new(
-                    BuildingKind::Sawmill,
-                    BuildingFootprint::new(CellCoord::new(4, 7), 2, 2),
-                ),
-                RefineryProduction::default(),
-            ))
-            .id();
-        let task = world
-            .spawn((
-                Task,
-                TaskAssignment::unassigned(),
-                RefiningTask::new(refinery),
-            ))
-            .id();
-
-        assert_eq!(
-            query_task_table_rows(&world),
-            vec![TaskTableRow {
-                entity_id: encode_entity_id(task).expect("task entity id should encode"),
-                task_type: "RefineResource".to_string(),
-                assignment: "Unassigned".to_string(),
-                worker: em_dash(),
-                building: format!(
-                    "Sawmill {}",
-                    encode_entity_id(refinery).expect("refinery id should encode")
-                ),
-                recipe: em_dash(),
-                progress: em_dash(),
-            }]
-        );
     }
 
     #[test]

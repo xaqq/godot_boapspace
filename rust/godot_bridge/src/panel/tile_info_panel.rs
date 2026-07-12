@@ -1,5 +1,6 @@
 use super::resource_quantity::ResourceQuantity;
-use crate::world::game_world::{decode_entity_id, GameWorld};
+use crate::entity_id::BridgeEntityId;
+use crate::world::game_world::GameWorld;
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::components::{Terrain, TerrainKind, Tile, TilePosition};
@@ -29,7 +30,7 @@ pub(crate) struct TileInfoPanel {
     #[export]
     game_world: OnEditor<Gd<GameWorld>>,
 
-    selected_tile_entity_id: Option<i64>,
+    selected_tile_entity_id: Option<BridgeEntityId>,
     base: Base<PanelContainer>,
 }
 
@@ -70,6 +71,10 @@ impl IPanelContainer for TileInfoPanel {
 
 impl TileInfoPanel {
     fn select_tile(&mut self, tile_entity_id: i64) {
+        let Ok(tile_entity_id) = BridgeEntityId::try_from(tile_entity_id) else {
+            self.deselect_tile();
+            return;
+        };
         self.selected_tile_entity_id = Some(tile_entity_id);
         self.refresh_selected_tile();
     }
@@ -129,9 +134,9 @@ struct TileInfo {
     road: Option<RoadCellView>,
 }
 
-fn tile_info(game_world: &GameWorld, tile_entity_id: i64) -> Option<TileInfo> {
-    let entity = decode_entity_id(tile_entity_id)?;
-    game_world.with_rendered_surface_world(|world| tile_info_from_world(world, entity))
+fn tile_info(game_world: &GameWorld, tile_entity_id: BridgeEntityId) -> Option<TileInfo> {
+    game_world
+        .with_rendered_surface_world(|world| tile_info_from_world(world, tile_entity_id.entity()))
 }
 
 fn tile_info_from_world(world: &World, entity: Entity) -> Option<TileInfo> {

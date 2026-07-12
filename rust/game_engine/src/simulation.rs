@@ -19,7 +19,8 @@ use crate::forestry::{
 use crate::grid::{CellCoord, Grid, GridSize};
 use crate::logistics::cancel_work_involving_building;
 use crate::npcs::{spawn_initial_default_npcs, WorldDateTime, DEFAULT_WORLD_DATE_TIME_DAY};
-use crate::refining::{recipes_for_building, refinery_status, RefineryStatus, ReservationLedger};
+use crate::refining::{recipes_for_building, refinery_status, RefineryStatus};
+use crate::resource_flow::ReservationLedger;
 use crate::resource_nodes::spawn_initial_resource_nodes;
 use crate::resources::{resource_overview, ResourceHistory, ResourceKind, ResourceOverview};
 use crate::roads::{

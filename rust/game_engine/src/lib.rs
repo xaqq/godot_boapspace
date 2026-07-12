@@ -12,6 +12,7 @@ pub mod navigation;
 pub mod npcs;
 mod plots;
 pub mod refining;
+pub mod resource_flow;
 pub mod resource_nodes;
 pub mod resources;
 pub mod roads;

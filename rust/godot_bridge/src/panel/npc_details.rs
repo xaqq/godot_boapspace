@@ -1,6 +1,7 @@
 use super::resource_quantity::ResourceQuantity;
 use crate::assets::load_packed_scene;
-use crate::world::game_world::{decode_entity_id, GameWorld};
+use crate::entity_id::BridgeEntityId;
+use crate::world::game_world::GameWorld;
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::grid::CellCoord;
@@ -52,9 +53,12 @@ enum DetailsView {
     Details(NpcDetails),
 }
 
-pub(crate) fn npc_details(game_world: &GameWorld, npc_entity_id: i64) -> Option<NpcDetails> {
-    let entity = decode_entity_id(npc_entity_id)?;
-    game_world.with_rendered_surface_world(|world| npc_details_from_world(world, entity))
+pub(crate) fn npc_details(
+    game_world: &GameWorld,
+    npc_entity_id: BridgeEntityId,
+) -> Option<NpcDetails> {
+    game_world
+        .with_rendered_surface_world(|world| npc_details_from_world(world, npc_entity_id.entity()))
 }
 
 pub(crate) fn npc_details_from_world(world: &World, entity: Entity) -> Option<NpcDetails> {
@@ -82,7 +86,7 @@ pub(crate) fn npc_details_from_world(world: &World, entity: Entity) -> Option<Np
     })
 }
 
-pub(crate) fn details_button_enabled(selected_npc_entity_id: Option<i64>) -> bool {
+pub(crate) fn details_button_enabled(selected_npc_entity_id: Option<BridgeEntityId>) -> bool {
     selected_npc_entity_id.is_some()
 }
 
@@ -225,7 +229,7 @@ pub(crate) struct NpcDetailsPanel {
     #[export]
     skills_grid: OnEditor<Gd<GridContainer>>,
 
-    selected_npc_entity_id: Option<i64>,
+    selected_npc_entity_id: Option<BridgeEntityId>,
     cached_view: Option<DetailsView>,
     resource_quantity_scene: Option<Gd<PackedScene>>,
     inventory_rows: Vec<InventoryRowControl>,
@@ -321,6 +325,10 @@ impl NpcDetailsPanel {
     }
 
     fn select_npc(&mut self, npc_entity_id: i64) {
+        let Ok(npc_entity_id) = BridgeEntityId::try_from(npc_entity_id) else {
+            self.deselect_npc();
+            return;
+        };
         self.selected_npc_entity_id = Some(npc_entity_id);
         self.cached_view = None;
         if self.base().is_visible() {
@@ -619,6 +627,10 @@ mod tests {
     #[test]
     fn details_button_state_follows_selection_presence() {
         assert!(!details_button_enabled(None));
-        assert!(details_button_enabled(Some(42)));
+        let entity_id = BridgeEntityId::try_from(
+            Entity::from_raw_u32(42).expect("test entity index should be valid"),
+        )
+        .expect("test entity should be representable");
+        assert!(details_button_enabled(Some(entity_id)));
     }
 }

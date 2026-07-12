@@ -13,6 +13,7 @@ use crate::navigation::{
     current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
     NavigationSnapshot, NpcRoute,
 };
+pub use crate::resource_flow::{Reservation, ReservationLedger, SinkEndpoint, StockEndpoint};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::skills::{Cook, NpcSkills, Sawyer, SkillKind, Stonemason};
 use crate::tasks::{Task, TaskAssignment};
@@ -210,97 +211,6 @@ impl RefineryProduction {
     }
     pub const fn is_awaiting_output(self) -> bool {
         self.recipe.is_some() && self.progress_ticks >= REFINING_TICKS_PER_UNIT
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StockEndpoint {
-    NaturalNode(Entity),
-    CarriedResource(Entity),
-    Warehouse(Entity),
-    Farm(Entity),
-    ForesterLodge(Entity),
-    RefineryInput(Entity),
-    RefineryOutput(Entity),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SinkEndpoint {
-    Blueprint(Entity),
-    FoodPouch(Entity),
-    Storage(Entity),
-    RefineryInput(Entity),
-    RefineryOutput(Entity),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Reservation {
-    pub worker: Entity,
-    pub source: Option<StockEndpoint>,
-    pub sink: SinkEndpoint,
-    pub kind: ResourceKind,
-    pub amount: u32,
-    pub task: Entity,
-}
-
-#[derive(Debug, Default, Resource)]
-pub struct ReservationLedger {
-    claims: Vec<Reservation>,
-}
-
-impl ReservationLedger {
-    pub fn claims(&self) -> &[Reservation] {
-        &self.claims
-    }
-    pub fn reserved_from(&self, source: StockEndpoint, kind: ResourceKind) -> u32 {
-        self.claims
-            .iter()
-            .filter(|claim| claim.source == Some(source) && claim.kind == kind)
-            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
-    }
-    pub(crate) fn reserved_from_excluding_worker(
-        &self,
-        worker: Entity,
-        source: StockEndpoint,
-        kind: ResourceKind,
-    ) -> u32 {
-        self.claims
-            .iter()
-            .filter(|claim| {
-                claim.worker != worker && claim.source == Some(source) && claim.kind == kind
-            })
-            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
-    }
-    pub fn reserved_to(&self, sink: SinkEndpoint, kind: ResourceKind) -> u32 {
-        self.claims
-            .iter()
-            .filter(|claim| claim.sink == sink && claim.kind == kind)
-            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
-    }
-    pub fn reserved_capacity_to(&self, sink: SinkEndpoint) -> u32 {
-        self.claims
-            .iter()
-            .filter(|claim| claim.sink == sink)
-            .fold(0, |sum, claim| sum.saturating_add(claim.amount))
-    }
-    pub fn claim(&mut self, reservation: Reservation) -> bool {
-        if self.claims.iter().any(|claim| {
-            claim.worker == reservation.worker
-                || (claim.task == reservation.task
-                    && matches!(reservation.sink, SinkEndpoint::RefineryOutput(_)))
-        }) {
-            return false;
-        }
-        self.claims.push(reservation);
-        self.claims
-            .sort_unstable_by_key(|claim| (claim.worker.to_bits(), claim.task.to_bits()));
-        true
-    }
-    pub fn release_worker(&mut self, worker: Entity) {
-        self.claims.retain(|claim| claim.worker != worker);
-    }
-    pub fn release_task(&mut self, task: Entity) {
-        self.claims.retain(|claim| claim.task != task);
     }
 }
 
@@ -934,7 +844,7 @@ fn choose_recipe_and_source(
             };
             candidates.push((
                 distance,
-                endpoint_entity(source).to_bits(),
+                source.entity().to_bits(),
                 kind as usize,
                 *recipe,
                 source,
@@ -1003,9 +913,7 @@ pub(crate) fn stock_sources(
             }
         }
     }
-    sources.sort_unstable_by_key(|source| {
-        (endpoint_entity(*source).to_bits(), endpoint_order(*source))
-    });
+    sources.sort_unstable_by_key(|source| (source.entity().to_bits(), endpoint_order(*source)));
     sources
 }
 
@@ -1027,7 +935,7 @@ pub(crate) fn source_interaction_cells(
             .map(|position| snapshot.point_interaction_cells(position.coord))
             .unwrap_or_default(),
         _ => world
-            .get::<Building>(endpoint_entity(source))
+            .get::<Building>(source.entity())
             .map(|building| snapshot.exterior_interaction_cells(building.footprint))
             .unwrap_or_default(),
     }
@@ -1086,18 +994,6 @@ pub(crate) fn withdraw_source(
         StockEndpoint::RefineryOutput(entity) => world
             .get_mut::<RefineryInventory>(entity)
             .is_some_and(|mut inv| inv.consume_output(kind, amount)),
-    }
-}
-
-pub(crate) fn endpoint_entity(endpoint: StockEndpoint) -> Entity {
-    match endpoint {
-        StockEndpoint::NaturalNode(entity)
-        | StockEndpoint::CarriedResource(entity)
-        | StockEndpoint::Warehouse(entity)
-        | StockEndpoint::Farm(entity)
-        | StockEndpoint::ForesterLodge(entity)
-        | StockEndpoint::RefineryInput(entity)
-        | StockEndpoint::RefineryOutput(entity) => entity,
     }
 }
 
@@ -1433,9 +1329,8 @@ mod tests {
             StockEndpoint::RefineryInput(refinery),
             StockEndpoint::RefineryOutput(refinery),
         ];
-        expected.sort_unstable_by_key(|source| {
-            (endpoint_entity(*source).to_bits(), endpoint_order(*source))
-        });
+        expected
+            .sort_unstable_by_key(|source| (source.entity().to_bits(), endpoint_order(*source)));
 
         assert_eq!(
             stock_sources(&mut world, ResourceKind::Wood, excluded_refinery, worker,),

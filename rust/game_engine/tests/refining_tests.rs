@@ -9,9 +9,10 @@ use game_engine::logistics::AiWheelbarrowRecovery;
 use game_engine::refining::{
     assign_refining_work, maintain_refining_tasks, recipes_for_building, refinery_status,
     route_and_advance_refining_work, AiRefineResource, RecipeKind, RefineryBlockedReason,
-    RefineryInventory, RefineryProduction, ReservationLedger, REFINERY_INPUT_CAPACITY,
-    REFINERY_OUTPUT_CAPACITY, REFINING_TICKS_PER_UNIT,
+    RefineryInventory, RefineryProduction, REFINERY_INPUT_CAPACITY, REFINERY_OUTPUT_CAPACITY,
+    REFINING_TICKS_PER_UNIT,
 };
+use game_engine::resource_flow::ReservationLedger;
 use game_engine::resources::ResourceKind;
 use game_engine::skills::{Cook, NpcSkills, Sawyer, SkillKind};
 use game_engine::tile::{TileBundle, TileIndex};
