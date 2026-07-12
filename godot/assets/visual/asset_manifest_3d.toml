@@ -1,0 +1,695 @@
+schema_version = 1
+blender_version = "5.0.1"
+godot_version = "4.7.stable.official.5b4e0cb0f"
+generator = "tools/assets_3d/generate.py"
+source_manifest = "art_sources/world_3d/source_manifest.toml"
+tile_units = 2.0
+subtile_units_per_tile = 1024
+up_axis = "+Y"
+forward_axis = "-Z"
+animation_fps = 30
+ready = true
+
+[sources]
+material_source_sha256 = "352e9817629f458d4d6b8460d04ef3fefed2a53c17cbbff1b80d8425e8a026ed"
+model_turnaround_sha256 = "6775cbac8382170951b138960ca21767cf035ecd3fe6c2715f4a21bd5cf733dd"
+
+[skeleton]
+id = "boapspace_humanoid_v1"
+bones = ["Root", "Pelvis", "Spine", "Chest", "Neck", "Head", "UpperArm.L", "LowerArm.L", "Hand.L", "UpperArm.R", "LowerArm.R", "Hand.R", "Thigh.L", "Shin.L", "Foot.L", "Thigh.R", "Shin.R", "Foot.R"]
+parents = ["", "Root", "Pelvis", "Spine", "Chest", "Neck", "Chest", "UpperArm.L", "LowerArm.L", "Chest", "UpperArm.R", "LowerArm.R", "Pelvis", "Thigh.L", "Shin.L", "Pelvis", "Thigh.R", "Shin.R"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+fps = 30
+stationary_root = true
+
+[[material]]
+id = "structure"
+base_color = "godot/assets/visual/world/3d/materials/structure_base_color.png"
+normal = "godot/assets/visual/world/3d/materials/structure_normal.png"
+orm = "godot/assets/visual/world/3d/materials/structure_orm.png"
+base_color_sha256 = "575fe5efa1f1a2baa274c57d6217ebbaa27cb55b2d68a6a82775857725010bea"
+normal_sha256 = "7a0555f75f26e91a589109b6dbf76235396b25ed16639ea3f8f397d61f3d5e42"
+orm_sha256 = "415949b45d265ee678c867c313aff452e0a297862fa7b2157ea9b808e12628ea"
+width = 256
+height = 256
+ready = true
+
+[[material]]
+id = "timber"
+base_color = "godot/assets/visual/world/3d/materials/timber_base_color.png"
+normal = "godot/assets/visual/world/3d/materials/timber_normal.png"
+orm = "godot/assets/visual/world/3d/materials/timber_orm.png"
+base_color_sha256 = "c491153f8cb88568b484eecd5ca07ad7148f7a7da28e7cbc766b2af67302b783"
+normal_sha256 = "ba1934e60d480fbddd23d7243cd177932129454a6ddeb1a2402a690d10fec1d2"
+orm_sha256 = "a400c7946563c24b036fc03e672910f946d2d704b575501ce0fe9dbbb2af85d5"
+width = 256
+height = 256
+ready = true
+
+[[material]]
+id = "masonry_ore"
+base_color = "godot/assets/visual/world/3d/materials/masonry_ore_base_color.png"
+normal = "godot/assets/visual/world/3d/materials/masonry_ore_normal.png"
+orm = "godot/assets/visual/world/3d/materials/masonry_ore_orm.png"
+base_color_sha256 = "80f3ae6691a8c49df6360cd708aa7e0089cb36a09f63666bb8706b0da440d265"
+normal_sha256 = "40ad61405e26e30b05e8eaf43ca6ba4ab3b0aa0f246377a08f5d60f7ae44a994"
+orm_sha256 = "1d057747792896d1990118506f469eae053027154ea27555b40d288faae5be65"
+width = 256
+height = 256
+ready = true
+
+[[material]]
+id = "organic"
+base_color = "godot/assets/visual/world/3d/materials/organic_base_color.png"
+normal = "godot/assets/visual/world/3d/materials/organic_normal.png"
+orm = "godot/assets/visual/world/3d/materials/organic_orm.png"
+base_color_sha256 = "6a61460534c9d0bd21fa37181a4beb4e974bba515a99ffe029098cffa0003ea2"
+normal_sha256 = "5e5492804b0aaddb613cd18d04535a10c153004be9768ebc2401f8ab9d7f1d7b"
+orm_sha256 = "4f12e0a7f69b3564cd71e28ebb65b8923c16173ed8f7677f0df4a93ca56fda71"
+width = 256
+height = 256
+ready = true
+
+[[material]]
+id = "character"
+base_color = "godot/assets/visual/world/3d/materials/character_base_color.png"
+normal = "godot/assets/visual/world/3d/materials/character_normal.png"
+orm = "godot/assets/visual/world/3d/materials/character_orm.png"
+base_color_sha256 = "2fd3756f4b557691b0d6b33885b2d5f74f2cf07993b3662cd82f8a1d6dbc8ee6"
+normal_sha256 = "e72d914f783d43d099fe59f0d6b2e0ff50da3bc7125ca89b62170b93b7b442a0"
+orm_sha256 = "b87574ebe0bd7331d9d4a63f890637f14c36e6b01b17074ea091863961c8fa32"
+width = 256
+height = 256
+ready = true
+
+[[model]]
+id = "building_depot"
+family = "building"
+variant = "Depot"
+path = "godot/assets/visual/world/3d/buildings/building_depot.glb"
+footprint = [2, 2]
+materials = ["structure", "timber"]
+triangle_budget = 4000
+triangle_count = 72
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-1.800000, 0.000000, -1.955000]
+bounds_max = [1.800000, 1.800000, 1.800000]
+sha256 = "fd3507849d3d431b4a091a6882b4d30975cfa81742591c879f61c7d7ab7641a9"
+provenance_sha256 = "0aa2f5a558af8c223d759f4b589459564f4763fc45c466602a63372fb1c66b18"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_warehouse"
+family = "building"
+variant = "Warehouse"
+path = "godot/assets/visual/world/3d/buildings/building_warehouse.glb"
+footprint = [4, 4]
+materials = ["structure", "timber"]
+triangle_budget = 12000
+triangle_count = 144
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-3.600000, 0.000000, -3.600000]
+bounds_max = [3.600000, 2.680000, 3.600000]
+sha256 = "c11cb97b3408da5bac2eed62556afb0abfa2acae7903a1b785ded22f9a2d612b"
+provenance_sha256 = "35eea7ad965bf8e44cc7fd27eb89676def627f8328f0825ae982a4c63561c1a3"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_townhall"
+family = "building"
+variant = "TownHall"
+path = "godot/assets/visual/world/3d/buildings/building_townhall.glb"
+footprint = [3, 3]
+materials = ["structure", "timber"]
+triangle_budget = 9000
+triangle_count = 88
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-2.700000, 0.000000, -2.700000]
+bounds_max = [2.700000, 2.500000, 2.700000]
+sha256 = "876305ca170c8b42289ba3750f8ef36580765ff0215563e2b307ba8bb2c291c1"
+provenance_sha256 = "cf4977e2a98fba6ea66e17920861ac3430b1a208caa800a505d642643408a1b6"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_sawmill"
+family = "building"
+variant = "Sawmill"
+path = "godot/assets/visual/world/3d/buildings/building_sawmill.glb"
+footprint = [2, 2]
+materials = ["timber", "structure"]
+triangle_budget = 5000
+triangle_count = 216
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-1.800000, 0.000000, -1.800000]
+bounds_max = [1.800000, 1.800000, 1.800000]
+sha256 = "5562554b331074c2bda8236fd6b5603b7ddb5de3fd9ef57bd7c1494c4dd55750"
+provenance_sha256 = "5a408f0e67702db8308ac80f171bfa8c3d8e0deb316cc0f7c5b11c9f02682b95"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_stoneworks"
+family = "building"
+variant = "Stoneworks"
+path = "godot/assets/visual/world/3d/buildings/building_stoneworks.glb"
+footprint = [2, 2]
+materials = ["masonry_ore", "structure"]
+triangle_budget = 5000
+triangle_count = 112
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-1.800000, 0.000000, -1.800000]
+bounds_max = [1.800000, 1.830000, 1.800000]
+sha256 = "d810f794d47cd75312d8841bab84c9fdd097502d2e11116099bff19f0950be73"
+provenance_sha256 = "497e7cc1aba4bd58978aed68a6f78000ec81b7ff1554b2f26df84fe30901f8fe"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_kitchen"
+family = "building"
+variant = "Kitchen"
+path = "godot/assets/visual/world/3d/buildings/building_kitchen.glb"
+footprint = [2, 2]
+materials = ["structure", "masonry_ore"]
+triangle_budget = 5000
+triangle_count = 112
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-1.800000, 0.000000, -1.800000]
+bounds_max = [1.800000, 1.950000, 1.800000]
+sha256 = "553bf549f2d5f944000e9f32e36285833253b6da5c9cc50ac785f34fd3c76ffa"
+provenance_sha256 = "c79364197942340182989b19f8b00a07552c0f11a272644f0ab854fe41336e76"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_farm"
+family = "building"
+variant = "Farm"
+path = "godot/assets/visual/world/3d/buildings/building_farm.glb"
+footprint = [3, 3]
+materials = ["timber", "structure"]
+triangle_budget = 8000
+triangle_count = 148
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-2.700000, 0.000000, -2.700000]
+bounds_max = [2.700000, 2.100000, 2.700000]
+sha256 = "5c70f2ee985f695686d122bf219854334f1022f5539b5e6b3d45597818064cc2"
+provenance_sha256 = "2de658939a45069cf266e691f0a596c2816154912db801578f43a999efd5a2d1"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_field"
+family = "building"
+variant = "Field"
+path = "godot/assets/visual/world/3d/buildings/building_field.glb"
+footprint = [1, 1]
+materials = ["timber", "organic"]
+triangle_budget = 2000
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.140000, 0.930000]
+sha256 = "25ec9c29b7a6b06c18a5fc469b67a3ed6ec25435f84d6d6c9644e80e43f9dc64"
+provenance_sha256 = "71b8bdae235abf103c2b029721323b8ebcddb7acd414c4cb9a91bf45d703d8de"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_forester_lodge"
+family = "building"
+variant = "ForesterLodge"
+path = "godot/assets/visual/world/3d/buildings/building_forester_lodge.glb"
+footprint = [3, 3]
+materials = ["timber", "structure"]
+triangle_budget = 8000
+triangle_count = 184
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-2.700000, 0.000000, -2.700000]
+bounds_max = [2.700000, 2.100000, 2.700000]
+sha256 = "fb161efb1d5783c2ecda1914ef7cf78870358e4cdc2fc8b98468799de4ceeed2"
+provenance_sha256 = "7d9a46c21721ec15c2102f8cc67121d467c87165082ed3931b75673a11275613"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_tree_plot"
+family = "building"
+variant = "TreePlot"
+path = "godot/assets/visual/world/3d/buildings/building_tree_plot.glb"
+footprint = [1, 1]
+materials = ["timber", "organic"]
+triangle_budget = 2000
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.140000, 0.930000]
+sha256 = "25ec9c29b7a6b06c18a5fc469b67a3ed6ec25435f84d6d6c9644e80e43f9dc64"
+provenance_sha256 = "1d3fa61abcc762df05d09941deb58b6af9a42cbcf9256117e58a57ff436c7499"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_house_small"
+family = "building"
+variant = "SmallHouse"
+path = "godot/assets/visual/world/3d/buildings/building_house_small.glb"
+footprint = [1, 1]
+materials = ["structure", "timber"]
+triangle_budget = 3000
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.900000, 0.000000, -0.900000]
+bounds_max = [0.900000, 1.500000, 0.900000]
+sha256 = "0ed518471d79522988668de06460a179cc7780e8595e6f041a6e7966fb314e62"
+provenance_sha256 = "9e663ef74e5004428209606e936e27b670d8b099c4af2f9688534d1ed5e3c7fa"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_house_medium"
+family = "building"
+variant = "MediumHouse"
+path = "godot/assets/visual/world/3d/buildings/building_house_medium.glb"
+footprint = [2, 2]
+materials = ["structure", "timber"]
+triangle_budget = 5000
+triangle_count = 72
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-1.800000, 0.000000, -1.800000]
+bounds_max = [1.800000, 1.800000, 1.800000]
+sha256 = "4d236b905d63cc87ac4b10264c6b43ba72a53bdd958825f7f0af600297168baa"
+provenance_sha256 = "885386336f1e8e47cfa896ad4b38e73a6ee285140d62d54e6165d70bacfcb259"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "building_house_large"
+family = "building"
+variant = "LargeHouse"
+path = "godot/assets/visual/world/3d/buildings/building_house_large.glb"
+footprint = [3, 3]
+materials = ["structure", "timber"]
+triangle_budget = 8000
+triangle_count = 84
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-2.700000, 0.000000, -2.700000]
+bounds_max = [2.700000, 2.100000, 2.700000]
+sha256 = "f818b1493741c4f8744817d22323bcd5b61abdf1ba58ad0b96b8d9465c33b73f"
+provenance_sha256 = "0976e56f59b2378498e4dd4b2758121d37bc7f1d690e9cba2853b8857c5fbcbf"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_wood"
+family = "resource"
+variant = "Wood"
+path = "godot/assets/visual/world/3d/resources/resource_wood.glb"
+footprint = [1, 1]
+materials = ["timber"]
+triangle_budget = 1500
+triangle_count = 108
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.575000, 0.047831, -0.200000]
+bounds_max = [0.575000, 0.612169, 0.400000]
+sha256 = "1456a693fd08ab6aa2d1d51ea1594798d35b19a4d290b82e344feb6d14acf144"
+provenance_sha256 = "cd80968bcfc7b9582a09608df31ba409bff29675245e97b343d8bac96e4db86b"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_stone"
+family = "resource"
+variant = "Stone"
+path = "godot/assets/visual/world/3d/resources/resource_stone.glb"
+footprint = [1, 1]
+materials = ["masonry_ore"]
+triangle_budget = 1500
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.604105, 0.014000, -0.490543]
+bounds_max = [0.597770, 0.580000, 0.372205]
+sha256 = "5e9d1b3f464b411143ac892935b6d4e44808a4f26fdacf44464dbec4d7f5e5e4"
+provenance_sha256 = "db5f62049f82058099325e3958161e61e7e54366041a77776f6b3e4154f5f5ce"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_food"
+family = "resource"
+variant = "Food"
+path = "godot/assets/visual/world/3d/resources/resource_food.glb"
+footprint = [1, 1]
+materials = ["organic", "structure"]
+triangle_budget = 1500
+triangle_count = 492
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.525000, 0.000000, -0.410000]
+bounds_max = [0.525000, 0.566000, 0.410000]
+sha256 = "51d279ba19450b7eae9532a7514ea4898b9aecd83c177d569ed764222b5aacaa"
+provenance_sha256 = "ace40be423156c0b70cbf5a0b109ed5263ef8b9ddeb1646f6e9c1c788ecc50f9"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_gold"
+family = "resource"
+variant = "Gold"
+path = "godot/assets/visual/world/3d/resources/resource_gold.glb"
+footprint = [1, 1]
+materials = ["masonry_ore", "structure"]
+triangle_budget = 1500
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.566216, 0.027000, -0.472255]
+bounds_max = [0.559882, 0.532000, 0.304154]
+sha256 = "9df79b72ad3a9d2bba96e92d60b5f887702eb4038ed1b4d036cde4c093015096"
+provenance_sha256 = "000f33a0d6f820748f3dae6bb536f5906351206d1bb2b1e785c6e7f43d4fee98"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_crops"
+family = "resource"
+variant = "Crops"
+path = "godot/assets/visual/world/3d/resources/resource_crops.glb"
+footprint = [1, 1]
+materials = ["organic"]
+triangle_budget = 1500
+triangle_count = 700
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.450000, 0.000000, -0.350500]
+bounds_max = [0.440000, 0.687500, 0.390500]
+sha256 = "c4ca49c8f31455b759d456ab222d480fe5d4b67e396e0ee2ab40f32d144ef1a5"
+provenance_sha256 = "e0125afc2252074ba66ec21f5ff00f3a75dcaeeb745eee7c73bc0d70f6e59c7c"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_wild_berries"
+family = "resource"
+variant = "WildBerries"
+path = "godot/assets/visual/world/3d/resources/resource_wild_berries.glb"
+footprint = [1, 1]
+materials = ["organic"]
+triangle_budget = 1500
+triangle_count = 700
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.450000, 0.000000, -0.350500]
+bounds_max = [0.440000, 0.557500, 0.390500]
+sha256 = "185d7867cae6e518f797f0cc003b90ca593e65aa01e15f3a1ad0160b88015c00"
+provenance_sha256 = "8acd4873bd1b22665dfe77b17f5781e72084777b686cc511944b519a986fb82c"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_planks"
+family = "resource"
+variant = "Planks"
+path = "godot/assets/visual/world/3d/resources/resource_planks.glb"
+footprint = [1, 1]
+materials = ["timber"]
+triangle_budget = 1500
+triangle_count = 72
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.593527, 0.020000, -0.248514]
+bounds_max = [0.593527, 0.400000, 0.248514]
+sha256 = "d15dd1a00e86ca55d378e643dee45901db7c0526c65b1677afdf4dfa323496e9"
+provenance_sha256 = "26a7e5b94fa3717028fbbf6544e3f34142e956d62d776bd18295f244d26ce2f7"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "resource_stone_blocks"
+family = "resource"
+variant = "StoneBlocks"
+path = "godot/assets/visual/world/3d/resources/resource_stone_blocks.glb"
+footprint = [1, 1]
+materials = ["masonry_ore"]
+triangle_budget = 1500
+triangle_count = 72
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.590000, 0.000000, -0.275000]
+bounds_max = [0.790000, 0.570000, 0.275000]
+sha256 = "bd434059a2fbdfd35033d460fe0922d6ade2cbd3bceaa7ee552cc94fe28e40cf"
+provenance_sha256 = "205ed8c9c3dedf81e5cb8f651d485bdbaf353615b07091dbdbd52d64af80fcd4"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "crop_seedable_plot"
+family = "crop"
+variant = "Seedable"
+path = "godot/assets/visual/world/3d/farming/crop_seedable_plot.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 1500
+triangle_count = 60
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.140000, 0.930000]
+sha256 = "8cfa95d4e7c9dcad0ea3f116bf443c0b8a1c0055f09134763e5b66c3aa5c3b07"
+provenance_sha256 = "8c91682e25e60e8698e9f00edb5b85185cca8f424d202653c4f5925ee38fe6e2"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "crop_growing_step1"
+family = "crop"
+variant = "GrowingStep1"
+path = "godot/assets/visual/world/3d/farming/crop_growing_step1.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 2000
+triangle_count = 760
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.395000, 0.930000]
+sha256 = "e09c5b86af13cfb171773d1ca8197afb55d7635799b9ccda8e8e91edf97eda79"
+provenance_sha256 = "7a7db806b88d398b6f42adca407ff52c5ee5dd58f1cb62ff61c8f1daa1da6fbb"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "crop_growing_step2"
+family = "crop"
+variant = "GrowingStep2"
+path = "godot/assets/visual/world/3d/farming/crop_growing_step2.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 2500
+triangle_count = 1320
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.615000, 0.930000]
+sha256 = "51d5f6b0cbf8b24fe67d0ecab2a79a6a8f16d480743c89da6df54f580361af65"
+provenance_sha256 = "7a0a9678a7c4b12b7e0fda39ffab356c5902922cba3401fd22c7b61f5e7b09c7"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "crop_grown"
+family = "crop"
+variant = "Grown"
+path = "godot/assets/visual/world/3d/farming/crop_grown.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 3000
+triangle_count = 1880
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.930000, 0.000000, -0.930000]
+bounds_max = [0.930000, 0.882500, 0.930000]
+sha256 = "423b13a4cd345ca5d02302211d3822ecc0be9ae3a82bfb5c10cab5dd56898039"
+provenance_sha256 = "cebab0a76890a63df5d44504df8d572d8e158e417b3cbad8ae5ea476b6ef110d"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "tree_plot_sapling"
+family = "tree"
+variant = "Sapling"
+path = "godot/assets/visual/world/3d/farming/tree_plot_sapling.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 2000
+triangle_count = 92
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.275746, 0.080000, -0.280000]
+bounds_max = [0.275746, 0.864000, 0.263114]
+sha256 = "6e8cfc04c7df29127bef2a24418b21118d199f1fcfc19f7d97409a26e931b844"
+provenance_sha256 = "8af17950fd5b20ccc7d9183a4503742da9b7d2eb56f2130f99981c9cf0f29657"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "tree_plot_young"
+family = "tree"
+variant = "Young"
+path = "godot/assets/visual/world/3d/farming/tree_plot_young.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 3000
+triangle_count = 92
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.453012, 0.080000, -0.460000]
+bounds_max = [0.453012, 1.416000, 0.432259]
+sha256 = "ca0a9405753f7fe737fc164434912afe43f8900a9c7e82be42aa50fbf2415cf8"
+provenance_sha256 = "423ef56402f0abd74a1bec89eac7defc0e84e2ac07924d79d2d723d614034d12"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "tree_plot_mature"
+family = "tree"
+variant = "Mature"
+path = "godot/assets/visual/world/3d/farming/tree_plot_mature.glb"
+footprint = [1, 1]
+materials = ["organic", "timber"]
+triangle_budget = 5000
+triangle_count = 92
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.669669, 0.080000, -0.680000]
+bounds_max = [0.669669, 2.064000, 0.638991]
+sha256 = "b182c8b57ec8bc92738513200f9a67b1b271f259d78731fa373ed282a670ac1e"
+provenance_sha256 = "d8ac2700373996c6c61db3b6c7e7b101d7ccecd64293441ee9136cd36195d446"
+source_ids = ["model_turnaround", "material_source"]
+ready = true
+
+[[model]]
+id = "npc_colonist"
+family = "npc"
+variant = "Colonist"
+path = "godot/assets/visual/world/3d/characters/npc_colonist.glb"
+footprint = [1, 1]
+materials = ["character", "structure"]
+triangle_budget = 8000
+triangle_count = 644
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.701250, 0.050000, -0.230000]
+bounds_max = [0.701250, 1.718000, 0.158400]
+sha256 = "ed2e3b143048667f9a11ac48d3abae07ede9e17700cd3484e40b088d21c020ff"
+provenance_sha256 = "2f6983d6a1fea6ad2cf3cc6fe5c08903e7abb447c96313c0027e68e6ea6c13c8"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+skeleton = "boapspace_humanoid_v1"
+wrapper = "godot/world/3d/npc_colonist_3d.tscn"
+ready = true
+
+[[model]]
+id = "npc_engineer"
+family = "npc"
+variant = "Engineer"
+path = "godot/assets/visual/world/3d/characters/npc_engineer.glb"
+footprint = [1, 1]
+materials = ["character", "structure"]
+triangle_budget = 8000
+triangle_count = 656
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.701250, 0.050000, -0.230000]
+bounds_max = [0.701250, 1.718000, 0.280000]
+sha256 = "22ed5e689efb4ebcf4b3fc4f98f4c56f2f309fbae9d78183e2e8712c89edf6e9"
+provenance_sha256 = "60364efc7e8fe2a8e058049c068817390103e74789bbe5d7720a41e2d37fef58"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+skeleton = "boapspace_humanoid_v1"
+wrapper = "godot/world/3d/npc_engineer_3d.tscn"
+ready = true
+
+[[model]]
+id = "npc_botanist"
+family = "npc"
+variant = "Botanist"
+path = "godot/assets/visual/world/3d/characters/npc_botanist.glb"
+footprint = [1, 1]
+materials = ["character", "structure"]
+triangle_budget = 8000
+triangle_count = 752
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.701250, 0.050000, -0.230000]
+bounds_max = [0.701250, 1.740000, 0.220000]
+sha256 = "88c8107154f13c70268e87a77b933c2671fffc6157743abc34202cc26274047d"
+provenance_sha256 = "388f70642789772f1128cfc48a7afd27aee861e3a137609615eb95ea9a7d8853"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+skeleton = "boapspace_humanoid_v1"
+wrapper = "godot/world/3d/npc_botanist_3d.tscn"
+ready = true
+
+[[model]]
+id = "npc_miner"
+family = "npc"
+variant = "Miner"
+path = "godot/assets/visual/world/3d/characters/npc_miner.glb"
+footprint = [1, 1]
+materials = ["character", "structure"]
+triangle_budget = 8000
+triangle_count = 764
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.701250, 0.050000, -0.240000]
+bounds_max = [0.701250, 1.724000, 0.209100]
+sha256 = "672dac3d6286397b39cf2afb54a38fd35239493f6d299e6eff748db0b819e6d2"
+provenance_sha256 = "33936330c32fb37b8e5a3be7e3b254096dff29e42907de396ffc8a2df84c006a"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+skeleton = "boapspace_humanoid_v1"
+wrapper = "godot/world/3d/npc_miner_3d.tscn"
+ready = true
+
+[[model]]
+id = "npc_scout"
+family = "npc"
+variant = "Scout"
+path = "godot/assets/visual/world/3d/characters/npc_scout.glb"
+footprint = [1, 1]
+materials = ["character", "structure"]
+triangle_budget = 8000
+triangle_count = 656
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.701250, 0.050000, -0.230000]
+bounds_max = [0.701250, 1.718000, 0.250000]
+sha256 = "19967eaf272caf1408410d2fb3b5208475ae8833e2962d51cff4adcc74515788"
+provenance_sha256 = "ad6f8cca187b920bd6ddc136b76271e8bb485de3767086d0b807bacb969b7d1f"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "walk", "gather", "saw", "stonecut", "cook", "carry_idle", "carry_walk", "wheelbarrow_idle", "wheelbarrow_walk"]
+skeleton = "boapspace_humanoid_v1"
+wrapper = "godot/world/3d/npc_scout_3d.tscn"
+ready = true
+
+[[model]]
+id = "wheelbarrow"
+family = "wheelbarrow"
+variant = "Wheelbarrow"
+path = "godot/assets/visual/world/3d/vehicles/wheelbarrow.glb"
+footprint = [1, 1]
+materials = ["timber", "structure"]
+triangle_budget = 4000
+triangle_count = 176
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.469152, 0.008546, -0.790885]
+bounds_max = [0.465039, 0.803341, 0.938414]
+sha256 = "19c39f509cb791a55d98e3b6cfdc75c8b7a3594e39e38fcd0f0300111db31fdb"
+provenance_sha256 = "605e748b01a07f1ab771961bb3191ca7339e5a2b77cc1db0c195d12298c05a15"
+source_ids = ["model_turnaround", "material_source"]
+animations = ["idle", "roll"]
+wrapper = "godot/world/3d/wheelbarrow_3d.tscn"
+ready = true
+
+[[model]]
+id = "work_props"
+family = "props"
+variant = "WorkProps"
+path = "godot/assets/visual/world/3d/props/work_props.glb"
+footprint = [1, 1]
+materials = ["timber", "structure", "masonry_ore"]
+triangle_budget = 6000
+triangle_count = 280
+pivot = [0.000000, 0.000000, 0.000000]
+bounds_min = [-0.970000, 0.065000, -0.555000]
+bounds_max = [0.895000, 0.840000, 0.530000]
+sha256 = "da5ae665be33ba5e109e11883b4017c2f96f79023819cc0a37bec7a4f6f4ec19"
+provenance_sha256 = "1c6fd3fdb2bdb746593504902358dd088af9c31a04de306fba1558360225393e"
+source_ids = ["model_turnaround", "material_source"]
+ready = true

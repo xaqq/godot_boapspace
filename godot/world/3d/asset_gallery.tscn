@@ -1,0 +1,113 @@
+[gd_scene load_steps=36 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_depot.glb" id="1"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_warehouse.glb" id="2"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_townhall.glb" id="3"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_sawmill.glb" id="4"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_stoneworks.glb" id="5"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_kitchen.glb" id="6"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_farm.glb" id="7"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_field.glb" id="8"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_forester_lodge.glb" id="9"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_tree_plot.glb" id="10"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_house_small.glb" id="11"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_house_medium.glb" id="12"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/buildings/building_house_large.glb" id="13"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_wood.glb" id="14"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_stone.glb" id="15"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_food.glb" id="16"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_gold.glb" id="17"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_crops.glb" id="18"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_wild_berries.glb" id="19"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_planks.glb" id="20"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/resources/resource_stone_blocks.glb" id="21"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/crop_seedable_plot.glb" id="22"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/crop_growing_step1.glb" id="23"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/crop_growing_step2.glb" id="24"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/crop_grown.glb" id="25"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/tree_plot_sapling.glb" id="26"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/tree_plot_young.glb" id="27"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/farming/tree_plot_mature.glb" id="28"]
+[ext_resource type="PackedScene" path="res://world/3d/npc_colonist_3d.tscn" id="29"]
+[ext_resource type="PackedScene" path="res://world/3d/npc_engineer_3d.tscn" id="30"]
+[ext_resource type="PackedScene" path="res://world/3d/npc_botanist_3d.tscn" id="31"]
+[ext_resource type="PackedScene" path="res://world/3d/npc_miner_3d.tscn" id="32"]
+[ext_resource type="PackedScene" path="res://world/3d/npc_scout_3d.tscn" id="33"]
+[ext_resource type="PackedScene" path="res://world/3d/wheelbarrow_3d.tscn" id="34"]
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/props/work_props.glb" id="35"]
+
+[node name="AssetGallery3D" type="Node3D"]
+
+[node name="Depot" parent="." instance=ExtResource("1")]
+position = Vector3(0, 0, 0)
+[node name="Warehouse" parent="." instance=ExtResource("2")]
+position = Vector3(10, 0, 0)
+[node name="TownHall" parent="." instance=ExtResource("3")]
+position = Vector3(20, 0, 0)
+[node name="Sawmill" parent="." instance=ExtResource("4")]
+position = Vector3(30, 0, 0)
+[node name="Stoneworks" parent="." instance=ExtResource("5")]
+position = Vector3(40, 0, 0)
+[node name="Kitchen" parent="." instance=ExtResource("6")]
+position = Vector3(50, 0, 0)
+[node name="Farm" parent="." instance=ExtResource("7")]
+position = Vector3(60, 0, 0)
+[node name="Field" parent="." instance=ExtResource("8")]
+position = Vector3(70, 0, 0)
+[node name="ForesterLodge" parent="." instance=ExtResource("9")]
+position = Vector3(80, 0, 0)
+[node name="TreePlot" parent="." instance=ExtResource("10")]
+position = Vector3(90, 0, 0)
+[node name="SmallHouse" parent="." instance=ExtResource("11")]
+position = Vector3(100, 0, 0)
+[node name="MediumHouse" parent="." instance=ExtResource("12")]
+position = Vector3(110, 0, 0)
+[node name="LargeHouse" parent="." instance=ExtResource("13")]
+position = Vector3(120, 0, 0)
+
+[node name="Wood" parent="." instance=ExtResource("14")]
+position = Vector3(0, 0, 12)
+[node name="Stone" parent="." instance=ExtResource("15")]
+position = Vector3(4, 0, 12)
+[node name="Food" parent="." instance=ExtResource("16")]
+position = Vector3(8, 0, 12)
+[node name="Gold" parent="." instance=ExtResource("17")]
+position = Vector3(12, 0, 12)
+[node name="Crops" parent="." instance=ExtResource("18")]
+position = Vector3(16, 0, 12)
+[node name="WildBerries" parent="." instance=ExtResource("19")]
+position = Vector3(20, 0, 12)
+[node name="Planks" parent="." instance=ExtResource("20")]
+position = Vector3(24, 0, 12)
+[node name="StoneBlocks" parent="." instance=ExtResource("21")]
+position = Vector3(28, 0, 12)
+
+[node name="CropSeedable" parent="." instance=ExtResource("22")]
+position = Vector3(0, 0, 18)
+[node name="CropStep1" parent="." instance=ExtResource("23")]
+position = Vector3(4, 0, 18)
+[node name="CropStep2" parent="." instance=ExtResource("24")]
+position = Vector3(8, 0, 18)
+[node name="CropGrown" parent="." instance=ExtResource("25")]
+position = Vector3(12, 0, 18)
+[node name="TreeSapling" parent="." instance=ExtResource("26")]
+position = Vector3(18, 0, 18)
+[node name="TreeYoung" parent="." instance=ExtResource("27")]
+position = Vector3(22, 0, 18)
+[node name="TreeMature" parent="." instance=ExtResource("28")]
+position = Vector3(26, 0, 18)
+
+[node name="Colonist" parent="." instance=ExtResource("29")]
+position = Vector3(0, 0, 24)
+[node name="Engineer" parent="." instance=ExtResource("30")]
+position = Vector3(4, 0, 24)
+[node name="Botanist" parent="." instance=ExtResource("31")]
+position = Vector3(8, 0, 24)
+[node name="Miner" parent="." instance=ExtResource("32")]
+position = Vector3(12, 0, 24)
+[node name="Scout" parent="." instance=ExtResource("33")]
+position = Vector3(16, 0, 24)
+[node name="Wheelbarrow" parent="." instance=ExtResource("34")]
+position = Vector3(22, 0, 24)
+[node name="WorkProps" parent="." instance=ExtResource("35")]
+position = Vector3(28, 0, 24)

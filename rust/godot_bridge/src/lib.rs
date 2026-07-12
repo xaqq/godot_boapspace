@@ -29,8 +29,16 @@ mod panel {
 }
 
 mod world {
+    pub(crate) mod asset_smoke_test_3d;
     pub(crate) mod game_world;
+    pub(crate) mod mesh_builder_3d;
+    pub(crate) mod model_library_3d;
+    pub(crate) mod model_wrapper_3d;
+    pub(crate) mod render_snapshot;
     pub(crate) mod visual;
+    pub(crate) mod world_renderer_2d;
+    pub(crate) mod world_renderer_3d;
+    pub(crate) mod world_renderer_smoke_test;
 }
 
 struct GodotBoapspaceExtension;

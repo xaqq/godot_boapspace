@@ -1,0 +1,32 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/characters/npc_engineer.glb" id="1_character"]
+
+[node name="NpcEngineer3D" type="NpcModel3D" node_paths=PackedStringArray("animation_player", "right_hand_attachment", "left_hand_attachment", "carry_attachment", "wheelbarrow_attachment")]
+animation_player = NodePath("Character/AnimationPlayer")
+right_hand_attachment = NodePath("RightHandAttachment")
+left_hand_attachment = NodePath("LeftHandAttachment")
+carry_attachment = NodePath("CarryAttachment")
+wheelbarrow_attachment = NodePath("WheelbarrowAttachment")
+
+[node name="Character" parent="." instance=ExtResource("1_character")]
+
+[node name="RightHandAttachment" type="BoneAttachment3D" parent="."]
+bone_name = "Hand.R"
+use_external_skeleton = true
+external_skeleton = NodePath("../Character/Armature/Skeleton3D")
+
+[node name="LeftHandAttachment" type="BoneAttachment3D" parent="."]
+bone_name = "Hand.L"
+use_external_skeleton = true
+external_skeleton = NodePath("../Character/Armature/Skeleton3D")
+
+[node name="CarryAttachment" type="BoneAttachment3D" parent="."]
+bone_name = "Chest"
+use_external_skeleton = true
+external_skeleton = NodePath("../Character/Armature/Skeleton3D")
+
+[node name="WheelbarrowAttachment" type="BoneAttachment3D" parent="."]
+bone_name = "Root"
+use_external_skeleton = true
+external_skeleton = NodePath("../Character/Armature/Skeleton3D")

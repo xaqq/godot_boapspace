@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/visual/world/3d/vehicles/wheelbarrow.glb" id="1_vehicle"]
+
+[node name="Wheelbarrow3D" type="WheelbarrowModel3D" node_paths=PackedStringArray("animation_player", "load_attachment")]
+animation_player = NodePath("Vehicle/AnimationPlayer")
+load_attachment = NodePath("LoadAttachment")
+
+[node name="Vehicle" parent="." instance=ExtResource("1_vehicle")]
+
+[node name="LoadAttachment" type="Node3D" parent="."]
+position = Vector3(0, 0.72, -0.15)

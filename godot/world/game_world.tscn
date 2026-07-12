@@ -14,6 +14,14 @@
 [ext_resource type="Texture2D" path="res://assets/visual/ui/icons/warning.svg" id="13_homeless_warning"]
 [ext_resource type="PackedScene" path="res://panel/performance_info.tscn" id="14_performance_info"]
 
+[sub_resource type="Environment" id="Environment_world_3d"]
+background_mode = 1
+background_color = Color(0.09, 0.16, 0.19, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.72, 0.82, 0.86, 1)
+ambient_light_energy = 0.32
+tonemap_mode = 3
+
 [node name="GameView" type="Control" unique_id=888628405]
 layout_mode = 3
 anchors_preset = 15
@@ -41,13 +49,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "speed_1x_button", "speed_2x_button", "speed_4x_button", "speed_50x_button", "speed_100x_button", "datetime_label", "resource_summary_container", "homeless_summary", "homeless_icon", "homeless_count_label", "game_world")]
+[node name="HeaderBar" type="SimulationHeaderBar" parent="VBoxContainer" node_paths=PackedStringArray("play_pause_button", "speed_1x_button", "speed_2x_button", "speed_4x_button", "speed_50x_button", "speed_100x_button", "renderer_2d_button", "renderer_3d_button", "datetime_label", "resource_summary_container", "homeless_summary", "homeless_icon", "homeless_count_label", "game_world")]
 play_pause_button = NodePath("PlayPauseButton")
 speed_1x_button = NodePath("Speed1xButton")
 speed_2x_button = NodePath("Speed2xButton")
 speed_4x_button = NodePath("Speed4xButton")
 speed_50x_button = NodePath("Speed50xButton")
 speed_100x_button = NodePath("Speed100xButton")
+renderer_2d_button = NodePath("Renderer2DButton")
+renderer_3d_button = NodePath("Renderer3DButton")
 datetime_label = NodePath("DateTimeLabel")
 resource_summary_container = NodePath("HeaderRecap/ResourceSummary")
 homeless_summary = NodePath("HeaderRecap/HomelessSummary")
@@ -87,6 +97,20 @@ text = "50x"
 custom_minimum_size = Vector2(60, 0)
 layout_mode = 2
 text = "100x"
+
+[node name="Renderer2DButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+disabled = true
+tooltip_text = "Use the 2D world renderer."
+text = "2D"
+
+[node name="Renderer3DButton" type="Button" parent="VBoxContainer/HeaderBar"]
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+disabled = true
+tooltip_text = "Experimental 3D world renderer.\nPreparing 3D renderer assets."
+text = "3D"
 
 [node name="DateTimeLabel" type="Label" parent="VBoxContainer/HeaderBar"]
 custom_minimum_size = Vector2(132, 0)
@@ -193,7 +217,11 @@ handle_input_locally = false
 size = Vector2i(948, 621)
 render_target_update_mode = 4
 
-[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "road_map", "road_blueprint_map", "camera")]
+[node name="GameWorld" type="GameWorld" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport" unique_id=101000003 node_paths=PackedStringArray("renderer_2d", "renderer_3d")]
+renderer_2d = NodePath("Renderer2D")
+renderer_3d = NodePath("Renderer3D")
+
+[node name="Renderer2D" type="WorldRenderer2D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" node_paths=PackedStringArray("tile_map", "resource_node_map", "crop_map", "tree_plot_map", "road_map", "road_blueprint_map", "camera")]
 tile_map = NodePath("TileMap")
 resource_node_map = NodePath("ResourceNodeMap")
 crop_map = NodePath("CropMap")
@@ -203,32 +231,64 @@ road_blueprint_map = NodePath("RoadBlueprintMap")
 camera = NodePath("Camera2D")
 physics_interpolation_mode = 2
 
-[node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000004]
+[node name="Camera2D" type="Camera2D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D" unique_id=101000004]
 
-[node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000005]
+[node name="TileMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D" unique_id=101000005]
 texture_filter = 4
 collision_enabled = false
 navigation_enabled = false
 
-[node name="RoadMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
+[node name="RoadMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D"]
 texture_filter = 4
 navigation_enabled = false
 
-[node name="RoadBlueprintMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
+[node name="RoadBlueprintMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D"]
 texture_filter = 4
 navigation_enabled = false
 
-[node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000006]
+[node name="ResourceNodeMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D" unique_id=101000006]
 texture_filter = 4
 navigation_enabled = false
 
-[node name="CropMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" unique_id=101000007]
+[node name="CropMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D" unique_id=101000007]
 texture_filter = 4
 navigation_enabled = false
 
-[node name="TreePlotMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld"]
+[node name="TreePlotMap" type="TileMapLayer" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer2D"]
 texture_filter = 4
 navigation_enabled = false
+
+[node name="Renderer3D" type="WorldRenderer3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld" node_paths=PackedStringArray("camera", "terrain_root", "road_root", "static_root", "npc_root", "overlay_root")]
+visible = false
+camera = NodePath("Camera3D")
+terrain_root = NodePath("TerrainChunks")
+road_root = NodePath("RoadChunks")
+static_root = NodePath("StaticBatches")
+npc_root = NodePath("Npcs")
+overlay_root = NodePath("Overlays")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+environment = SubResource("Environment_world_3d")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+rotation_degrees = Vector3(-55, -45, 0)
+light_energy = 0.72
+shadow_enabled = true
+directional_shadow_max_distance = 160.0
+
+[node name="Camera3D" type="Camera3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+fov = 50.0
+current = false
+
+[node name="TerrainChunks" type="Node3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+
+[node name="RoadChunks" type="Node3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+
+[node name="StaticBatches" type="Node3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+
+[node name="Npcs" type="Node3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
+
+[node name="Overlays" type="Node3D" parent="VBoxContainer/HBoxContainer/GameArea/SubViewportContainer/SubViewport/GameWorld/Renderer3D"]
 
 [node name="MapEntityTooltipPanel" parent="VBoxContainer/HBoxContainer/GameArea" node_paths=PackedStringArray("game_world") instance=ExtResource("9_map_entity_tooltip_panel")]
 game_world = NodePath("../SubViewportContainer/SubViewport/GameWorld")

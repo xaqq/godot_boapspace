@@ -1,7 +1,7 @@
 use super::housing_panel::housing_overview;
 use super::resource_panel::{resource_delta_text, RESOURCE_LOOKBACKS};
 use crate::assets::{load_texture, resource_asset_path};
-use crate::world::game_world::GameWorld;
+use crate::world::game_world::{GameWorld, RendererMode};
 use game_engine::resources::{ResourceHistory, ResourceKind, ResourceOverview};
 use godot::classes::{
     canvas_item::TextureFilter, control, texture_rect, Button, HBoxContainer, IHBoxContainer,
@@ -16,6 +16,9 @@ const SUMMARY_ICON_SIZE: f32 = 20.0;
 const SUMMARY_FONT_SIZE: i32 = 14;
 const HOMELESS_WARNING_COLOR: Color = Color::from_rgb(1.0, 0.4, 0.4);
 const HOMELESS_NEUTRAL_COLOR: Color = Color::from_rgb(1.0, 1.0, 1.0);
+const TWO_D_RENDERER_TOOLTIP: &str = "Use the 2D world renderer.";
+const THREE_D_RENDERER_TOOLTIP: &str = "Experimental 3D world renderer.";
+const RENDERER_UNAVAILABLE_FALLBACK: &str = "This renderer is currently unavailable.";
 const COMPACT_QUANTITY_UNITS: [(u64, &str); 6] = [
     (1_000, "K"),
     (1_000_000, "M"),
@@ -53,6 +56,12 @@ struct HeaderView {
     housing: HeaderHousingView,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RendererButtonView {
+    disabled: bool,
+    tooltip: String,
+}
+
 #[derive(GodotClass)]
 #[class(base = HBoxContainer)]
 pub(crate) struct SimulationHeaderBar {
@@ -73,6 +82,12 @@ pub(crate) struct SimulationHeaderBar {
 
     #[export]
     speed_100x_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    renderer_2d_button: OnEditor<Gd<Button>>,
+
+    #[export]
+    renderer_3d_button: OnEditor<Gd<Button>>,
 
     #[export]
     datetime_label: OnEditor<Gd<Label>>,
@@ -108,6 +123,8 @@ impl IHBoxContainer for SimulationHeaderBar {
             speed_4x_button: OnEditor::default(),
             speed_50x_button: OnEditor::default(),
             speed_100x_button: OnEditor::default(),
+            renderer_2d_button: OnEditor::default(),
+            renderer_3d_button: OnEditor::default(),
             datetime_label: OnEditor::default(),
             resource_summary_container: OnEditor::default(),
             homeless_summary: OnEditor::default(),
@@ -128,6 +145,8 @@ impl IHBoxContainer for SimulationHeaderBar {
         let speed_4x_button = self.speed_4x_button.clone();
         let speed_50x_button = self.speed_50x_button.clone();
         let speed_100x_button = self.speed_100x_button.clone();
+        let renderer_2d_button = self.renderer_2d_button.clone();
+        let renderer_3d_button = self.renderer_3d_button.clone();
         let game_world = self.game_world.clone();
 
         play_pause_button.signals().pressed().connect_other(
@@ -169,6 +188,20 @@ impl IHBoxContainer for SimulationHeaderBar {
             &game_world,
             |game_world: &mut GameWorld| {
                 game_world.set_simulation_speed_multiplier(100);
+            },
+        );
+
+        renderer_2d_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.set_renderer_mode(RendererMode::TwoD);
+            },
+        );
+
+        renderer_3d_button.signals().pressed().connect_other(
+            &game_world,
+            |game_world: &mut GameWorld| {
+                game_world.set_renderer_mode(RendererMode::ThreeD);
             },
         );
 
@@ -226,12 +259,26 @@ impl SimulationHeaderBar {
         let is_playing = game_world.is_simulation_playing();
         let datetime_text = game_world.simulation_datetime_text_string();
         let simulation_speed_multiplier = game_world.simulation_speed_multiplier();
+        let active_renderer_mode = game_world.active_renderer_mode();
+        let renderer_2d_view = renderer_button_view(
+            RendererMode::TwoD,
+            active_renderer_mode,
+            game_world.renderer_mode_available(RendererMode::TwoD),
+            game_world.renderer_mode_unavailable_reason(RendererMode::TwoD),
+        );
+        let renderer_3d_view = renderer_button_view(
+            RendererMode::ThreeD,
+            active_renderer_mode,
+            game_world.renderer_mode_available(RendererMode::ThreeD),
+            game_world.renderer_mode_unavailable_reason(RendererMode::ThreeD),
+        );
         drop(game_world);
 
         let mut play_pause_button = self.play_pause_button.clone();
         play_pause_button.set_text(play_pause_text(is_playing));
 
         self.refresh_speed_button_states(simulation_speed_multiplier);
+        self.refresh_renderer_button_states(renderer_2d_view, renderer_3d_view);
 
         let mut datetime_label = self.datetime_label.clone();
         datetime_label.set_text(datetime_text.as_str());
@@ -310,6 +357,20 @@ impl SimulationHeaderBar {
 
         let mut speed_100x_button = self.speed_100x_button.clone();
         speed_100x_button.set_disabled(speed_button_disabled(100, active_multiplier));
+    }
+
+    fn refresh_renderer_button_states(
+        &mut self,
+        renderer_2d_view: RendererButtonView,
+        renderer_3d_view: RendererButtonView,
+    ) {
+        let mut renderer_2d_button = self.renderer_2d_button.clone();
+        renderer_2d_button.set_disabled(renderer_2d_view.disabled);
+        renderer_2d_button.set_tooltip_text(renderer_2d_view.tooltip.as_str());
+
+        let mut renderer_3d_button = self.renderer_3d_button.clone();
+        renderer_3d_button.set_disabled(renderer_3d_view.disabled);
+        renderer_3d_button.set_tooltip_text(renderer_3d_view.tooltip.as_str());
     }
 }
 
@@ -405,6 +466,27 @@ fn speed_button_disabled(button_multiplier: i32, active_multiplier: i32) -> bool
     button_multiplier == active_multiplier
 }
 
+fn renderer_button_view(
+    button_mode: RendererMode,
+    active_mode: RendererMode,
+    available: bool,
+    unavailable_reason: Option<&str>,
+) -> RendererButtonView {
+    let mut tooltip = match button_mode {
+        RendererMode::TwoD => TWO_D_RENDERER_TOOLTIP.to_owned(),
+        RendererMode::ThreeD => THREE_D_RENDERER_TOOLTIP.to_owned(),
+    };
+    if !available {
+        tooltip.push('\n');
+        tooltip.push_str(unavailable_reason.unwrap_or(RENDERER_UNAVAILABLE_FALLBACK));
+    }
+
+    RendererButtonView {
+        disabled: button_mode == active_mode || !available,
+        tooltip,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +512,57 @@ mod tests {
         assert!(!speed_button_disabled(4, 2));
         assert!(!speed_button_disabled(50, 2));
         assert!(!speed_button_disabled(100, 2));
+    }
+
+    #[test]
+    fn active_renderer_button_is_disabled() {
+        let two_d = renderer_button_view(RendererMode::TwoD, RendererMode::TwoD, true, None);
+        let three_d = renderer_button_view(RendererMode::ThreeD, RendererMode::ThreeD, true, None);
+
+        assert!(two_d.disabled);
+        assert_eq!(two_d.tooltip, TWO_D_RENDERER_TOOLTIP);
+        assert!(three_d.disabled);
+        assert_eq!(three_d.tooltip, THREE_D_RENDERER_TOOLTIP);
+    }
+
+    #[test]
+    fn preparing_renderer_is_disabled_with_experimental_tooltip() {
+        let view = renderer_button_view(
+            RendererMode::ThreeD,
+            RendererMode::TwoD,
+            false,
+            Some("Preparing 3D renderer assets."),
+        );
+
+        assert!(view.disabled);
+        assert_eq!(
+            view.tooltip,
+            "Experimental 3D world renderer.\nPreparing 3D renderer assets."
+        );
+    }
+
+    #[test]
+    fn ready_renderer_is_enabled_when_inactive() {
+        let view = renderer_button_view(RendererMode::ThreeD, RendererMode::TwoD, true, None);
+
+        assert!(!view.disabled);
+        assert_eq!(view.tooltip, THREE_D_RENDERER_TOOLTIP);
+    }
+
+    #[test]
+    fn failed_renderer_is_disabled_with_failure_reason() {
+        let view = renderer_button_view(
+            RendererMode::ThreeD,
+            RendererMode::TwoD,
+            false,
+            Some("3D renderer preparation failed."),
+        );
+
+        assert!(view.disabled);
+        assert_eq!(
+            view.tooltip,
+            "Experimental 3D world renderer.\n3D renderer preparation failed."
+        );
     }
 
     #[test]

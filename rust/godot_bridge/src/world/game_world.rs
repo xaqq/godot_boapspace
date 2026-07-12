@@ -4,40 +4,39 @@ use crate::assets::{
 };
 use crate::entity_id::BridgeEntityId;
 use crate::panel::construction_dock::ConstructionDock;
+use crate::world::render_snapshot as snapshot;
 use crate::world::visual::{WorldArtMetrics, LOGICAL_TILE_SIZE};
+use crate::world::world_renderer_2d::WorldRenderer2D;
+use crate::world::world_renderer_3d::{
+    ProxyHit3D, ProxyKind3D, Renderer3DAvailability, WorldRenderer3D, WORLD_UNITS_PER_TILE,
+};
 use bevy_ecs::prelude::Entity;
 use bevy_ecs::world::World;
 use game_engine::buildings::{
     Building, BuildingBlueprint, BuildingFootprint, BuildingKind, BuildingPlacementError,
 };
 use game_engine::components::{
-    AiGatherResource, CarriedResource, MovementFacing, NpcAppearance, SubtileOffset, TerrainKind,
-    Tile, TilePosition, Velocity, Wheelbarrow, SUBTILE_UNITS_PER_TILE,
+    MovementFacing, NpcAppearance, SubtileOffset, TerrainKind, Tile, TilePosition, Velocity,
+    SUBTILE_UNITS_PER_TILE,
 };
-use game_engine::farming::{
-    field_crop_state, AiHarvestField, AiSeedField, FieldCrop, FieldCropState,
-};
-use game_engine::forestry::{
-    tree_plot_state, AiCutTreePlot, AiSeedTreePlot, TreePlotGrowth, TreePlotState,
-};
+use game_engine::farming::FieldCropState;
+use game_engine::forestry::TreePlotState;
 use game_engine::grid::{self, CellCoord, Grid, WorldPosition};
 use game_engine::navigation::NpcRoute;
 use game_engine::npcs::{Npc, NpcPosition};
-use game_engine::refining::{AiRefineResource, RecipeKind};
 use game_engine::resource_nodes::ResourceNode;
 use game_engine::resources::{ResourceAmounts, ResourceKind, ResourceOverview};
 use game_engine::roads::{
-    Road, RoadBlueprint, RoadMap, RoadPlacementBatchResult, RoadPlacementError, RoadTier,
+    RoadBlueprint, RoadMap, RoadPlacementBatchResult, RoadPlacementError, RoadTier,
 };
 use game_engine::simulation::{
     BuildingCommandError, BuildingTarget, GameSimulation, SimulationSpeed, SurfaceId,
 };
 use game_engine::tile::TileIndex;
-use godot::builtin::Side;
 use godot::classes::{
-    canvas_item::TextureFilter, AnimatedSprite2D, AtlasTexture, Camera2D, INode2D, Input,
-    InputEvent, InputEventMouseButton, Node2D, PackedScene, Polygon2D, Sprite2D, SpriteFrames,
-    Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
+    canvas_item::TextureFilter, input, AnimatedSprite2D, AtlasTexture, Camera2D, INode, Input,
+    InputEvent, InputEventMouseButton, InputEventMouseMotion, Node, PackedScene, Polygon2D,
+    Sprite2D, SpriteFrames, Texture2D, TileMapLayer, TileSet, TileSetAtlasSource, TileSetSource,
 };
 use godot::global::MouseButton;
 use godot::obj::{OnEditor, Singleton};
@@ -46,12 +45,22 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+use game_engine::components::{AiGatherResource, CarriedResource, Wheelbarrow};
+#[cfg(test)]
+use game_engine::farming::{field_crop_state, AiHarvestField, AiSeedField, FieldCrop};
+#[cfg(test)]
+use game_engine::forestry::{tree_plot_state, AiCutTreePlot, AiSeedTreePlot, TreePlotGrowth};
+#[cfg(test)]
+use game_engine::refining::{AiRefineResource, RecipeKind};
+#[cfg(test)]
+use game_engine::roads::Road;
+
 const ZOOM_ABSOLUTE_FLOOR: f32 = 0.001;
 const ZOOM_MARGIN: f32 = 0.95;
 const ZOOM_MAX: f32 = 4.0;
 const ZOOM_FACTOR: f32 = 1.1;
 const PAN_SPEED: f32 = 600.0;
-const CAMERA_LIMIT_PADDING_FACTOR: f32 = 1.0;
 const ACTION_CAMERA_PAN_UP: &str = "camera_pan_up";
 const ACTION_CAMERA_PAN_DOWN: &str = "camera_pan_down";
 const ACTION_CAMERA_PAN_LEFT: &str = "camera_pan_left";
@@ -78,14 +87,6 @@ fn fresh_generation_seed() -> u64 {
         .as_nanos();
     let folded_time = nanos as u64 ^ (nanos >> 64) as u64;
     folded_time ^ GENERATION_SEED_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-}
-
-fn world_limit(value: f32) -> i32 {
-    if !value.is_finite() {
-        return 0;
-    }
-
-    value.round().clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +136,13 @@ enum SelectionEvent {
     BuildingDeselected,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, GodotConvert, Var, Export)]
+#[godot(via = i64)]
+pub(crate) enum RendererMode {
+    TwoD = 0,
+    ThreeD = 1,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapEntityKind {
     Building,
@@ -178,6 +186,7 @@ enum NpcRefiningAnimation {
 }
 
 impl NpcRefiningAnimation {
+    #[cfg(test)]
     const fn from_recipe(recipe: RecipeKind) -> Self {
         match recipe {
             RecipeKind::SawWood => Self::Saw,
@@ -328,28 +337,13 @@ pub(crate) struct ConstructionPlacementStatus {
 }
 
 #[derive(GodotClass)]
-#[class(base = Node2D)]
+#[class(base = Node)]
 pub(crate) struct GameWorld {
     #[export]
-    tile_map: OnEditor<Gd<TileMapLayer>>,
+    renderer_2d: OnEditor<Gd<WorldRenderer2D>>,
 
     #[export]
-    resource_node_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    crop_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    tree_plot_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    road_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    road_blueprint_map: OnEditor<Gd<TileMapLayer>>,
-
-    #[export]
-    camera: OnEditor<Gd<Camera2D>>,
+    renderer_3d: OnEditor<Gd<WorldRenderer3D>>,
 
     game: GameSimulation,
     rendered_surface: SurfaceId,
@@ -374,24 +368,29 @@ pub(crate) struct GameWorld {
     building_shadows: HashMap<Entity, Gd<Polygon2D>>,
     tick_performance_sample: Option<TickPerformanceSample>,
     tick_performance_sequence: u64,
+    active_renderer_mode: RendererMode,
+    surface_snapshot: Option<snapshot::SurfaceRenderSnapshot>,
+    dynamic_snapshot: snapshot::DynamicRenderSnapshot,
+    overlay_snapshot: snapshot::WorldOverlaySnapshot,
+    snapshot_revision: u64,
+    renderer_2d_revision: u64,
+    renderer_3d_revision: u64,
+    surface_generation: u64,
+    renderer_2d_surface_generation: u64,
+    orbit_previous_mouse_mode: Option<input::MouseMode>,
 
-    base: Base<Node2D>,
+    base: Base<Node>,
 }
 
 #[godot_api]
-impl INode2D for GameWorld {
-    fn init(base: Base<Node2D>) -> Self {
+impl INode for GameWorld {
+    fn init(base: Base<Node>) -> Self {
         let game = GameSimulation::new(fresh_generation_seed());
         let rendered_surface = game.default_surface_id();
 
         Self {
-            tile_map: OnEditor::default(),
-            resource_node_map: OnEditor::default(),
-            crop_map: OnEditor::default(),
-            tree_plot_map: OnEditor::default(),
-            road_map: OnEditor::default(),
-            road_blueprint_map: OnEditor::default(),
-            camera: OnEditor::default(),
+            renderer_2d: OnEditor::default(),
+            renderer_3d: OnEditor::default(),
             game,
             rendered_surface,
             selected_cell: None,
@@ -415,18 +414,47 @@ impl INode2D for GameWorld {
             building_shadows: HashMap::new(),
             tick_performance_sample: None,
             tick_performance_sequence: 0,
+            active_renderer_mode: RendererMode::TwoD,
+            surface_snapshot: None,
+            dynamic_snapshot: snapshot::DynamicRenderSnapshot::default(),
+            overlay_snapshot: snapshot::WorldOverlaySnapshot::default(),
+            snapshot_revision: 0,
+            renderer_2d_revision: 0,
+            renderer_3d_revision: 0,
+            surface_generation: 0,
+            renderer_2d_surface_generation: 0,
+            orbit_previous_mouse_mode: None,
             base,
         }
     }
 
     fn ready(&mut self) {
-        let mut tm = self.tile_map.clone();
-        let mut resource_map = self.resource_node_map.clone();
-        let mut crop_map = self.crop_map.clone();
-        let mut tree_plot_map = self.tree_plot_map.clone();
-        let mut road_map = self.road_map.clone();
-        let mut road_blueprint_map = self.road_blueprint_map.clone();
-        let mut cam = self.camera.clone();
+        let (
+            mut tm,
+            mut resource_map,
+            mut crop_map,
+            mut tree_plot_map,
+            mut road_map,
+            mut road_blueprint_map,
+            mut cam,
+        ) = {
+            let renderer = self.renderer_2d.bind();
+            (
+                renderer.tile_map(),
+                renderer.resource_node_map(),
+                renderer.crop_map(),
+                renderer.tree_plot_map(),
+                renderer.road_map(),
+                renderer.road_blueprint_map(),
+                renderer.camera(),
+            )
+        };
+
+        if !self.refresh_surface_snapshot() {
+            self.disable_processing();
+            return;
+        }
+        self.refresh_dynamic_snapshot();
 
         debug_assert_eq!(grid::TILE_SIZE as i32, LOGICAL_TILE_SIZE);
         let Some(terrain) = self.build_terrain_tile_set() else {
@@ -518,36 +546,38 @@ impl INode2D for GameWorld {
         cam.set_enabled(true);
         cam.make_current();
         cam.set_zoom(Vector2::new(0.5, 0.5));
-        self.configure_camera_for_surface(&mut cam);
+        self.configure_camera_for_surface();
+        if let Some(surface) = self.surface_snapshot.as_ref() {
+            self.renderer_3d.bind_mut().configure_surface(
+                surface.size.width_i32().unwrap_or(1),
+                surface.size.height_i32().unwrap_or(1),
+                true,
+            );
+        }
+
+        self.renderer_2d.bind_mut().set_active(true);
+        self.renderer_3d.bind_mut().set_active(false);
+        self.refresh_overlay_snapshot();
+        self.sync_renderer_2d_snapshots();
 
         self.base_mut().set_process_input(true);
         self.base_mut().set_process(true);
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn process(&mut self, delta: f64) {
-        let input = Input::singleton();
-        let mut cam = self.camera.clone();
-
-        let vs = self.get_viewport_size();
-        let ws = self.world_size();
-        let min_zoom = {
-            let fit_x = vs.x / ws.x;
-            let fit_y = vs.y / ws.y;
-            (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
-        };
-
-        let zoom = cam.get_zoom().x;
-        let clamped = if zoom < min_zoom {
-            min_zoom
-        } else if zoom > ZOOM_MAX {
-            ZOOM_MAX
-        } else {
-            zoom
-        };
-        if (clamped - zoom).abs() > f32::EPSILON {
-            cam.set_zoom(Vector2::new(clamped, clamped));
+        let availability = self.renderer_3d.bind().availability();
+        let safe_mode =
+            renderer_mode_after_availability_check(self.active_renderer_mode, availability);
+        if safe_mode != self.active_renderer_mode {
+            self.set_renderer_mode(safe_mode);
         }
+        if self.active_renderer_mode == RendererMode::TwoD
+            && self.renderer_3d.bind().availability() == Renderer3DAvailability::Preparing
+        {
+            self.renderer_3d.bind_mut().prewarm_step();
+        }
+        let input = Input::singleton();
 
         let mut dir = Vector2::ZERO;
         if input.is_action_pressed(ACTION_CAMERA_PAN_UP) {
@@ -563,12 +593,31 @@ impl INode2D for GameWorld {
             dir.x += 1.0;
         }
 
-        if dir != Vector2::ZERO {
-            dir = dir.normalized();
-            let zoom = cam.get_zoom().x;
-            let speed = PAN_SPEED / zoom;
-            let pos = cam.get_position();
-            cam.set_position(pos + dir * speed * delta as f32);
+        match self.active_renderer_mode {
+            RendererMode::TwoD => {
+                let mut cam = self.camera_2d();
+                let vs = self.get_viewport_size();
+                let ws = self.world_size();
+                let min_zoom = {
+                    let fit_x = vs.x / ws.x;
+                    let fit_y = vs.y / ws.y;
+                    (fit_x.max(fit_y) * ZOOM_MARGIN).max(ZOOM_ABSOLUTE_FLOOR)
+                };
+                let zoom = cam.get_zoom().x;
+                let clamped = zoom.clamp(min_zoom, ZOOM_MAX);
+                if (clamped - zoom).abs() > f32::EPSILON {
+                    cam.set_zoom(Vector2::new(clamped, clamped));
+                }
+                if dir != Vector2::ZERO {
+                    let direction = dir.normalized();
+                    let speed = PAN_SPEED / cam.get_zoom().x;
+                    let pos = cam.get_position();
+                    cam.set_position(pos + direction * speed * delta as f32);
+                }
+            }
+            RendererMode::ThreeD => {
+                self.renderer_3d.bind_mut().pan(dir, delta);
+            }
         }
 
         let fixed_tick_count = if self.game.is_playing() {
@@ -584,250 +633,33 @@ impl INode2D for GameWorld {
             wall_time: tick_started.elapsed(),
             fixed_tick_count,
         });
-        let mut resource_map = self.resource_node_map.clone();
-        self.populate_resource_node_map(&mut resource_map);
-        let mut crop_map = self.crop_map.clone();
-        self.populate_crop_map(&mut crop_map);
-        let mut tree_plot_map = self.tree_plot_map.clone();
-        self.populate_tree_plot_map(&mut tree_plot_map);
-
-        let mut road_map = self.road_map.clone();
-        let mut road_blueprint_map = self.road_blueprint_map.clone();
-        self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
-        let buildings_changed = self.sync_building_sprites();
-        self.sync_npc_sprites();
+        self.refresh_dynamic_snapshot();
+        self.reconcile_selection_from_snapshot();
         self.sync_selected_npc_route_overlay();
         self.update_drag_current();
-        if self.placement_mode.is_some() || buildings_changed {
-            self.base_mut().queue_redraw();
+        self.refresh_overlay_snapshot();
+        match self.active_renderer_mode {
+            RendererMode::TwoD => self.sync_renderer_2d_snapshots(),
+            RendererMode::ThreeD => self.sync_renderer_3d_snapshots(),
         }
         self.update_hovered_map_entity();
-    }
-
-    fn draw(&mut self) {
-        let ts = grid::TILE_SIZE;
-        let ws = self.world_size();
-        let size = self.grid_size();
-        let Some(w) = size.width_i32() else {
-            godot_warn!("GameWorld: grid width is too large to draw");
-            return;
-        };
-        let Some(h) = size.height_i32() else {
-            godot_warn!("GameWorld: grid height is too large to draw");
-            return;
-        };
-        let grid_color = Color::from_rgba(0.15, 0.24, 0.20, 0.22);
-        let selected_cell = self.selected_cell;
-        let selected_npc = self.selected_npc;
-        let selected_npc_route_overlay = self.selected_npc_route_overlay.clone();
-        let selected_building = self.selected_building;
-        let building_preview = self.building_preview();
-        let plot_previews = self.plot_previews();
-        let road_previews = self.road_previews();
-        let blueprint_footprints = self
-            .building_render_infos()
-            .into_iter()
-            .filter(|building| building.state == BuildingRenderState::Blueprint)
-            .map(|building| building.footprint)
-            .collect::<Vec<_>>();
-
-        let mut base = self.base_mut();
-        for x in 0..=w {
-            let px = x as f32 * ts;
-            // The default negative width uses Godot's fixed one-pixel line primitive.
-            // A positive world-space width shimmers and changes weight as the camera zooms.
-            base.draw_line(Vector2::new(px, 0.0), Vector2::new(px, ws.y), grid_color);
-        }
-        for y in 0..=h {
-            let py = y as f32 * ts;
-            base.draw_line(Vector2::new(0.0, py), Vector2::new(ws.x, py), grid_color);
-        }
-
-        base.draw_rect_ex(
-            Rect2::new(Vector2::ZERO, ws),
-            Color::from_rgb(0.95, 0.35, 0.05),
-        )
-        .filled(false)
-        .width(8.0)
-        .done();
-
-        for footprint in blueprint_footprints {
-            let highlight = Color::from_rgb(0.15, 0.85, 1.0);
-            let mut fill = highlight;
-            fill.a = 0.14;
-            let rect = footprint_rect(footprint);
-            base.draw_rect_ex(rect, fill).filled(true).done();
-            base.draw_rect_ex(rect, highlight)
-                .filled(false)
-                .width(3.0)
-                .done();
-        }
-
-        for (coord, valid) in road_previews {
-            let color = if valid {
-                Color::from_rgb(0.1, 0.9, 0.45)
-            } else {
-                Color::from_rgb(1.0, 0.1, 0.1)
-            };
-            let mut fill = color;
-            fill.a = 0.22;
-            let rect = Rect2::new(
-                Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts),
-                Vector2::new(ts, ts),
-            );
-            base.draw_rect_ex(rect, fill).filled(true).done();
-            base.draw_rect_ex(rect, color)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
-
-        if let Some(overlay) = selected_npc_route_overlay {
-            match overlay {
-                SelectedNpcRouteOverlay::Route {
-                    position,
-                    waypoints,
-                    destination,
-                } => {
-                    let route_color = Color::from_rgba(0.1, 0.85, 1.0, 0.9);
-                    let points = npc_route_points(position, &waypoints);
-                    if points.len() >= 2 {
-                        let polyline = PackedVector2Array::from(points.clone());
-                        base.draw_polyline_ex(&polyline, route_color)
-                            .width(3.0)
-                            .antialiased(true)
-                            .done();
-
-                        for segment in points.windows(2) {
-                            let Some(chevron) = route_chevron(segment[0], segment[1]) else {
-                                continue;
-                            };
-                            let chevron = PackedVector2Array::from(chevron.to_vec());
-                            base.draw_polyline_ex(&chevron, route_color)
-                                .width(2.0)
-                                .antialiased(true)
-                                .done();
-                        }
-                    }
-                    base.draw_circle_ex(cell_center(destination), 9.0, route_color)
-                        .filled(false)
-                        .width(3.0)
-                        .antialiased(true)
-                        .done();
-                }
-                SelectedNpcRouteOverlay::Blocked { position } => {
-                    let blocked_color = Color::from_rgba(1.0, 0.15, 0.15, 0.95);
-                    let center = npc_center(position);
-                    let radius = 13.0;
-                    base.draw_circle_ex(center, radius, blocked_color)
-                        .filled(false)
-                        .width(3.0)
-                        .antialiased(true)
-                        .done();
-                    base.draw_line_ex(
-                        center + Vector2::new(-8.0, -8.0),
-                        center + Vector2::new(8.0, 8.0),
-                        blocked_color,
-                    )
-                    .width(3.0)
-                    .antialiased(true)
-                    .done();
-                    base.draw_line_ex(
-                        center + Vector2::new(-8.0, 8.0),
-                        center + Vector2::new(8.0, -8.0),
-                        blocked_color,
-                    )
-                    .width(3.0)
-                    .antialiased(true)
-                    .done();
-                }
-            }
-        }
-
-        if let Some(selected) = selected_cell {
-            let coord = selected.coord;
-            let cell_pos = Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts);
-            let cell_size = Vector2::new(ts, ts);
-            let highlight = Color::from_rgb(1.0, 0.84, 0.0);
-            let mut fill = highlight;
-            fill.a = 0.15;
-            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
-                .filled(true)
-                .done();
-            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), highlight)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
-
-        if let Some(selected) = selected_npc {
-            let coord = selected.coord;
-            let cell_pos = Vector2::new(coord.x() as f32 * ts, coord.y() as f32 * ts);
-            let cell_size = Vector2::new(ts, ts);
-            let highlight = Color::from_rgb(0.1, 0.85, 1.0);
-            let mut fill = highlight;
-            fill.a = 0.12;
-            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), fill)
-                .filled(true)
-                .done();
-            base.draw_rect_ex(Rect2::new(cell_pos, cell_size), highlight)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
-
-        if let Some(selected) = selected_building {
-            let highlight = Color::from_rgb(1.0, 0.55, 0.12);
-            let mut fill = highlight;
-            fill.a = 0.10;
-            let rect = footprint_rect(selected.footprint);
-            base.draw_rect_ex(rect, fill).filled(true).done();
-            base.draw_rect_ex(rect, highlight)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
-
-        for preview in plot_previews {
-            let color = if preview.valid {
-                Color::from_rgb(0.1, 0.9, 0.45)
-            } else {
-                Color::from_rgb(1.0, 0.1, 0.1)
-            };
-            let mut fill = color;
-            fill.a = 0.18;
-            let rect = Rect2::new(
-                cell_top_left(preview.coord),
-                Vector2::new(grid::TILE_SIZE, grid::TILE_SIZE),
-            );
-            base.draw_rect_ex(rect, fill).filled(true).done();
-            base.draw_rect_ex(rect, color)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
-
-        if let Some((footprint, valid)) = building_preview {
-            let color = if valid {
-                Color::from_rgb(0.1, 0.9, 0.45)
-            } else {
-                Color::from_rgb(1.0, 0.1, 0.1)
-            };
-            let mut fill = color;
-            fill.a = 0.18;
-            let rect = footprint_rect(footprint);
-            base.draw_rect_ex(rect, fill).filled(true).done();
-            base.draw_rect_ex(rect, color)
-                .filled(false)
-                .width(4.0)
-                .done();
-        }
     }
 
     fn input(&mut self, event: Gd<InputEvent>) {
         if event.is_action_pressed(ACTION_MENU_TOGGLE) && self.placement_mode.is_some() {
             self.cancel_placement_mode();
             self.mark_input_handled();
+            return;
+        }
+
+        if let Ok(motion) = event.clone().try_cast::<InputEventMouseMotion>() {
+            if self.active_renderer_mode == RendererMode::ThreeD
+                && self.renderer_3d.bind().is_orbiting()
+            {
+                self.renderer_3d.bind_mut().orbit(motion.get_relative());
+                self.clear_hovered_map_entity();
+                self.mark_input_handled();
+            }
             return;
         }
 
@@ -857,6 +689,16 @@ impl INode2D for GameWorld {
                     }
                 }
             }
+            MouseButton::MIDDLE => {
+                if self.active_renderer_mode == RendererMode::ThreeD {
+                    if mouse.is_pressed() {
+                        self.begin_3d_orbit_capture();
+                    } else {
+                        self.end_3d_orbit_capture();
+                    }
+                    self.mark_input_handled();
+                }
+            }
             MouseButton::WHEEL_UP => {
                 if mouse.is_pressed() {
                     self.handle_mouse_wheel(ZOOM_FACTOR);
@@ -875,6 +717,256 @@ impl INode2D for GameWorld {
 impl GameWorld {
     pub(crate) const fn tick_performance_sample(&self) -> Option<TickPerformanceSample> {
         self.tick_performance_sample
+    }
+
+    fn camera_2d(&self) -> Gd<Camera2D> {
+        self.renderer_2d.bind().camera()
+    }
+
+    fn resource_node_map_2d(&self) -> Gd<TileMapLayer> {
+        self.renderer_2d.bind().resource_node_map()
+    }
+
+    fn crop_map_2d(&self) -> Gd<TileMapLayer> {
+        self.renderer_2d.bind().crop_map()
+    }
+
+    fn tree_plot_map_2d(&self) -> Gd<TileMapLayer> {
+        self.renderer_2d.bind().tree_plot_map()
+    }
+
+    fn road_maps_2d(&self) -> (Gd<TileMapLayer>, Gd<TileMapLayer>) {
+        let renderer = self.renderer_2d.bind();
+        (renderer.road_map(), renderer.road_blueprint_map())
+    }
+
+    fn pointer_world_position(&self) -> Vector2 {
+        match self.active_renderer_mode {
+            RendererMode::TwoD => self.renderer_2d.bind().local_mouse_position(),
+            RendererMode::ThreeD => {
+                let screen_position = self
+                    .base()
+                    .get_viewport()
+                    .map(|viewport| viewport.get_mouse_position())
+                    .unwrap_or(Vector2::ZERO);
+                self.renderer_3d
+                    .bind()
+                    .pointer_ray(screen_position)
+                    .ground_intersection()
+                    .map(|point| {
+                        Vector2::new(point.x, point.z) * (grid::TILE_SIZE / WORLD_UNITS_PER_TILE)
+                    })
+                    .unwrap_or(Vector2::new(f32::NAN, f32::NAN))
+            }
+        }
+    }
+
+    fn queue_renderer_redraw(&mut self) {
+        self.renderer_2d.bind_mut().queue_overlay_redraw();
+    }
+
+    fn begin_3d_orbit_capture(&mut self) {
+        if self.renderer_3d.bind().is_orbiting() {
+            return;
+        }
+        let mut input = Input::singleton();
+        self.orbit_previous_mouse_mode = Some(input.get_mouse_mode());
+        input.set_mouse_mode(input::MouseMode::CAPTURED);
+        self.renderer_3d.bind_mut().begin_orbit();
+        self.clear_hovered_map_entity();
+    }
+
+    fn end_3d_orbit_capture(&mut self) {
+        self.renderer_3d.bind_mut().end_orbit();
+        if let Some(mouse_mode) = self.orbit_previous_mouse_mode.take() {
+            Input::singleton().set_mouse_mode(mouse_mode);
+        }
+    }
+
+    fn add_2d_child<T>(&mut self, child: &Gd<T>)
+    where
+        T: GodotClass + Inherits<Node>,
+    {
+        let mut renderer = self.renderer_2d.clone();
+        renderer.add_child(child);
+    }
+
+    fn refresh_surface_snapshot(&mut self) -> bool {
+        let size = self.grid_size();
+        let mut terrain_cells = Vec::with_capacity(size.cell_count().unwrap_or_default());
+        for coord in self.game.tile_coords(self.rendered_surface) {
+            let Some(kind) = self.game.tile_terrain_at(self.rendered_surface, coord) else {
+                godot_error!(
+                    "GameWorld: terrain missing for tile at ({}, {})",
+                    coord.x(),
+                    coord.y()
+                );
+                return false;
+            };
+            terrain_cells.push(snapshot::TerrainRenderCell {
+                coord,
+                kind,
+                variant: terrain_variant(self.rendered_surface, coord, kind),
+            });
+        }
+        self.surface_snapshot = Some(snapshot::SurfaceRenderSnapshot::new(
+            self.rendered_surface,
+            size,
+            terrain_cells,
+        ));
+        self.surface_generation = self.surface_generation.wrapping_add(1);
+        true
+    }
+
+    fn refresh_dynamic_snapshot(&mut self) {
+        self.dynamic_snapshot =
+            self.with_rendered_surface_world(snapshot::DynamicRenderSnapshot::from_world);
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
+    }
+
+    fn refresh_overlay_snapshot(&mut self) {
+        let selected_npc = self.selected_npc.and_then(|selected| {
+            self.dynamic_snapshot
+                .npcs
+                .iter()
+                .find(|npc| npc.entity == selected.entity)
+                .map(|npc| snapshot::SelectedNpcOverlay {
+                    entity: selected.entity,
+                    position: npc.position,
+                })
+        });
+        let selected_npc_route = self
+            .selected_npc_route_overlay
+            .clone()
+            .map(|route| match route {
+                SelectedNpcRouteOverlay::Route {
+                    position,
+                    waypoints,
+                    destination,
+                } => snapshot::NpcRouteOverlay::Route {
+                    position,
+                    waypoints,
+                    destination,
+                },
+                SelectedNpcRouteOverlay::Blocked { position } => {
+                    snapshot::NpcRouteOverlay::Blocked { position }
+                }
+            });
+        self.overlay_snapshot = snapshot::WorldOverlaySnapshot {
+            selected_cell: self
+                .selected_cell
+                .map(|selected| snapshot::SelectedCellOverlay {
+                    entity: selected.entity,
+                    coord: selected.coord,
+                }),
+            selected_npc,
+            selected_building: self.selected_building.map(|selected| {
+                snapshot::SelectedBuildingOverlay {
+                    entity: selected.entity,
+                    footprint: selected.footprint,
+                }
+            }),
+            selected_npc_route,
+            building_preview: self.building_preview().map(|(kind, footprint, valid)| {
+                snapshot::BuildingPreviewOverlay {
+                    kind,
+                    footprint,
+                    validity: valid.into(),
+                }
+            }),
+            plot_cells: self
+                .plot_previews()
+                .into_iter()
+                .map(|preview| snapshot::PlacementCellOverlay {
+                    coord: preview.coord,
+                    validity: preview.valid.into(),
+                })
+                .collect(),
+            road_cells: self
+                .road_previews()
+                .into_iter()
+                .map(|(coord, valid)| snapshot::PlacementCellOverlay {
+                    coord,
+                    validity: valid.into(),
+                })
+                .collect(),
+        };
+    }
+
+    fn sync_renderer_2d_snapshots(&mut self) {
+        if self.renderer_2d_surface_generation != self.surface_generation {
+            let mut tile_map = self.renderer_2d.bind().tile_map();
+            if !self.populate_tile_map(&mut tile_map) {
+                self.disable_processing();
+                return;
+            }
+            self.renderer_2d_surface_generation = self.surface_generation;
+        }
+        if self.renderer_2d_revision != self.snapshot_revision {
+            let mut resource_map = self.resource_node_map_2d();
+            self.populate_resource_node_map(&mut resource_map);
+            let mut crop_map = self.crop_map_2d();
+            self.populate_crop_map(&mut crop_map);
+            let mut tree_plot_map = self.tree_plot_map_2d();
+            self.populate_tree_plot_map(&mut tree_plot_map);
+            let (mut road_map, mut road_blueprint_map) = self.road_maps_2d();
+            self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
+            self.sync_building_sprites();
+            self.sync_npc_sprites();
+        }
+        let mut renderer = self.renderer_2d.clone();
+        let surface = self.surface_snapshot.as_ref();
+        let dynamic = &self.dynamic_snapshot;
+        let overlay = &self.overlay_snapshot;
+        let mut renderer = renderer.bind_mut();
+        if let Some(surface) = surface {
+            renderer.apply_surface_snapshot(surface);
+        }
+        renderer.apply_dynamic_snapshot(dynamic);
+        renderer.apply_overlay_snapshot(overlay);
+        self.renderer_2d_revision = self.snapshot_revision;
+    }
+
+    fn sync_renderer_3d_snapshots(&mut self) {
+        let mut renderer = self.renderer_3d.clone();
+        let surface = self.surface_snapshot.as_ref();
+        let dynamic = &self.dynamic_snapshot;
+        let overlay = &self.overlay_snapshot;
+        let mut renderer = renderer.bind_mut();
+        if let Some(surface) = surface {
+            renderer.apply_surface_snapshot(surface);
+        }
+        renderer.apply_dynamic_snapshot(dynamic);
+        renderer.apply_overlay_snapshot(overlay);
+        self.renderer_3d_revision = self.snapshot_revision;
+    }
+
+    fn reconcile_selection_from_snapshot(&mut self) {
+        if let Some(selected) = self.selected_npc {
+            if let Some(npc) = self
+                .dynamic_snapshot
+                .npcs
+                .iter()
+                .find(|npc| npc.entity == selected.entity)
+            {
+                self.selected_npc = Some(SelectedNpc {
+                    coord: npc.position.coord,
+                    entity: selected.entity,
+                });
+            } else {
+                self.clear_npc_selection();
+            }
+        }
+        if let Some(selected) = self.selected_building {
+            let exists = self
+                .dynamic_snapshot
+                .buildings
+                .iter()
+                .any(|building| building.entity == selected.entity);
+            if !exists {
+                self.clear_building_selection();
+            }
+        }
     }
 
     fn disable_processing(&mut self) {
@@ -900,41 +992,26 @@ impl GameWorld {
     fn populate_tile_map(&self, tile_map: &mut Gd<TileMapLayer>) -> bool {
         tile_map.clear();
         let v2 = |x: i32, y: i32| Vector2i::new(x, y);
-        let coords = self.game.tile_coords(self.rendered_surface);
-
-        for coord in coords {
-            let Some(terrain) = self.game.tile_terrain_at(self.rendered_surface, coord) else {
-                godot_error!(
-                    "GameWorld: terrain missing for tile at ({}, {})",
-                    coord.x(),
-                    coord.y()
-                );
-                return false;
-            };
-
+        let Some(snapshot) = self.surface_snapshot.as_ref() else {
+            godot_error!("GameWorld: surface snapshot unavailable");
+            return false;
+        };
+        for cell in &snapshot.terrain_cells {
             tile_map
-                .set_cell_ex(v2(coord.x(), coord.y()))
-                .source_id(terrain_source_id(terrain))
-                .atlas_coords(v2(
-                    terrain_variant(self.rendered_surface, coord, terrain),
-                    0,
-                ))
+                .set_cell_ex(v2(cell.coord.x(), cell.coord.y()))
+                .source_id(terrain_source_id(cell.kind))
+                .atlas_coords(v2(cell.variant, 0))
                 .done();
         }
         tile_map.update_internals();
         true
     }
 
-    fn configure_camera_for_surface(&self, camera: &mut Gd<Camera2D>) {
+    fn configure_camera_for_surface(&mut self) {
         let world_size = self.world_size();
-        let padding = world_size * CAMERA_LIMIT_PADDING_FACTOR;
-        camera.set_position(world_size / 2.0);
-        camera.set_limit(Side::LEFT, world_limit(-padding.x));
-        camera.set_limit(Side::TOP, world_limit(-padding.y));
-        camera.set_limit(Side::RIGHT, world_limit(world_size.x + padding.x));
-        camera.set_limit(Side::BOTTOM, world_limit(world_size.y + padding.y));
-        camera.set_limit_smoothing_enabled(false);
-        camera.set_position_smoothing_enabled(false);
+        self.renderer_2d
+            .bind_mut()
+            .configure_for_world_size(world_size);
     }
 
     fn handle_primary_press(&mut self) {
@@ -973,7 +1050,7 @@ impl GameWorld {
         {
             Ok(_) => {
                 self.sync_building_sprites();
-                self.base_mut().queue_redraw();
+                self.queue_renderer_redraw();
             }
             Err(error) => {
                 godot_warn!("GameWorld: building placement rejected: {error:?}");
@@ -982,14 +1059,41 @@ impl GameWorld {
     }
 
     fn handle_tile_click(&mut self) {
-        let mouse_pos = self.base().get_local_mouse_position();
-
-        if let Some(coord) = Grid::world_to_cell(
+        let mouse_pos = self.pointer_world_position();
+        let ground_coord = Grid::world_to_cell(
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
-        ) {
-            let mut targets =
-                self.with_rendered_surface_world(|world| click_selection_targets_at(world, coord));
+        );
+        let proxy_target = self.valid_3d_proxy_target_under_mouse();
+
+        if ground_coord.is_some()
+            || matches!(
+                proxy_target,
+                Some(MapEntityTarget {
+                    kind: MapEntityKind::Npc,
+                    ..
+                })
+            )
+        {
+            let mut targets = self.with_rendered_surface_world(|world| {
+                let mut targets = ground_coord
+                    .map(|coord| click_selection_targets_at(world, coord))
+                    .unwrap_or_default();
+
+                if let Some(MapEntityTarget {
+                    kind: MapEntityKind::Npc,
+                    entity,
+                }) = proxy_target
+                {
+                    if let Some(npc) = selected_npc_for_entity(world, entity) {
+                        if targets.tile.is_none() {
+                            targets.tile = selected_cell_at(world, npc.coord);
+                        }
+                        targets.npc = Some(npc);
+                    }
+                }
+                targets
+            });
             if targets.tile.is_none() {
                 godot_error!("GameWorld: selected tile entity unavailable");
                 self.disable_processing();
@@ -1005,7 +1109,7 @@ impl GameWorld {
                 targets,
             );
             self.sync_selected_npc_route_overlay();
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
             self.emit_selection_events(events);
         } else {
             self.clear_tile_selection();
@@ -1014,7 +1118,11 @@ impl GameWorld {
     }
 
     fn handle_building_context_click(&mut self) -> bool {
-        let mouse_pos = self.base().get_local_mouse_position();
+        if let Some(building) = self.valid_3d_building_proxy_under_mouse() {
+            return self.select_building_context(building);
+        }
+
+        let mouse_pos = self.pointer_world_position();
         let Some(coord) = Grid::world_to_cell(
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
@@ -1026,8 +1134,12 @@ impl GameWorld {
         else {
             return false;
         };
+        self.select_building_context(building)
+    }
+
+    fn select_building_context(&mut self, building: SelectedBuilding) -> bool {
         self.selected_building = Some(building);
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
         let Ok(entity_id) = BridgeEntityId::try_from(building.entity) else {
             godot_error!("GameWorld: building context entity id is too large for Godot");
             return false;
@@ -1039,7 +1151,11 @@ impl GameWorld {
     }
 
     fn handle_mouse_wheel(&mut self, factor: f32) {
-        let mut cam = self.camera.clone();
+        if self.active_renderer_mode == RendererMode::ThreeD {
+            self.renderer_3d.bind_mut().dolly(factor);
+            return;
+        }
+        let mut cam = self.camera_2d();
         let old_zoom = cam.get_zoom().x;
 
         let vs = self.get_viewport_size();
@@ -1069,7 +1185,7 @@ impl GameWorld {
 
     fn clear_tile_selection(&mut self) {
         if self.selected_cell.take().is_some() {
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
             self.signals().tile_deselected().emit();
         }
     }
@@ -1077,14 +1193,14 @@ impl GameWorld {
     fn clear_npc_selection(&mut self) {
         if self.selected_npc.take().is_some() {
             self.selected_npc_route_overlay = None;
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
             self.signals().npc_deselected().emit();
         }
     }
 
     fn clear_building_selection(&mut self) {
         if self.selected_building.take().is_some() {
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
             self.signals().building_deselected().emit();
         }
     }
@@ -1172,7 +1288,7 @@ impl GameWorld {
         self.clear_npc_selection();
         self.clear_building_selection();
         self.clear_hovered_map_entity();
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn start_plot_placement_mode(&mut self, owner: PlotOwner) {
@@ -1184,7 +1300,7 @@ impl GameWorld {
         self.clear_npc_selection();
         self.clear_building_selection();
         self.clear_hovered_map_entity();
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn start_road_placement_mode(&mut self, tier: RoadTier) {
@@ -1197,12 +1313,12 @@ impl GameWorld {
         self.clear_npc_selection();
         self.clear_building_selection();
         self.clear_hovered_map_entity();
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn cancel_placement_mode(&mut self) {
         if self.placement_mode.take().is_some() {
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
         }
     }
 
@@ -1230,14 +1346,14 @@ impl GameWorld {
     }
 
     fn placement_origin_under_mouse(&self) -> Option<CellCoord> {
-        let mouse_pos = self.base().get_local_mouse_position();
+        let mouse_pos = self.pointer_world_position();
         Grid::world_to_cell(
             WorldPosition::new(mouse_pos.x, mouse_pos.y),
             self.grid_size(),
         )
     }
 
-    fn building_preview(&self) -> Option<(BuildingFootprint, bool)> {
+    fn building_preview(&self) -> Option<(BuildingKind, BuildingFootprint, bool)> {
         let Some(PlacementMode::Building(kind)) = self.placement_mode.as_ref() else {
             return None;
         };
@@ -1249,7 +1365,7 @@ impl GameWorld {
             .validate_building_blueprint_placement(self.rendered_surface, *kind, origin)
             .is_ok();
 
-        Some((footprint, valid))
+        Some((*kind, footprint, valid))
     }
 
     fn plot_previews(&self) -> Vec<PlotPlacementPreview> {
@@ -1333,7 +1449,7 @@ impl GameWorld {
         if let Some(PlacementMode::Plots { drag_cells, .. }) = &mut self.placement_mode {
             drag_cells.clear();
             append_plot_drag_cell(drag_cells, Some(coord));
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
         }
     }
 
@@ -1344,7 +1460,7 @@ impl GameWorld {
                 let before_len = drag_cells.len();
                 append_plot_drag_cell(drag_cells, coord);
                 if drag_cells.len() != before_len {
-                    self.base_mut().queue_redraw();
+                    self.queue_renderer_redraw();
                 }
             }
         }
@@ -1353,7 +1469,7 @@ impl GameWorld {
                 let before_len = drag_cells.len();
                 append_road_drag_cell(drag_cells, coord);
                 if drag_cells.len() != before_len {
-                    self.base_mut().queue_redraw();
+                    self.queue_renderer_redraw();
                 }
             }
         }
@@ -1372,7 +1488,7 @@ impl GameWorld {
             drag_cells.clear();
             drag_cells.push(coord);
             *last_rejection = None;
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
         }
     }
 
@@ -1410,7 +1526,7 @@ impl GameWorld {
             drag_cells: Vec::new(),
             last_rejection,
         });
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn finish_plot_drag(&mut self) {
@@ -1423,7 +1539,7 @@ impl GameWorld {
                 owner,
                 drag_cells: Vec::new(),
             });
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
             return;
         }
 
@@ -1465,11 +1581,14 @@ impl GameWorld {
             owner,
             drag_cells: Vec::new(),
         });
-        self.base_mut().queue_redraw();
+        self.queue_renderer_redraw();
     }
 
     fn map_entity_target_under_mouse(&self) -> Option<MapEntityTarget> {
-        if self.placement_mode.is_some() {
+        if self.placement_mode.is_some()
+            || (self.active_renderer_mode == RendererMode::ThreeD
+                && self.renderer_3d.bind().is_orbiting())
+        {
             return None;
         }
 
@@ -1484,13 +1603,76 @@ impl GameWorld {
             return None;
         }
 
-        let local_mouse_pos = self.base().get_local_mouse_position();
+        if let Some(target) = self.valid_3d_proxy_target_at(mouse_pos) {
+            return Some(target);
+        }
+
+        let local_mouse_pos = self.pointer_world_position();
         let coord = Grid::world_to_cell(
             WorldPosition::new(local_mouse_pos.x, local_mouse_pos.y),
             self.grid_size(),
         )?;
 
         self.with_rendered_surface_world(|world| map_entity_target_at(world, coord))
+    }
+
+    fn proxy_hits_at(&self, screen_position: Vector2) -> Vec<ProxyHit3D> {
+        if self.active_renderer_mode != RendererMode::ThreeD {
+            return Vec::new();
+        }
+
+        self.renderer_3d.bind().proxy_hits(screen_position)
+    }
+
+    fn valid_3d_proxy_target_under_mouse(&self) -> Option<MapEntityTarget> {
+        if self.active_renderer_mode != RendererMode::ThreeD {
+            return None;
+        }
+
+        let viewport = self.base().get_viewport()?;
+        let mouse_pos = viewport.get_mouse_position();
+        let viewport_size = self.get_viewport_size();
+        if mouse_pos.x < 0.0
+            || mouse_pos.y < 0.0
+            || mouse_pos.x >= viewport_size.x
+            || mouse_pos.y >= viewport_size.y
+        {
+            return None;
+        }
+
+        self.valid_3d_proxy_target_at(mouse_pos)
+    }
+
+    fn valid_3d_proxy_target_at(&self, screen_position: Vector2) -> Option<MapEntityTarget> {
+        let hits = self.proxy_hits_at(screen_position);
+        self.with_rendered_surface_world(|world| {
+            hits.into_iter()
+                .find_map(|hit| map_entity_target_from_proxy(world, hit))
+        })
+    }
+
+    fn valid_3d_building_proxy_under_mouse(&self) -> Option<SelectedBuilding> {
+        if self.active_renderer_mode != RendererMode::ThreeD {
+            return None;
+        }
+
+        let viewport = self.base().get_viewport()?;
+        let mouse_pos = viewport.get_mouse_position();
+        let viewport_size = self.get_viewport_size();
+        if mouse_pos.x < 0.0
+            || mouse_pos.y < 0.0
+            || mouse_pos.x >= viewport_size.x
+            || mouse_pos.y >= viewport_size.y
+        {
+            return None;
+        }
+
+        let hits = self.proxy_hits_at(mouse_pos);
+        self.with_rendered_surface_world(|world| {
+            hits.into_iter()
+                .filter(|hit| hit.kind == ProxyKind3D::Building)
+                .find_map(|hit| selected_building_for_entity(world, hit.entity))
+        })
     }
 
     fn grid_size(&self) -> game_engine::grid::GridSize {
@@ -1572,7 +1754,7 @@ impl GameWorld {
             let modulate = building_sprite_modulate(building.state);
             if !self.building_sprites.contains_key(&building.entity) {
                 let shadow = create_contact_shadow(shadow_position, shadow_radii, z_index - 1);
-                self.base_mut().add_child(&shadow);
+                self.add_2d_child(&shadow);
                 let mut sprite = Sprite2D::new_alloc();
                 sprite.set_texture(&texture);
                 sprite.set_centered(false);
@@ -1581,7 +1763,7 @@ impl GameWorld {
                 sprite.set_z_index(z_index);
                 sprite.set_position(position);
                 sprite.set_modulate(modulate);
-                self.base_mut().add_child(&sprite);
+                self.add_2d_child(&sprite);
                 self.building_shadows.insert(building.entity, shadow);
                 self.building_sprites.insert(building.entity, sprite);
                 redraw_needed = true;
@@ -1733,8 +1915,8 @@ impl GameWorld {
                 wheelbarrow.set_scale(self.wheelbarrow_overlay_scale);
                 set_wheelbarrow_animation(&mut wheelbarrow, npc);
                 sprite.add_child(&wheelbarrow);
-                self.base_mut().add_child(&shadow);
-                self.base_mut().add_child(&sprite);
+                self.add_2d_child(&shadow);
+                self.add_2d_child(&sprite);
                 self.npc_sprites.insert(
                     npc.entity,
                     RenderedNpcSprite {
@@ -1780,7 +1962,7 @@ impl GameWorld {
                         coord,
                         entity: selected.entity,
                     });
-                    self.base_mut().queue_redraw();
+                    self.queue_renderer_redraw();
                 }
             } else {
                 self.clear_npc_selection();
@@ -1973,34 +2155,18 @@ impl GameWorld {
     ) {
         road_map.clear();
         blueprint_map.clear();
-        let (completed, blueprints) = self.with_rendered_surface_world(query_road_render_state);
-        let completed_cells = completed
-            .iter()
-            .map(|(coord, _)| *coord)
-            .collect::<HashSet<_>>();
-        let blueprint_cells = blueprints
-            .iter()
-            .map(|(coord, _)| *coord)
-            .collect::<HashSet<_>>();
-
-        for (coord, tier) in completed {
-            let mask = road_connectivity_mask(coord, &completed_cells);
+        for road in &self.dynamic_snapshot.completed_roads {
             road_map
-                .set_cell_ex(Vector2i::new(coord.x(), coord.y()))
-                .source_id(road_source_id(tier))
-                .atlas_coords(road_atlas_coord(mask))
+                .set_cell_ex(Vector2i::new(road.coord.x(), road.coord.y()))
+                .source_id(road_source_id(road.tier))
+                .atlas_coords(road_atlas_coord(road.connectivity_mask))
                 .done();
         }
-        let planned_cells = completed_cells
-            .union(&blueprint_cells)
-            .copied()
-            .collect::<HashSet<_>>();
-        for (coord, tier) in blueprints {
-            let mask = road_connectivity_mask(coord, &planned_cells);
+        for road in &self.dynamic_snapshot.planned_roads {
             blueprint_map
-                .set_cell_ex(Vector2i::new(coord.x(), coord.y()))
-                .source_id(road_source_id(tier))
-                .atlas_coords(road_atlas_coord(mask))
+                .set_cell_ex(Vector2i::new(road.coord.x(), road.coord.y()))
+                .source_id(road_source_id(road.tier))
+                .atlas_coords(road_atlas_coord(road.connectivity_mask))
                 .done();
         }
         road_map.update_internals();
@@ -2058,23 +2224,74 @@ impl GameWorld {
     }
 
     fn resource_nodes(&self) -> Vec<(CellCoord, ResourceKind)> {
-        self.with_rendered_surface_world(query_resource_nodes)
+        self.dynamic_snapshot
+            .resources
+            .iter()
+            .map(|resource| (resource.coord, resource.kind))
+            .collect()
     }
 
     fn building_render_infos(&self) -> Vec<BuildingRenderInfo> {
-        self.with_rendered_surface_world(query_building_render_infos)
+        self.dynamic_snapshot
+            .buildings
+            .iter()
+            .map(|building| BuildingRenderInfo {
+                entity: building.entity,
+                kind: building.kind,
+                footprint: building.footprint,
+                state: match building.state {
+                    snapshot::BuildingRenderState::Blueprint => BuildingRenderState::Blueprint,
+                    snapshot::BuildingRenderState::Constructed => BuildingRenderState::Constructed,
+                },
+            })
+            .collect()
     }
 
     fn crop_render_infos(&self) -> Vec<CropRenderInfo> {
-        self.with_rendered_surface_world(query_crop_render_infos)
+        self.dynamic_snapshot
+            .crops
+            .iter()
+            .map(|crop| CropRenderInfo {
+                coord: crop.coord,
+                state: crop.state,
+            })
+            .collect()
     }
 
     fn tree_plot_render_infos(&self) -> Vec<TreePlotRenderInfo> {
-        self.with_rendered_surface_world(query_tree_plot_render_infos)
+        self.dynamic_snapshot
+            .tree_plots
+            .iter()
+            .map(|tree| TreePlotRenderInfo {
+                coord: tree.coord,
+                state: tree.state,
+            })
+            .collect()
     }
 
     fn npc_render_infos(&self) -> Vec<NpcRenderInfo> {
-        self.with_rendered_surface_world(query_npc_render_infos)
+        self.dynamic_snapshot
+            .npcs
+            .iter()
+            .map(|npc| NpcRenderInfo {
+                entity: npc.entity,
+                appearance: npc.appearance,
+                coord: npc.position.coord,
+                subtile_offset: npc.position.subtile_offset,
+                velocity: npc.velocity,
+                facing: npc.facing,
+                is_gathering: npc.activity == snapshot::NpcActivity::Gather,
+                refining_animation: match npc.activity {
+                    snapshot::NpcActivity::Saw => Some(NpcRefiningAnimation::Saw),
+                    snapshot::NpcActivity::Stonecut => Some(NpcRefiningAnimation::Stonecut),
+                    snapshot::NpcActivity::Cook => Some(NpcRefiningAnimation::Cook),
+                    _ => None,
+                },
+                carried_kind: npc.carried_kind,
+                has_wheelbarrow: npc.has_wheelbarrow,
+                wheelbarrow_kind: npc.wheelbarrow_kind,
+            })
+            .collect()
     }
 
     fn sync_selected_npc_route_overlay(&mut self) {
@@ -2085,7 +2302,7 @@ impl GameWorld {
         });
         if self.selected_npc_route_overlay != next_overlay {
             self.selected_npc_route_overlay = next_overlay;
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
         }
     }
 
@@ -2102,34 +2319,29 @@ impl GameWorld {
         self.hovered_map_entity = None;
         self.placement_mode = None;
 
-        let mut tile_map = self.tile_map.clone();
-        if !self.populate_tile_map(&mut tile_map) {
+        if !self.refresh_surface_snapshot() {
             self.disable_processing();
             return;
         }
+        self.refresh_dynamic_snapshot();
 
-        let mut resource_map = self.resource_node_map.clone();
-        self.populate_resource_node_map(&mut resource_map);
-
-        let mut crop_map = self.crop_map.clone();
-        self.populate_crop_map(&mut crop_map);
-
-        let mut tree_plot_map = self.tree_plot_map.clone();
-        self.populate_tree_plot_map(&mut tree_plot_map);
-
-        let mut road_map = self.road_map.clone();
-        let mut road_blueprint_map = self.road_blueprint_map.clone();
-        self.populate_road_maps(&mut road_map, &mut road_blueprint_map);
-
-        self.sync_building_sprites();
-        self.sync_npc_sprites();
-
-        let mut camera = self.camera.clone();
-        self.configure_camera_for_surface(&mut camera);
+        self.configure_camera_for_surface();
+        if let Some(surface) = self.surface_snapshot.as_ref() {
+            let width = surface.size.width_i32().unwrap_or(1);
+            let height = surface.size.height_i32().unwrap_or(1);
+            self.renderer_3d
+                .bind_mut()
+                .configure_surface(width, height, true);
+        }
 
         let active_surface_index = surface_index_i32(self.rendered_surface);
 
-        self.base_mut().queue_redraw();
+        self.refresh_overlay_snapshot();
+        match self.active_renderer_mode {
+            RendererMode::TwoD => self.sync_renderer_2d_snapshots(),
+            RendererMode::ThreeD => self.sync_renderer_3d_snapshots(),
+        }
+        self.queue_renderer_redraw();
         self.signals().tile_deselected().emit();
         self.signals().npc_deselected().emit();
         self.signals().building_deselected().emit();
@@ -2170,6 +2382,92 @@ impl GameWorld {
 
     #[signal]
     pub(crate) fn map_entity_unhovered();
+
+    #[signal]
+    pub(crate) fn renderer_mode_changed(mode: RendererMode);
+
+    #[func]
+    pub(crate) fn active_renderer_mode(&self) -> RendererMode {
+        self.active_renderer_mode
+    }
+
+    #[func]
+    pub(crate) fn renderer_mode_available(&self, mode: RendererMode) -> bool {
+        match mode {
+            RendererMode::TwoD => true,
+            RendererMode::ThreeD => {
+                self.renderer_3d.bind().availability() == Renderer3DAvailability::Ready
+            }
+        }
+    }
+
+    pub(crate) fn renderer_mode_unavailable_reason(
+        &self,
+        mode: RendererMode,
+    ) -> Option<&'static str> {
+        match mode {
+            RendererMode::TwoD => None,
+            RendererMode::ThreeD => {
+                let renderer = self.renderer_3d.bind();
+                match renderer.availability() {
+                    Renderer3DAvailability::Preparing => Some("Preparing 3D renderer assets."),
+                    Renderer3DAvailability::Ready => None,
+                    Renderer3DAvailability::Failed => renderer
+                        .failure_reason()
+                        .or(Some("3D renderer preparation failed.")),
+                }
+            }
+        }
+    }
+
+    #[func]
+    pub(crate) fn set_renderer_mode(&mut self, mode: RendererMode) -> bool {
+        if mode == self.active_renderer_mode {
+            return true;
+        }
+        if !self.renderer_mode_available(mode) {
+            return false;
+        }
+
+        if self.active_renderer_mode == RendererMode::ThreeD {
+            self.end_3d_orbit_capture();
+        }
+        cancel_renderer_transition_drag(&mut self.placement_mode);
+        let focus = match self.active_renderer_mode {
+            RendererMode::TwoD => self.renderer_2d.bind().focus_tiles(),
+            RendererMode::ThreeD => self.renderer_3d.bind().focus_tiles(),
+        };
+
+        match mode {
+            RendererMode::TwoD => {
+                if self.renderer_2d_revision != self.snapshot_revision {
+                    self.sync_renderer_2d_snapshots();
+                }
+                self.renderer_2d.bind_mut().set_focus_tiles(focus);
+                self.renderer_3d.bind_mut().set_active(false);
+                self.renderer_2d.bind_mut().set_active(true);
+            }
+            RendererMode::ThreeD => {
+                if self.renderer_3d_revision != self.snapshot_revision {
+                    self.sync_renderer_3d_snapshots();
+                }
+                self.renderer_3d.bind_mut().set_focus_tiles(focus);
+                self.renderer_2d.bind_mut().set_active(false);
+                self.renderer_3d.bind_mut().set_active(true);
+            }
+        }
+
+        self.active_renderer_mode = mode;
+        self.refresh_overlay_snapshot();
+        match mode {
+            RendererMode::TwoD => self.sync_renderer_2d_snapshots(),
+            RendererMode::ThreeD => self.sync_renderer_3d_snapshots(),
+        }
+        self.clear_hovered_map_entity();
+        self.update_hovered_map_entity();
+        self.signals().renderer_mode_changed().emit(mode);
+        true
+    }
 
     #[func]
     pub(crate) fn is_simulation_playing(&self) -> bool {
@@ -2384,7 +2682,7 @@ impl GameWorld {
 
     pub(crate) fn dismiss_building_context_from_panel(&mut self) {
         if self.selected_building.take().is_some() {
-            self.base_mut().queue_redraw();
+            self.queue_renderer_redraw();
         }
     }
 
@@ -2476,6 +2774,15 @@ fn selected_npc_at(world: &World, coord: CellCoord) -> Option<SelectedNpc> {
         .min_by_key(|selected| selected.entity.to_bits())
 }
 
+fn selected_npc_for_entity(world: &World, entity: Entity) -> Option<SelectedNpc> {
+    world.get::<Npc>(entity)?;
+    let position = world.get::<NpcPosition>(entity)?;
+    Some(SelectedNpc {
+        coord: position.coord,
+        entity,
+    })
+}
+
 fn selected_building_at(world: &World, coord: CellCoord) -> Option<SelectedBuilding> {
     let blueprint = world
         .try_query::<(Entity, &BuildingBlueprint)>()
@@ -2506,6 +2813,22 @@ fn selected_building_at(world: &World, coord: CellCoord) -> Option<SelectedBuild
                         entity,
                     })
             })
+        })
+}
+
+fn selected_building_for_entity(world: &World, entity: Entity) -> Option<SelectedBuilding> {
+    if let Some(blueprint) = world.get::<BuildingBlueprint>(entity) {
+        return Some(SelectedBuilding {
+            footprint: blueprint.footprint,
+            entity,
+        });
+    }
+
+    world
+        .get::<Building>(entity)
+        .map(|building| SelectedBuilding {
+            footprint: building.footprint,
+            entity,
         })
 }
 
@@ -2571,6 +2894,30 @@ fn map_entity_target_at(world: &World, coord: CellCoord) -> Option<MapEntityTarg
     })
 }
 
+fn map_entity_target_from_proxy(world: &World, hit: ProxyHit3D) -> Option<MapEntityTarget> {
+    let kind = match hit.kind {
+        ProxyKind3D::Building
+            if world.get::<Building>(hit.entity).is_some()
+                || world.get::<BuildingBlueprint>(hit.entity).is_some() =>
+        {
+            MapEntityKind::Building
+        }
+        ProxyKind3D::Npc if world.get::<Npc>(hit.entity).is_some() => MapEntityKind::Npc,
+        ProxyKind3D::Resource if world.get::<ResourceNode>(hit.entity).is_some() => {
+            MapEntityKind::ResourceNode
+        }
+        ProxyKind3D::RoadBlueprint if world.get::<RoadBlueprint>(hit.entity).is_some() => {
+            MapEntityKind::RoadBlueprint
+        }
+        _ => return None,
+    };
+
+    Some(MapEntityTarget {
+        kind,
+        entity: hit.entity,
+    })
+}
+
 fn building_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
     selected_building_at(world, coord).map(|selected| selected.entity)
 }
@@ -2604,44 +2951,7 @@ fn resource_node_entity_at(world: &World, coord: CellCoord) -> Option<Entity> {
         .find_map(|(entity, position, _, _)| (position.coord == coord).then_some(entity))
 }
 
-fn query_resource_nodes(world: &World) -> Vec<(CellCoord, ResourceKind)> {
-    world
-        .try_query::<(&TilePosition, &ResourceNode, &Tile)>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|(position, node, _)| (position.coord, node.kind))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn query_road_render_state(
-    world: &World,
-) -> (Vec<(CellCoord, RoadTier)>, Vec<(CellCoord, RoadTier)>) {
-    let mut completed = world
-        .try_query::<&Road>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|road| (road.coord, road.tier))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let mut blueprints = world
-        .try_query::<&RoadBlueprint>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|road| (road.coord, road.target_tier))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    completed.sort_unstable_by_key(|(coord, _)| (coord.y(), coord.x()));
-    blueprints.sort_unstable_by_key(|(coord, _)| (coord.y(), coord.x()));
-    (completed, blueprints)
-}
-
+#[cfg(test)]
 fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
     let mut buildings = world
         .try_query::<(Entity, &BuildingBlueprint)>()
@@ -2675,6 +2985,7 @@ fn query_building_render_infos(world: &World) -> Vec<BuildingRenderInfo> {
     buildings
 }
 
+#[cfg(test)]
 fn query_crop_render_infos(world: &World) -> Vec<CropRenderInfo> {
     world
         .try_query::<(Entity, &Building, &FieldCrop)>()
@@ -2698,6 +3009,7 @@ fn query_crop_render_infos(world: &World) -> Vec<CropRenderInfo> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn query_tree_plot_render_infos(world: &World) -> Vec<TreePlotRenderInfo> {
     world
         .try_query::<(Entity, &Building, &TreePlotGrowth)>()
@@ -2720,6 +3032,7 @@ fn query_tree_plot_render_infos(world: &World) -> Vec<TreePlotRenderInfo> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn query_npc_render_infos(world: &World) -> Vec<NpcRenderInfo> {
     world
         .try_query::<(Entity, &NpcPosition, Option<&NpcAppearance>, &Npc)>()
@@ -2784,6 +3097,7 @@ fn cell_top_left(coord: CellCoord) -> Vector2 {
     )
 }
 
+#[cfg(test)]
 fn cell_center(coord: CellCoord) -> Vector2 {
     cell_top_left(coord) + Vector2::new(grid::TILE_SIZE / 2.0, grid::TILE_SIZE / 2.0)
 }
@@ -2796,11 +3110,13 @@ fn npc_top_left(coord: CellCoord, subtile_offset: SubtileOffset) -> Vector2 {
         )
 }
 
+#[cfg(test)]
 fn npc_center(position: NpcPosition) -> Vector2 {
     npc_top_left(position.coord, position.subtile_offset)
         + Vector2::new(grid::TILE_SIZE / 2.0, grid::TILE_SIZE / 2.0)
 }
 
+#[cfg(test)]
 fn npc_route_points(position: NpcPosition, waypoints: &[CellCoord]) -> Vec<Vector2> {
     let mut points = Vec::with_capacity(waypoints.len() + 1);
     points.push(npc_center(position));
@@ -2813,6 +3129,7 @@ fn npc_route_points(position: NpcPosition, waypoints: &[CellCoord]) -> Vec<Vecto
     points
 }
 
+#[cfg(test)]
 fn route_chevron(from: Vector2, to: Vector2) -> Option<[Vector2; 3]> {
     let delta = to - from;
     let length = delta.length();
@@ -3105,6 +3422,7 @@ fn road_atlas_coord(mask: u8) -> Vector2i {
     Vector2i::new(i32::from(mask % 4), i32::from(mask / 4))
 }
 
+#[cfg(test)]
 fn road_connectivity_mask(coord: CellCoord, cells: &HashSet<CellCoord>) -> u8 {
     let mut mask = 0;
     if coord
@@ -3196,6 +3514,30 @@ fn append_plot_drag_cell(drag_cells: &mut Vec<CellCoord>, coord: Option<CellCoor
     };
     if drag_cells.last().copied() != Some(coord) {
         drag_cells.push(coord);
+    }
+}
+
+fn cancel_renderer_transition_drag(placement_mode: &mut Option<PlacementMode>) -> bool {
+    let drag_cells = match placement_mode {
+        Some(PlacementMode::Plots { drag_cells, .. })
+        | Some(PlacementMode::Roads { drag_cells, .. }) => drag_cells,
+        Some(PlacementMode::Building(_)) | None => return false,
+    };
+    let had_drag = !drag_cells.is_empty();
+    drag_cells.clear();
+    had_drag
+}
+
+const fn renderer_mode_after_availability_check(
+    active: RendererMode,
+    availability: Renderer3DAvailability,
+) -> RendererMode {
+    match (active, availability) {
+        (
+            RendererMode::ThreeD,
+            Renderer3DAvailability::Preparing | Renderer3DAvailability::Failed,
+        ) => RendererMode::TwoD,
+        _ => active,
     }
 }
 
@@ -3646,6 +3988,54 @@ mod tests {
         append_plot_drag_cell(&mut cells, Some(CellCoord::new(4, 2)));
 
         assert_eq!(cells, vec![CellCoord::new(3, 2), CellCoord::new(4, 2)]);
+    }
+
+    #[test]
+    fn renderer_transition_cancels_only_active_drag_cells() {
+        let mut roads = Some(PlacementMode::Roads {
+            tier: RoadTier::DirtPath,
+            drag_cells: vec![CellCoord::new(1, 1), CellCoord::new(2, 1)],
+            last_rejection: None,
+        });
+        assert!(cancel_renderer_transition_drag(&mut roads));
+        assert!(matches!(
+            roads,
+            Some(PlacementMode::Roads { ref drag_cells, .. }) if drag_cells.is_empty()
+        ));
+
+        let mut building = Some(PlacementMode::Building(BuildingKind::Warehouse));
+        assert!(!cancel_renderer_transition_drag(&mut building));
+        assert_eq!(
+            building,
+            Some(PlacementMode::Building(BuildingKind::Warehouse))
+        );
+    }
+
+    #[test]
+    fn unavailable_or_failed_active_3d_renderer_falls_back_to_2d() {
+        for availability in [
+            Renderer3DAvailability::Preparing,
+            Renderer3DAvailability::Failed,
+        ] {
+            assert_eq!(
+                renderer_mode_after_availability_check(RendererMode::ThreeD, availability),
+                RendererMode::TwoD
+            );
+        }
+        assert_eq!(
+            renderer_mode_after_availability_check(
+                RendererMode::ThreeD,
+                Renderer3DAvailability::Ready,
+            ),
+            RendererMode::ThreeD
+        );
+        assert_eq!(
+            renderer_mode_after_availability_check(
+                RendererMode::TwoD,
+                Renderer3DAvailability::Failed,
+            ),
+            RendererMode::TwoD
+        );
     }
 
     #[test]
@@ -4177,6 +4567,106 @@ mod tests {
             Some(MapEntityTarget {
                 kind: MapEntityKind::ResourceNode,
                 entity: resource,
+            })
+        );
+    }
+
+    #[test]
+    fn proxy_target_revalidates_each_supported_entity_kind() {
+        let mut world = World::new();
+        let building = world
+            .spawn(Building::new(
+                BuildingKind::Warehouse,
+                BuildingFootprint::new(CellCoord::new(1, 1), 2, 2),
+            ))
+            .id();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(3, 3)))
+            .id();
+        let resource = spawn_resource_node(&mut world, CellCoord::new(4, 4));
+        let road = world
+            .spawn(RoadBlueprint {
+                coord: CellCoord::new(5, 5),
+                target_tier: RoadTier::DirtPath,
+            })
+            .id();
+
+        for (proxy_kind, entity, expected_kind) in [
+            (ProxyKind3D::Building, building, MapEntityKind::Building),
+            (ProxyKind3D::Npc, npc, MapEntityKind::Npc),
+            (ProxyKind3D::Resource, resource, MapEntityKind::ResourceNode),
+            (
+                ProxyKind3D::RoadBlueprint,
+                road,
+                MapEntityKind::RoadBlueprint,
+            ),
+        ] {
+            assert_eq!(
+                map_entity_target_from_proxy(
+                    &world,
+                    ProxyHit3D {
+                        kind: proxy_kind,
+                        entity,
+                        distance: 1.0,
+                    },
+                ),
+                Some(MapEntityTarget {
+                    kind: expected_kind,
+                    entity,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_target_rejects_mismatched_and_despawned_entities() {
+        let mut world = World::new();
+        let npc = world
+            .spawn(InitialNpcBundle::new(CellCoord::new(2, 3)))
+            .id();
+        let resource_hit = ProxyHit3D {
+            kind: ProxyKind3D::Resource,
+            entity: npc,
+            distance: 1.0,
+        };
+
+        assert_eq!(map_entity_target_from_proxy(&world, resource_hit), None);
+
+        let npc_hit = ProxyHit3D {
+            kind: ProxyKind3D::Npc,
+            entity: npc,
+            distance: 1.0,
+        };
+        world.despawn(npc);
+
+        assert_eq!(map_entity_target_from_proxy(&world, npc_hit), None);
+    }
+
+    #[test]
+    fn proxy_selection_records_use_current_component_data() {
+        let mut world = World::new();
+        let npc_coord = CellCoord::new(7, 8);
+        let npc = world.spawn(InitialNpcBundle::new(npc_coord)).id();
+        let footprint = BuildingFootprint::new(CellCoord::new(9, 10), 3, 2);
+        let building = world
+            .spawn(BuildingBlueprintBundle::new(
+                BuildingKind::Warehouse,
+                footprint,
+            ))
+            .id();
+
+        assert_eq!(
+            selected_npc_for_entity(&world, npc),
+            Some(SelectedNpc {
+                coord: npc_coord,
+                entity: npc,
+            })
+        );
+        assert_eq!(
+            selected_building_for_entity(&world, building),
+            Some(SelectedBuilding {
+                footprint,
+                entity: building,
             })
         );
     }

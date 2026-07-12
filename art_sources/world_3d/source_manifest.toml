@@ -1,0 +1,51 @@
+schema_version = 1
+style = "painterly-lived-in-sci-fi-frontier-copper-cyan"
+
+# These files are approved, immutable inputs once `ready` is set.  The Blender
+# generator refuses missing files, pending hashes, or hash mismatches.  Prompts
+# and selections live here instead of in the raster manifest because the
+# existing 2D pipeline remains independently reproducible.
+
+[[source]]
+id = "model_turnaround"
+path = "art_sources/world_3d/references/model_turnaround.png"
+role = "opaque model-reference turnaround board for buildings, resources, farming stages, five NPC appearances, wheelbarrow, and work props"
+prompt = "Create a clean opaque model-design turnaround board for every current Boapspace world-object family. Match the supplied 2D assets and frontier vista: painterly lived-in science-fiction frontier, sturdy readable silhouettes, weathered white structure panels, warm copper repairs, timber, stone, restrained cyan technology, and muted organic growth. Show neutral daylight and orthographic front, side, and elevated three-quarter cues. No text, logos, watermark, scenery, atmospheric effects, or baked cast shadows."
+inputs = [
+  "godot/assets/visual/menu/frontier_vista.png",
+  "godot/assets/visual/world/buildings/building_townhall.png",
+  "godot/assets/visual/world/characters/npc_colonist_idle_sheet.png",
+]
+input_sha256 = [
+  "3acde32628613fb478129003e0e0964dd3cd60e730d6bbf990e2738b4c233124",
+  "56dae6d3f6d432bda65e963cf0ce28de52980d9981328158fb4f572c7625a211",
+  "e5431e1a730f04fece5969c929d5b840cf365ea3eefc0c736495d03b56b56feb",
+]
+selected_output = "art_sources/world_3d/references/model_turnaround.png"
+sha256 = "6775cbac8382170951b138960ca21767cf035ecd3fe6c2715f4a21bd5cf733dd"
+ready = true
+
+[[source]]
+id = "material_source"
+path = "art_sources/world_3d/materials/material_source.png"
+role = "opaque painterly material source used to derive five shared base-color, normal, and ORM atlases"
+prompt = "Create one opaque seamless painterly material study sheet for the Boapspace lived-in science-fiction frontier. Include broad texture regions for weathered white structural metal with copper and restrained cyan details, worn timber, masonry and ore, muted organic vegetation, and durable character cloth. Neutral albedo only: no directional lighting, cast shadows, text, logos, watermark, objects, or perspective. Keep value grouping readable and surface variation restrained."
+inputs = [
+  "godot/assets/visual/menu/frontier_vista.png",
+  "godot/assets/visual/art_bible.md",
+  "godot/assets/visual/world/terrain/terrain_grass.png",
+  "godot/assets/visual/world/terrain/terrain_dirt.png",
+  "godot/assets/visual/world/buildings/building_depot.png",
+  "godot/assets/visual/world/characters/npc_colonist_idle_sheet.png",
+]
+input_sha256 = [
+  "3acde32628613fb478129003e0e0964dd3cd60e730d6bbf990e2738b4c233124",
+  "cdec4b0c1b7e853acc6cffec457f69cf48e1be88357d7bdde5c72abd2cc5223c",
+  "f1d0b22685188204a67ef87b04553a92799b5f8ea7f22ee51b2a693c20f701d6",
+  "8a2d9a983dc538a09d15f0c1bcd09dc2409b6e6572b6e627733d7074a6e39943",
+  "f224872e8944c72ff2b2f5aa7a66e30648130a4dacfd2400b4386756e3401d64",
+  "e5431e1a730f04fece5969c929d5b840cf365ea3eefc0c736495d03b56b56feb",
+]
+selected_output = "art_sources/world_3d/materials/material_source.png"
+sha256 = "352e9817629f458d4d6b8460d04ef3fefed2a53c17cbbff1b80d8425e8a026ed"
+ready = true
