@@ -2,6 +2,13 @@ use bevy_ecs::prelude::{Entity, Resource};
 
 use crate::resources::ResourceKind;
 
+mod operations;
+
+pub(crate) use operations::{
+    building_is_active, deposit_sink, restore_source, sink_can_accept, sink_interaction_cells,
+    source_interaction_cells, source_is_active, source_stock, stock_sources, withdraw_source,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StockEndpoint {
     NaturalNode(Entity),

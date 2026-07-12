@@ -9,13 +9,54 @@ use game_engine::logistics::AiWheelbarrowRecovery;
 use game_engine::refining::{
     assign_refining_work, maintain_refining_tasks, recipes_for_building, refinery_status,
     route_and_advance_refining_work, AiRefineResource, RecipeKind, RefineryBlockedReason,
-    RefineryInventory, RefineryProduction, REFINERY_INPUT_CAPACITY, REFINERY_OUTPUT_CAPACITY,
+    RefineryInventory, RefineryProduction, Reservation as LegacyReservation,
+    ReservationLedger as LegacyReservationLedger, SinkEndpoint as LegacySinkEndpoint,
+    StockEndpoint as LegacyStockEndpoint, REFINERY_INPUT_CAPACITY, REFINERY_OUTPUT_CAPACITY,
     REFINING_TICKS_PER_UNIT,
 };
-use game_engine::resource_flow::ReservationLedger;
+use game_engine::resource_flow::{
+    Reservation as FlowReservation, ReservationLedger, SinkEndpoint as FlowSinkEndpoint,
+    StockEndpoint as FlowStockEndpoint,
+};
 use game_engine::resources::ResourceKind;
 use game_engine::skills::{Cook, NpcSkills, Sawyer, SkillKind};
 use game_engine::tile::{TileBundle, TileIndex};
+
+#[test]
+fn resource_flow_and_legacy_refining_exports_are_identical_types() {
+    fn assert_same_type<T>(_: &T, _: &T) {}
+
+    let entity = Entity::PLACEHOLDER;
+    let flow_source = FlowStockEndpoint::Warehouse(entity);
+    let legacy_source = LegacyStockEndpoint::Warehouse(entity);
+    assert_same_type(&flow_source, &legacy_source);
+
+    let flow_sink = FlowSinkEndpoint::Storage(entity);
+    let legacy_sink = LegacySinkEndpoint::Storage(entity);
+    assert_same_type(&flow_sink, &legacy_sink);
+
+    let flow_reservation = FlowReservation {
+        worker: entity,
+        source: Some(flow_source),
+        sink: flow_sink,
+        kind: ResourceKind::Wood,
+        amount: 1,
+        task: entity,
+    };
+    let legacy_reservation = LegacyReservation {
+        worker: entity,
+        source: Some(legacy_source),
+        sink: legacy_sink,
+        kind: ResourceKind::Wood,
+        amount: 1,
+        task: entity,
+    };
+    assert_same_type(&flow_reservation, &legacy_reservation);
+
+    let flow_ledger = ReservationLedger::default();
+    let legacy_ledger = LegacyReservationLedger::default();
+    assert_same_type(&flow_ledger, &legacy_ledger);
+}
 
 #[test]
 fn recipe_metadata_matches_the_refinement_brief() {

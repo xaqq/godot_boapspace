@@ -6,8 +6,8 @@ use crate::ai::{
     DEFAULT_NPC_FOOD_INVENTORY_TARGET, RESOURCE_GATHER_TICKS_PER_UNIT,
 };
 use crate::buildings::{
-    Building, BuildingActivity, BuildingBlueprint, ConstructionProgress, RefineryPullConfig,
-    StorageInventory, StoragePullConfig,
+    Building, BuildingBlueprint, ConstructionProgress, RefineryPullConfig, StorageInventory,
+    StoragePullConfig,
 };
 use crate::components::{
     AiKeepEnoughFoodInInventory, CarriedResource, FoodPouch, MovementTarget, Npc, NpcPosition,
@@ -19,11 +19,12 @@ use crate::navigation::{
     current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
     NavigationSnapshot, NpcRoute,
 };
-use crate::refining::{
-    cancel_refining_work_for_building, recipes_for_building, source_interaction_cells,
-    source_stock, stock_sources, withdraw_source, RefineryInventory,
+use crate::refining::{cancel_refining_work_for_building, recipes_for_building, RefineryInventory};
+use crate::resource_flow::{
+    building_is_active, deposit_sink, restore_source, sink_can_accept, sink_interaction_cells,
+    source_interaction_cells, source_is_active, source_stock, stock_sources, withdraw_source,
+    Reservation, ReservationLedger, SinkEndpoint, StockEndpoint,
 };
-use crate::resource_flow::{Reservation, ReservationLedger, SinkEndpoint, StockEndpoint};
 use crate::resources::ResourceKind;
 use crate::roads::RoadBlueprint;
 use crate::skills::{NpcSkills, SkillKind};
@@ -1097,102 +1098,6 @@ fn deliver_haul(world: &mut World, worker: Entity, haul: AiBuildingHaul) -> bool
     }
 }
 
-fn restore_source(
-    world: &mut World,
-    source: StockEndpoint,
-    kind: ResourceKind,
-    amount: u32,
-) -> bool {
-    match source {
-        StockEndpoint::Warehouse(entity) => world
-            .get_mut::<StorageInventory>(entity)
-            .is_some_and(|mut inventory| inventory.add(kind, amount)),
-        StockEndpoint::Farm(entity) if kind == ResourceKind::Crops => world
-            .get_mut::<FarmInventory>(entity)
-            .is_some_and(|mut inventory| inventory.add_crops(amount)),
-        StockEndpoint::ForesterLodge(entity) if kind == ResourceKind::Wood => world
-            .get_mut::<ForesterLodgeInventory>(entity)
-            .is_some_and(|mut inventory| inventory.add_wood(amount)),
-        StockEndpoint::RefineryOutput(entity) => {
-            let Some(building) = world.get::<Building>(entity).copied() else {
-                return false;
-            };
-            world
-                .get_mut::<RefineryInventory>(entity)
-                .is_some_and(|mut inventory| inventory.add_output(building.kind, kind, amount))
-        }
-        _ => false,
-    }
-}
-
-fn deposit_sink(world: &mut World, sink: SinkEndpoint, kind: ResourceKind, amount: u32) -> bool {
-    match sink {
-        SinkEndpoint::Storage(entity) => world
-            .get_mut::<StorageInventory>(entity)
-            .is_some_and(|mut inventory| inventory.add(kind, amount)),
-        SinkEndpoint::RefineryInput(entity) => {
-            let Some(building) = world.get::<Building>(entity).copied() else {
-                return false;
-            };
-            world
-                .get_mut::<RefineryInventory>(entity)
-                .is_some_and(|mut inventory| inventory.add_input(building.kind, kind, amount))
-        }
-        _ => false,
-    }
-}
-
-fn sink_can_accept(world: &World, sink: SinkEndpoint, kind: ResourceKind, amount: u32) -> bool {
-    match sink {
-        SinkEndpoint::Storage(entity) => {
-            building_is_active(world, entity)
-                && world
-                    .get::<StorageInventory>(entity)
-                    .is_some_and(|inventory| {
-                        inventory.is_allowed(kind) && inventory.free_size() >= amount
-                    })
-        }
-        SinkEndpoint::RefineryInput(entity) => {
-            building_is_active(world, entity)
-                && world.get::<Building>(entity).is_some_and(|building| {
-                    recipes_for_building(building.kind)
-                        .iter()
-                        .any(|recipe| recipe.definition().input() == kind)
-                })
-                && world
-                    .get::<RefineryInventory>(entity)
-                    .is_some_and(|inventory| inventory.input_free_size() >= amount)
-        }
-        _ => false,
-    }
-}
-
-fn sink_interaction_cells(
-    world: &World,
-    snapshot: &NavigationSnapshot,
-    sink: SinkEndpoint,
-) -> Vec<crate::grid::CellCoord> {
-    world
-        .get::<Building>(sink.entity())
-        .map(|building| snapshot.exterior_interaction_cells(building.footprint))
-        .unwrap_or_default()
-}
-
-fn building_is_active(world: &World, entity: Entity) -> bool {
-    world
-        .get::<BuildingActivity>(entity)
-        .map_or(true, |activity| activity.is_active())
-}
-
-fn source_is_active(world: &World, source: StockEndpoint) -> bool {
-    match source {
-        StockEndpoint::Warehouse(entity)
-        | StockEndpoint::RefineryInput(entity)
-        | StockEndpoint::RefineryOutput(entity) => building_is_active(world, entity),
-        _ => true,
-    }
-}
-
 fn wheelbarrow_loaded(world: &World, worker: Entity) -> bool {
     world
         .get::<Wheelbarrow>(worker)
@@ -1714,6 +1619,57 @@ mod tests {
             .unwrap()
             .add(ResourceKind::Planks, free));
         assert!(building_haul_opportunities(&mut world, &snapshot).is_empty());
+    }
+
+    #[test]
+    fn failed_cargo_loading_restores_withdrawn_source_quantity() {
+        let mut world = World::new();
+        let mut inventory = FarmInventory::empty();
+        assert!(inventory.add_crops(3));
+        let source = world.spawn(inventory).id();
+        let original_cargo = CarriedResource::of(ResourceKind::Wood, 1);
+        let worker = world.spawn(original_cargo).id();
+        let haul = AiBuildingHaul {
+            source: StockEndpoint::Farm(source),
+            sink: SinkEndpoint::RefineryInput(Entity::PLACEHOLDER),
+            kind: ResourceKind::Crops,
+            amount: 2,
+            phase: BuildingHaulPhase::ToSource,
+            uses_wheelbarrow: false,
+        };
+
+        assert!(!load_haul(&mut world, worker, haul));
+        assert_eq!(world.get::<FarmInventory>(source).unwrap().crops(), 3);
+        assert_eq!(world.get::<CarriedResource>(worker), Some(&original_cargo));
+    }
+
+    #[test]
+    fn failed_sink_deposit_restores_worker_cargo_exactly() {
+        let mut world = World::new();
+        let mut inventory = StorageInventory::empty();
+        inventory.set_allowed(ResourceKind::Wood, false);
+        let sink = world.spawn(inventory).id();
+        let original_cargo = CarriedResource::of(ResourceKind::Wood, 4);
+        let worker = world.spawn(original_cargo).id();
+        let haul = AiBuildingHaul {
+            source: StockEndpoint::Farm(Entity::PLACEHOLDER),
+            sink: SinkEndpoint::Storage(sink),
+            kind: ResourceKind::Wood,
+            amount: 3,
+            phase: BuildingHaulPhase::ToSink,
+            uses_wheelbarrow: false,
+        };
+
+        assert!(!deliver_haul(&mut world, worker, haul));
+        assert_eq!(world.get::<CarriedResource>(worker), Some(&original_cargo));
+        assert_eq!(
+            world
+                .get::<StorageInventory>(sink)
+                .unwrap()
+                .contents()
+                .get(ResourceKind::Wood),
+            0
+        );
     }
 
     fn navigation_world() -> World {

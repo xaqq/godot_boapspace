@@ -13,6 +13,9 @@ use crate::navigation::{
     current_navigation_snapshot, refresh_navigation_snapshot_cells, NavigationDistances,
     NavigationSnapshot, NpcRoute,
 };
+use crate::resource_flow::{
+    source_interaction_cells, source_stock, stock_sources, withdraw_source,
+};
 pub use crate::resource_flow::{Reservation, ReservationLedger, SinkEndpoint, StockEndpoint};
 use crate::resources::{ResourceAmounts, ResourceInventory, ResourceKind};
 use crate::skills::{Cook, NpcSkills, Sawyer, SkillKind, Stonemason};
@@ -857,158 +860,6 @@ fn choose_recipe_and_source(
         .map(|(_, _, _, recipe, source)| (recipe, Some(source)))
 }
 
-pub(crate) fn stock_sources(
-    world: &mut World,
-    kind: ResourceKind,
-    exclude_refinery: Entity,
-    worker: Entity,
-) -> Vec<StockEndpoint> {
-    let mut sources = Vec::new();
-    if world
-        .get::<CarriedResource>(worker)
-        .is_some_and(|inv| inv.contents().get(kind) > 0)
-    {
-        sources.push(StockEndpoint::CarriedResource(worker));
-    }
-    if let Some(mut query) = world.try_query::<(Entity, &ResourceNode)>() {
-        sources.extend(query.iter(world).filter_map(|(entity, node)| {
-            (entity != exclude_refinery && node.kind == kind && node.quantity > 0)
-                .then_some(StockEndpoint::NaturalNode(entity))
-        }));
-    }
-    if let Some(mut query) = world.try_query::<(Entity, &WarehouseInventory)>() {
-        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
-            (entity != exclude_refinery
-                && world
-                    .get::<BuildingActivity>(entity)
-                    .is_none_or(|activity| activity.is_active())
-                && inventory.contents().get(kind) > 0)
-                .then_some(StockEndpoint::Warehouse(entity))
-        }));
-    }
-    if let Some(mut query) = world.try_query::<(Entity, &FarmInventory)>() {
-        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
-            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
-                .then_some(StockEndpoint::Farm(entity))
-        }));
-    }
-    if let Some(mut query) = world.try_query::<(Entity, &ForesterLodgeInventory)>() {
-        sources.extend(query.iter(world).filter_map(|(entity, inventory)| {
-            (entity != exclude_refinery && inventory.contents().get(kind) > 0)
-                .then_some(StockEndpoint::ForesterLodge(entity))
-        }));
-    }
-    if let Some(mut query) = world.try_query::<(Entity, &RefineryInventory)>() {
-        for (entity, inv) in query.iter(world).filter(|(entity, _)| {
-            *entity != exclude_refinery
-                && world
-                    .get::<BuildingActivity>(*entity)
-                    .is_none_or(|activity| activity.is_active())
-        }) {
-            if inv.input_contents().get(kind) > 0 {
-                sources.push(StockEndpoint::RefineryInput(entity));
-            }
-            if inv.output_contents().get(kind) > 0 {
-                sources.push(StockEndpoint::RefineryOutput(entity));
-            }
-        }
-    }
-    sources.sort_unstable_by_key(|source| (source.entity().to_bits(), endpoint_order(*source)));
-    sources
-}
-
-pub(crate) fn source_interaction_cells(
-    world: &World,
-    snapshot: &NavigationSnapshot,
-    source: StockEndpoint,
-    worker: Entity,
-) -> Vec<crate::grid::CellCoord> {
-    if source == StockEndpoint::CarriedResource(worker) {
-        return world
-            .get::<NpcPosition>(worker)
-            .map(|position| vec![position.coord])
-            .unwrap_or_default();
-    }
-    match source {
-        StockEndpoint::NaturalNode(entity) => world
-            .get::<TilePosition>(entity)
-            .map(|position| snapshot.point_interaction_cells(position.coord))
-            .unwrap_or_default(),
-        _ => world
-            .get::<Building>(source.entity())
-            .map(|building| snapshot.exterior_interaction_cells(building.footprint))
-            .unwrap_or_default(),
-    }
-}
-
-pub(crate) fn source_stock(world: &World, source: StockEndpoint, kind: ResourceKind) -> u32 {
-    match source {
-        StockEndpoint::NaturalNode(entity) => world
-            .get::<ResourceNode>(entity)
-            .filter(|node| node.kind == kind)
-            .map_or(0, |node| node.quantity),
-        StockEndpoint::CarriedResource(entity) => world
-            .get::<CarriedResource>(entity)
-            .map_or(0, |inv| inv.contents().get(kind)),
-        StockEndpoint::Warehouse(entity) => world
-            .get::<WarehouseInventory>(entity)
-            .map_or(0, |inv| inv.contents().get(kind)),
-        StockEndpoint::Farm(entity) => world
-            .get::<FarmInventory>(entity)
-            .map_or(0, |inv| inv.contents().get(kind)),
-        StockEndpoint::ForesterLodge(entity) => world
-            .get::<ForesterLodgeInventory>(entity)
-            .map_or(0, |inv| inv.contents().get(kind)),
-        StockEndpoint::RefineryInput(entity) => world
-            .get::<RefineryInventory>(entity)
-            .map_or(0, |inv| inv.input_contents().get(kind)),
-        StockEndpoint::RefineryOutput(entity) => world
-            .get::<RefineryInventory>(entity)
-            .map_or(0, |inv| inv.output_contents().get(kind)),
-    }
-}
-
-pub(crate) fn withdraw_source(
-    world: &mut World,
-    source: StockEndpoint,
-    kind: ResourceKind,
-    amount: u32,
-) -> bool {
-    match source {
-        StockEndpoint::NaturalNode(_) => false,
-        StockEndpoint::CarriedResource(entity) => world
-            .get_mut::<CarriedResource>(entity)
-            .is_some_and(|mut inv| inv.consume(kind, amount)),
-        StockEndpoint::Warehouse(entity) => world
-            .get_mut::<WarehouseInventory>(entity)
-            .is_some_and(|mut inv| inv.consume(kind, amount)),
-        StockEndpoint::Farm(entity) => world
-            .get_mut::<FarmInventory>(entity)
-            .is_some_and(|mut inv| inv.consume(kind, amount)),
-        StockEndpoint::ForesterLodge(entity) => world
-            .get_mut::<ForesterLodgeInventory>(entity)
-            .is_some_and(|mut inv| inv.consume(kind, amount)),
-        StockEndpoint::RefineryInput(entity) => world
-            .get_mut::<RefineryInventory>(entity)
-            .is_some_and(|mut inv| inv.consume_input(kind, amount)),
-        StockEndpoint::RefineryOutput(entity) => world
-            .get_mut::<RefineryInventory>(entity)
-            .is_some_and(|mut inv| inv.consume_output(kind, amount)),
-    }
-}
-
-fn endpoint_order(endpoint: StockEndpoint) -> u8 {
-    match endpoint {
-        StockEndpoint::NaturalNode(_) => 0,
-        StockEndpoint::CarriedResource(_) => 1,
-        StockEndpoint::Warehouse(_) => 2,
-        StockEndpoint::Farm(_) => 3,
-        StockEndpoint::ForesterLodge(_) => 4,
-        StockEndpoint::RefineryInput(_) => 5,
-        StockEndpoint::RefineryOutput(_) => 6,
-    }
-}
-
 fn set_route(world: &mut World, worker: Entity, goals: Vec<crate::grid::CellCoord>) {
     let matches = world
         .get::<NpcRoute>(worker)
@@ -1321,16 +1172,16 @@ mod tests {
             .id();
         world.spawn(WarehouseInventory::empty());
 
-        let mut expected = vec![
-            StockEndpoint::CarriedResource(worker),
-            StockEndpoint::NaturalNode(natural_node),
-            StockEndpoint::Warehouse(warehouse),
-            StockEndpoint::ForesterLodge(lodge),
+        // Pin the entity-bit ordering directly; the two endpoints on the same
+        // refinery then exercise the fixed input-before-output rank.
+        let expected = vec![
             StockEndpoint::RefineryInput(refinery),
             StockEndpoint::RefineryOutput(refinery),
+            StockEndpoint::ForesterLodge(lodge),
+            StockEndpoint::Warehouse(warehouse),
+            StockEndpoint::NaturalNode(natural_node),
+            StockEndpoint::CarriedResource(worker),
         ];
-        expected
-            .sort_unstable_by_key(|source| (source.entity().to_bits(), endpoint_order(*source)));
 
         assert_eq!(
             stock_sources(&mut world, ResourceKind::Wood, excluded_refinery, worker,),
