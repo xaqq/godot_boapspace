@@ -3,3 +3,5 @@ godot/.godot/
 worktrees/
 .idea/
 export/
+__pycache__/
+*.py[cod]
