@@ -8,6 +8,7 @@ use game_engine::buildings::{
 };
 use game_engine::components::{
     CarriedResource, FoodPouch, Npc, NpcPosition, ResourceNode, Terrain, TerrainKind, TilePosition,
+    CARRIED_RESOURCE_CAPACITY,
 };
 use game_engine::grid::{CellCoord, Grid, GridSize};
 use game_engine::logistics::{
@@ -218,7 +219,7 @@ fn construction_withdraws_refined_material_from_owned_inventory() {
 }
 
 #[test]
-fn natural_construction_reservations_match_one_unit_hauls_for_all_available_npcs() {
+fn natural_construction_reservations_fill_available_npc_cargo() {
     let mut world = navigation_world();
     let blueprint = spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
     let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 20);
@@ -240,24 +241,27 @@ fn natural_construction_reservations_match_one_unit_hauls_for_all_available_npcs
         .collect::<Vec<_>>();
     assert!(hauls.iter().all(|haul| {
         haul.blueprint() == blueprint
-            && haul.amount() == 1
+            && haul.amount() == CARRIED_RESOURCE_CAPACITY
             && matches!(haul.source(), Some(StockEndpoint::NaturalNode(_)))
     }));
 
     let ledger = world.resource::<ReservationLedger>();
     assert_eq!(ledger.claims().len(), 5);
-    assert!(ledger.claims().iter().all(|claim| claim.amount == 1));
+    assert!(ledger
+        .claims()
+        .iter()
+        .all(|claim| claim.amount == CARRIED_RESOURCE_CAPACITY));
     assert_eq!(
         ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Wood)
             + ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Stone),
-        5
+        5 * CARRIED_RESOURCE_CAPACITY
     );
     assert!(ledger.reserved_from(StockEndpoint::NaturalNode(wood), ResourceKind::Wood) <= 20);
     assert!(ledger.reserved_from(StockEndpoint::NaturalNode(stone), ResourceKind::Stone) <= 10);
 }
 
 #[test]
-fn natural_construction_does_not_reserve_more_workers_than_source_stock() {
+fn natural_construction_uses_a_partial_batch_for_limited_source_stock() {
     let mut world = navigation_world();
     let blueprint = spawn_sawmill_blueprint(&mut world, CellCoord::new(5, 5));
     world
@@ -279,8 +283,13 @@ fn natural_construction_does_not_reserve_more_workers_than_source_stock() {
         npcs.iter()
             .filter(|npc| world.get::<AiConstructionHaul>(**npc).is_some())
             .count(),
-        2
+        1
     );
+    let haul = npcs
+        .iter()
+        .find_map(|npc| world.get::<AiConstructionHaul>(*npc))
+        .expect("one worker should haul the two available units");
+    assert_eq!(haul.amount(), 2);
     let ledger = world.resource::<ReservationLedger>();
     assert_eq!(
         ledger.reserved_from(StockEndpoint::NaturalNode(wood), ResourceKind::Wood),
@@ -315,22 +324,69 @@ fn concurrent_natural_construction_deposits_exact_claims_and_completes_blueprint
     let cost = BuildingKind::Sawmill.definition().construction_cost();
     {
         let mut progress = world.get_mut::<ConstructionProgress>(blueprint).unwrap();
-        progress.deposit(ResourceKind::Wood, 18, cost);
+        progress.deposit(ResourceKind::Wood, 13, cost);
         progress.deposit(ResourceKind::Stone, 10, cost);
     }
-    let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 2);
+    let wood = spawn_resource_node(&mut world, CellCoord::new(3, 3), ResourceKind::Wood, 10);
     let npcs = [
         spawn_available_npc(&mut world, CellCoord::new(3, 2)),
         spawn_available_npc(&mut world, CellCoord::new(3, 2)),
     ];
 
-    manage_construction_logistics(&mut world); // assign both one-unit claims
+    manage_construction_logistics(&mut world); // assign five-unit and two-unit claims
+    let ledger = world.resource::<ReservationLedger>();
+    let mut claims = ledger
+        .claims()
+        .iter()
+        .map(|claim| claim.amount)
+        .collect::<Vec<_>>();
+    claims.sort_unstable();
+    assert_eq!(claims, vec![2, CARRIED_RESOURCE_CAPACITY]);
+    assert_eq!(
+        ledger.reserved_to(SinkEndpoint::Blueprint(blueprint), ResourceKind::Wood),
+        7
+    );
+    assert_eq!(
+        ledger.reserved_from(StockEndpoint::NaturalNode(wood), ResourceKind::Wood),
+        7
+    );
+
     manage_construction_logistics(&mut world); // enter gathering
     for _ in 0..RESOURCE_GATHER_TICKS_PER_UNIT {
         manage_construction_logistics(&mut world);
     }
 
-    assert!(world.get::<ResourceNode>(wood).is_none());
+    assert_eq!(world.get::<ResourceNode>(wood).unwrap().quantity, 8);
+    assert!(npcs.iter().all(|npc| {
+        world
+            .get::<CarriedResource>(*npc)
+            .unwrap()
+            .contents()
+            .get(ResourceKind::Wood)
+            == 1
+    }));
+    assert!(npcs.iter().all(|npc| matches!(
+        world.get::<AiConstructionHaul>(*npc).unwrap().phase(),
+        game_engine::logistics::ConstructionHaulPhase::Gathering { .. }
+    )));
+
+    for _ in 0..(RESOURCE_GATHER_TICKS_PER_UNIT * (CARRIED_RESOURCE_CAPACITY - 1)) {
+        manage_construction_logistics(&mut world);
+    }
+
+    assert_eq!(world.get::<ResourceNode>(wood).unwrap().quantity, 3);
+    let mut carried = npcs
+        .iter()
+        .map(|npc| {
+            world
+                .get::<CarriedResource>(*npc)
+                .unwrap()
+                .contents()
+                .get(ResourceKind::Wood)
+        })
+        .collect::<Vec<_>>();
+    carried.sort_unstable();
+    assert_eq!(carried, vec![2, CARRIED_RESOURCE_CAPACITY]);
     for npc in npcs {
         world.get_mut::<NpcPosition>(npc).unwrap().coord = CellCoord::new(4, 5);
     }

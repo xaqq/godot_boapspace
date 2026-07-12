@@ -29,7 +29,7 @@ use crate::roads::RoadBlueprint;
 use crate::skills::{NpcSkills, SkillKind};
 use crate::work::NpcWorkState;
 
-const NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE: u32 = 1;
+const NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE: u32 = CARRIED_RESOURCE_CAPACITY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct AiFoodHaul {
@@ -53,7 +53,7 @@ impl AiFoodHaul {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstructionHaulPhase {
     ToSource,
-    Gathering { progress_ticks: u32 },
+    Gathering { progress_ticks: u32, gathered: u32 },
     ToBlueprint,
 }
 
@@ -262,8 +262,9 @@ pub fn manage_food_logistics(world: &mut World) {
 }
 
 /// Construction hauling uses the same source endpoint and reservation model as
-/// refining. It handles natural gathering one unit at a time, while carried
-/// stock and owned inventories use ten-unit batches.
+/// refining. Natural resources are gathered one unit at a time until the
+/// reserved cargo batch is complete, while owned inventories load a batch at
+/// once.
 pub fn manage_construction_logistics(world: &mut World) {
     if world.get_resource::<ReservationLedger>().is_none() {
         world.insert_resource(ReservationLedger::default());
@@ -485,8 +486,11 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                     continue;
                 }
                 if matches!(source, StockEndpoint::NaturalNode(_)) {
-                    debug_assert_eq!(haul.amount, NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE);
-                    haul.phase = ConstructionHaulPhase::Gathering { progress_ticks: 0 };
+                    debug_assert!(haul.amount <= NATURAL_RESOURCE_CONSTRUCTION_BATCH_SIZE);
+                    haul.phase = ConstructionHaulPhase::Gathering {
+                        progress_ticks: 0,
+                        gathered: 0,
+                    };
                 } else if withdraw_source(world, source, haul.kind, haul.amount)
                     && construction_cargo_add(world, npc, haul, haul.amount)
                 {
@@ -497,7 +501,10 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                 }
                 world.entity_mut(npc).insert(haul);
             }
-            ConstructionHaulPhase::Gathering { progress_ticks } => {
+            ConstructionHaulPhase::Gathering {
+                progress_ticks,
+                gathered,
+            } => {
                 let Some(StockEndpoint::NaturalNode(node_entity)) = haul.source else {
                     clear_construction_haul(world, npc);
                     continue;
@@ -513,6 +520,7 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                 if next < RESOURCE_GATHER_TICKS_PER_UNIT {
                     haul.phase = ConstructionHaulPhase::Gathering {
                         progress_ticks: next,
+                        gathered,
                     };
                     world.entity_mut(npc).insert(haul);
                     continue;
@@ -544,7 +552,15 @@ fn advance_construction_hauls(world: &mut World, snapshot: &NavigationSnapshot) 
                         skills.add_xp(skill, 1);
                     }
                 }
-                haul.phase = ConstructionHaulPhase::ToBlueprint;
+                let gathered = gathered.saturating_add(1);
+                haul.phase = if gathered >= haul.amount || depleted {
+                    ConstructionHaulPhase::ToBlueprint
+                } else {
+                    ConstructionHaulPhase::Gathering {
+                        progress_ticks: 0,
+                        gathered,
+                    }
+                };
                 world.entity_mut(npc).insert(haul);
             }
             ConstructionHaulPhase::ToBlueprint => {
