@@ -112,7 +112,7 @@ tooltip_text = "Homelessness"
 theme_override_constants/separation = 1
 
 [node name="Icon" type="TextureRect" parent="VBoxContainer/HeaderBar/HeaderRecap/HomelessSummary"]
-custom_minimum_size = Vector2(16, 16)
+custom_minimum_size = Vector2(20, 20)
 layout_mode = 2
 mouse_filter = 2
 texture_filter = 1
@@ -123,7 +123,7 @@ stretch_mode = 5
 [node name="Count" type="Label" parent="VBoxContainer/HeaderBar/HeaderRecap/HomelessSummary"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 14
 text = "0"
 horizontal_alignment = 2
 

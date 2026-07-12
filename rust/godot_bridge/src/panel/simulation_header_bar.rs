@@ -12,8 +12,8 @@ use godot::obj::{NewAlloc, OnEditor};
 use godot::prelude::*;
 
 const SUMMARY_REFRESH_INTERVAL_SECONDS: f64 = 0.25;
-const SUMMARY_ICON_SIZE: f32 = 16.0;
-const SUMMARY_FONT_SIZE: i32 = 12;
+const SUMMARY_ICON_SIZE: f32 = 20.0;
+const SUMMARY_FONT_SIZE: i32 = 14;
 const HOMELESS_WARNING_COLOR: Color = Color::from_rgb(1.0, 0.4, 0.4);
 const HOMELESS_NEUTRAL_COLOR: Color = Color::from_rgb(1.0, 1.0, 1.0);
 const COMPACT_QUANTITY_UNITS: [(u64, &str); 6] = [
