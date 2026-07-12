@@ -7,6 +7,9 @@ use serde::Deserialize;
 
 const EXPECTED_LEGACY_ASSET_COUNT: usize = 75;
 const MAX_TILE_EDGE_MEAN_ERROR: u64 = 24;
+const MEANINGFUL_ALPHA: u8 = 128;
+const MIN_CONNECTED_ATLAS_DISTINCT_RGB_VALUES: usize = 32;
+const MIN_CONNECTED_ATLAS_LUMINANCE_SPAN: u8 = 24;
 const ALLOWED_CATEGORIES: &[&str] = &[
     "world/terrain",
     "world/resources",
@@ -272,6 +275,10 @@ fn validate_image(image: &DynamicImage, family: &AssetFamily, path: &Path) {
         }
     }
 
+    if family.seams == SeamRequirement::ConnectedAtlas {
+        validate_connected_atlas_texture(&rgba, path);
+    }
+
     for row in 0..family.rows {
         for column in 0..family.columns {
             let x = column * family.frame_width;
@@ -288,6 +295,47 @@ fn validate_image(image: &DynamicImage, family: &AssetFamily, path: &Path) {
             }
         }
     }
+}
+
+fn validate_connected_atlas_texture(image: &image::RgbaImage, path: &Path) {
+    let visible_pixels = image
+        .pixels()
+        .filter(|pixel| pixel[3] >= MEANINGFUL_ALPHA)
+        .collect::<Vec<_>>();
+    assert!(
+        !visible_pixels.is_empty(),
+        "{} must contain pixels with alpha of at least {MEANINGFUL_ALPHA}",
+        path.display()
+    );
+
+    let distinct_rgb_values = visible_pixels
+        .iter()
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect::<BTreeSet<_>>();
+    assert!(
+        distinct_rgb_values.len() >= MIN_CONNECTED_ATLAS_DISTINCT_RGB_VALUES,
+        "{} connected atlas has only {} distinct visible RGB values; expected at least {MIN_CONNECTED_ATLAS_DISTINCT_RGB_VALUES}",
+        path.display(),
+        distinct_rgb_values.len()
+    );
+
+    let (min_luminance, max_luminance) = visible_pixels
+        .iter()
+        .map(|pixel| rgb_luminance(pixel))
+        .fold((u8::MAX, u8::MIN), |(minimum, maximum), luminance| {
+            (minimum.min(luminance), maximum.max(luminance))
+        });
+    let luminance_span = max_luminance - min_luminance;
+    assert!(
+        luminance_span >= MIN_CONNECTED_ATLAS_LUMINANCE_SPAN,
+        "{} connected atlas visible luminance span is {luminance_span}; expected at least {MIN_CONNECTED_ATLAS_LUMINANCE_SPAN}",
+        path.display()
+    );
+}
+
+fn rgb_luminance(pixel: &image::Rgba<u8>) -> u8 {
+    ((299 * u32::from(pixel[0]) + 587 * u32::from(pixel[1]) + 114 * u32::from(pixel[2]))
+        / 1000) as u8
 }
 
 fn validate_tile_edges(image: &DynamicImage, path: &Path, column: u32, row: u32) {
